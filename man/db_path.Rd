@@ -11,13 +11,16 @@ A length-one character vector with the resolved DB path.
 }
 \description{
 Returns the path modelrunnR will use (or is using) for its DuckDB
-artifact store. Path resolution in v0.1 is:
+artifact store. Path resolution:
 }
 \details{
 \enumerate{
 \item \code{getOption("modelrunnR.db")} if set.
-\item Otherwise, \code{file.path(getwd(), "modelrunnR.duckdb")}.
+\item Otherwise, walk up from \code{getwd()} looking for a project marker
+(\code{DESCRIPTION}, \verb{*.Rproj}, \verb{.git/}, \code{renv.lock}, \code{.here}). If a
+root is found, the default path is \verb{<root>/modelrunnR.duckdb}.
+\item If no marker is found, the default is
+\verb{<cwd>/modelrunnR.duckdb} \strong{and} a warning suggests adding a
+project marker so the location is stable across subdirectories.
 }
-
-Slice 2 adds a project-root walker; until then the default is cwd-based.
 }
