@@ -7,7 +7,21 @@
 .mr_migrate <- function(con) {
   .mr_migrate_runs(con)
   .mr_migrate_versions(con)
+  .mr_migrate_artifacts(con)
   invisible(NULL)
+}
+
+.mr_migrate_artifacts <- function(con) {
+  sql <- "
+    CREATE TABLE IF NOT EXISTS _mr_artifacts (
+      physical_name TEXT PRIMARY KEY,
+      payload       BLOB
+    )
+  "
+  .mr_execute(con, sql)
+  # storage_location distinguishes blob-vs-filesystem for artifacts;
+  # NULL for tables.
+  .mr_add_column_if_missing(con, "_mr_versions", "storage_location", "TEXT")
 }
 
 .mr_migrate_runs <- function(con) {

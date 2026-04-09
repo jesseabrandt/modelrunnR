@@ -46,7 +46,37 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL, source = N
 
   resolved <- .mr_resolve_version(con, name, version, from_run, as_of)
   .mr_record_read(name, resolved$content_hash)
-  .mr_table_read(con, resolved$physical_name)
+  .mr_read_value(con, resolved)
+}
+
+# Given a _mr_versions row, return the stored value. Tables go through
+# the DBI read path; artifacts are fetched from `_mr_artifacts` (for
+# BLOB storage) or read from disk (for filesystem storage) and then
+# deserialized via qs2.
+.mr_read_value <- function(con, row) {
+  if (identical(row$kind, "table")) {
+    return(.mr_table_read(con, row$physical_name))
+  }
+  # artifact
+  if (identical(row$storage_location, "blob")) {
+    blob <- DBI::dbGetQuery(
+      con,
+      "SELECT payload FROM _mr_artifacts WHERE physical_name = ?",
+      params = list(row$physical_name)
+    )
+    if (nrow(blob) == 0L) {
+      stop(sprintf("grab(): artifact payload missing for '%s' (pruned?)",
+                   row$physical_name), call. = FALSE)
+    }
+    bytes <- blob$payload[[1]]
+    return(qs2::qs_deserialize(bytes))
+  }
+  # storage == "file"
+  if (!file.exists(row$physical_name)) {
+    stop(sprintf("grab(): artifact file missing: %s", row$physical_name), call. = FALSE)
+  }
+  bytes <- readBin(row$physical_name, what = "raw", n = file.info(row$physical_name)$size)
+  qs2::qs_deserialize(bytes)
 }
 
 # Called by grab(source = …). Ingests when either (a) the name has

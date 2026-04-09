@@ -10,7 +10,7 @@ stow(name, value)
 \item{name}{A length-one character vector. Logical name for the
 value.}
 
-\item{value}{A data frame.}
+\item{value}{Any R value.}
 }
 \value{
 \code{value}, invisibly.
@@ -22,12 +22,25 @@ whenever the content differs from the current latest, and all
 previous versions remain queryable via \code{\link[=grab]{grab()}} selectors.
 }
 \details{
-Inside a tracked \code{\link[=launch]{launch()}}, the write is recorded as an output
-\verb{\{name, hash\}} pair on the run row. Outside a launch, the write
-still succeeds but is not logged against any step (Slice 6 will
-add a synthetic interactive step id).
+Dispatches on type:
+\itemize{
+\item Data frames (including tibbles and data.tables) are stored as
+DuckDB tables via an idempotent physical-table + view pathway.
+\item Any other R object is stored as an \strong{artifact}: serialized
+via \code{qs2}, hashed, and placed in \verb{_mr_artifacts} as a BLOB row
+(when serialized size is below \code{getOption("modelrunnR.blob_threshold")},
+default 10 MB) or written to
+\verb{<db_dir>/modelrunnR_artifacts/<name>__<hash>.qs2} otherwise.
+}
 
-Slice 3 of v0.1: accepts only data frames, which are stored as
-DuckDB tables. Non-data-frame values will be supported as
-artifacts in Slice 5.
+Table and artifact names share a single logical namespace. A name
+cannot refer to both — \code{stow("x", df)} after \code{stow("x", model)}
+errors, and vice versa.
+
+Inside a tracked \code{\link[=launch]{launch()}}, the write is recorded as an output
+\verb{\{name, hash\}} pair on the run row.
+
+Note on serialization: the design commits to \code{qs}; \code{qs} is no
+longer maintained for recent R versions, so modelrunnR uses its
+successor \code{qs2}, which provides the same fast/compact format.
 }
