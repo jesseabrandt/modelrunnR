@@ -8,7 +8,7 @@
 
 ## What modelrunnR is
 
-modelrunnR is a minimal step-runner for iterative model experimentation in R. It provides two primary functions — placeholder names `read_table()` and `write_table()` — that replace the CSV reads and writes in an existing R analysis script. When a script is executed through modelrunnR's entry point, the framework observes which tables the script reads and writes, hashes the script contents, and uses that information to track staleness, timing, and run history. All intermediate results live in DuckDB. The user works with normal R scripts, not a pipeline DSL or declarative configuration format.
+modelrunnR is a minimal step-runner for iterative model experimentation in R. It provides two primary functions — `grab()` and `stow()` — that replace the CSV reads and writes in an existing R analysis script. When a script is executed through modelrunnR's entry point (`launch()`), the framework observes which values the script grabs and stows, hashes the script contents, and uses that information to track staleness, timing, and run history. All intermediate results live in DuckDB. The user works with normal R scripts, not a pipeline DSL or declarative configuration format.
 
 modelrunnR is inspired by the orchestration layer of [panelmodeler](../../../Practicum_AI_Branch/panelmodeler) — specifically `runner.R`, `harness_*.R`, `model.R`, `model_specs.R`, `new_model_spec.R`, `python_model.R`, and `stack.R` — but deliberately extracts only the step-running concern. It does not include panelmodeler's ingest, feature engineering, reporting, or exploration layers.
 
@@ -18,21 +18,21 @@ These are the load-bearing commitments. Each is non-negotiable without explicit 
 
 ### The script is the step; the I/O calls are the declarations
 
-modelrunnR has no `step()` wrapper, no registration function, no pipeline definition file, no DSL. A "step" in modelrunnR is identified by a script file path. Its code is the contents of that file. Its inputs and outputs are observed at runtime by watching calls to `read_table()` and `write_table()` inside the script. There is no separate declaration layer to maintain alongside the code — the I/O calls are themselves the declarations.
+modelrunnR has no `step()` wrapper, no registration function, no pipeline definition file, no DSL. A "step" in modelrunnR is identified by a script file path. Its code is the contents of that file. Its inputs and outputs are observed at runtime by watching calls to `grab()` and `stow()` inside the script. There is no separate declaration layer to maintain alongside the code — the I/O calls are themselves the declarations.
 
 This is the single most important property of the design. Everything else falls out from it.
 
 ### Progressive disclosure
 
-The MVP user interacts with modelrunnR through exactly two functions: `read_table()` and `write_table()`. They do not need to learn anything else to get staleness tracking, timing, and run history. Additional API surface (inspection, forced reruns, cleanup, run metadata queries) is layered on top and only needed when the user wants to *manage* their runs, not just execute them.
+The MVP user interacts with modelrunnR through exactly two functions: `grab()` and `stow()`. They do not need to learn anything else to get staleness tracking, timing, and run history. Additional API surface (inspection, forced reruns, cleanup, run metadata queries) is layered on top and only needed when the user wants to *manage* their runs, not just execute them.
 
-A corollary: the adoption path from "existing R script that reads a CSV and fits a model" to "modelrunnR-tracked step" is a two-line change plus an entry-point swap (`source(script)` → `modelrunnR::run(script)`).
+A corollary: the adoption path from "existing R script that reads a CSV and fits a model" to "modelrunnR-tracked step" is a two-line change plus an entry-point swap (`source(script)` → `modelrunnR::launch(script)`).
 
 ### DuckDB-native in v0.1; analytical-SQL-capable in the seams
 
 All intermediate results live in DuckDB. This is not an accident of convenience — it is a deliberate decision driven by the observation that panel data work is far better served by a columnar analytical database than by serialized R objects or flat files.
 
-At the same time, modelrunnR's internal code should route all database interaction through a narrow interface (roughly: `read_table`, `write_table`, `table_exists`, `drop_table`, `list_tables`, `execute_sql`, and the metadata helpers). Core logic should avoid DuckDB-dialect-specific SQL (`READ_PARQUET`, `SUMMARIZE`, `PIVOT`, `LIST`/`STRUCT` types) and should lean on DBI where portable SQL suffices. DuckDB-specific features that are needed for v0.1 performance should be isolated in a single backend file (e.g., `R/backend_duckdb.R`).
+At the same time, modelrunnR's internal code should route all database interaction through a narrow, DBI-based interface with a small number of primitive operations (table read, table write, existence check, drop, list, SQL execute, plus metadata helpers). These internal operations are distinct from the user-facing `grab`/`stow` API and should not reuse the user-facing function names. Core logic should avoid DuckDB-dialect-specific SQL (`READ_PARQUET`, `SUMMARIZE`, `PIVOT`, `LIST`/`STRUCT` types) and should lean on DBI where portable SQL suffices. DuckDB-specific features needed for v0.1 performance should be isolated in a single backend file (e.g., `R/backend_duckdb.R`).
 
 The long-term vision is that modelrunnR could support other **analytical** SQL backends (MotherDuck, BigQuery, Snowflake, ClickHouse). Transactional databases (Postgres, MySQL, SQLite) are not a design target. The workload is analytical; forcing the abstraction to accommodate OLTP databases would cost a great deal and serve no one.
 
@@ -74,7 +74,7 @@ Rejected because it forces data to round-trip through R memory on every step, ev
 
 ### Candidate/approval system for new steps
 
-Rejected because it adds a modal gate at exactly the wrong moment in the user's adoption flow. "Your first run created a candidate step — please approve it before continuing" is the kind of ceremony that causes users to abandon the tool. Cleaner alternative: auto-create step records on run, provide a delete-later API (e.g., `forget_step()`) for cleanup. The user is already expressing intent to track by choosing `run()` over plain `source()` — there is no second approval decision to make.
+Rejected because it adds a modal gate at exactly the wrong moment in the user's adoption flow. "Your first run created a candidate step — please approve it before continuing" is the kind of ceremony that causes users to abandon the tool. Cleaner alternative: auto-create step records on run, provide a delete-later API (e.g., `forget_step()`) for cleanup. The user is already expressing intent to track by choosing `launch()` over plain `source()` — there is no second approval decision to make.
 
 ### Explicit `step()` wrapper
 
@@ -86,40 +86,39 @@ This section is specific enough to guide implementation but intentionally leaves
 
 ### User-facing API (v0.1)
 
-All function names below are placeholders; final naming to be revisited before the first user-visible release.
+Seven functions total. Names are considered committed for v0.1 design purposes but may be revised if they feel wrong during implementation.
 
 **Primary functions**:
 
-- **`read_table(name, source = NULL, version = NULL, from_run = NULL, as_of = NULL)`** — read a table. With no modifiers, returns the current latest version. If `source` is given and the table does not exist, `ingest()` is called under the hood. If `source` is given and the table exists with a different source hash, `ingest()` is called again and produces a new version (the old version remains queryable — see Versioning below). `version`, `from_run`, and `as_of` select specific historical versions. Outside a tracked run, behaves as a plain read.
+- **`grab(name, source = NULL, version = NULL, from_run = NULL, as_of = NULL)`** — retrieve whatever is stowed under `name`. Returns the appropriate R type automatically: a data frame for tables, the original object for artifacts. With no selectors, returns the current latest version. If `source` is given and `name` does not exist, `ingest()` is called under the hood. If `source` is given and `name` exists with a different source hash, `ingest()` is called again and produces a new version (the old version remains queryable — see Versioning below). `version`, `from_run`, and `as_of` select specific historical versions. Outside a tracked launch, behaves as a plain read.
 
-- **`write_table(name, data)`** — write an R data frame to a DuckDB table. Inside a tracked run, the write is recorded as an output. Outside a tracked run (e.g., from the REPL), the write is recorded under a synthetic interactive step identifier; see Interactive I/O below.
+- **`stow(name, value)`** — persist `value` under a logical name. Dispatches on type: data frames (and tibbles, data.tables) are stored as DuckDB tables; all other R objects are stored as artifacts (see Non-table storage below). Inside a tracked launch, the write is recorded as an output. Outside a tracked launch, it's recorded under a synthetic interactive step identifier; see Interactive I/O below.
 
-- **`ingest(name, source)`** — read a flat file (CSV, parquet, etc.) and load it into DuckDB as the named table, recording the source file path and content hash in metadata. Callable explicitly or implicitly via `read_table(name, source = ...)`.
+- **`ingest(name, source)`** — read a flat file (CSV, parquet, etc.) and load it into DuckDB as `name`, recording the source file path and content hash in metadata. Callable explicitly, or implicitly via `grab(name, source = ...)`.
 
-- **`save_artifact(name, object)`** / **`load_artifact(name)`** — persist and retrieve non-table outputs; see Non-table outputs below.
-
-- **`run(script_path, pin = NULL, data = NULL, external_inputs = NULL)`** — entry point for tracked execution. Sources `script_path` in an instrumented context, records observed I/O, measures wall-clock time, and writes a run record to the metadata table on completion. The `pin` argument accepts a named list mapping logical table names to specific content hashes (or run IDs), forcing reads of those tables inside the script to return the pinned versions rather than the latest. The `data` argument accepts a named list of R data frames; each is written to DuckDB under its name (getting a content hash) and then pinned for the duration of the run. Together, `pin` and `data` are the primary mechanism for parameter sweeps — see Parameter passing and sweeps below. `external_inputs` allows declaring file paths or env vars that should be tracked as inputs for staleness.
+- **`launch(script_path, pin = NULL, data = NULL, external_inputs = NULL)`** — entry point for tracked execution. Sources `script_path` in an instrumented context, records observed I/O, measures wall-clock time, and writes a run record to the metadata table on completion. The `pin` argument accepts a named list mapping logical names to specific content hashes (or run IDs), forcing `grab()` calls inside the script to return the pinned versions rather than the latest. The `data` argument accepts a named list of R values; each is stowed under its name (getting a content hash) and then pinned for the duration of the launch. Together, `pin` and `data` are the primary mechanism for parameter sweeps — see Parameter passing and sweeps below. `external_inputs` allows declaring file paths or env vars that should be tracked as inputs for staleness.
 
 - **`db_path()`** — inspector; returns the currently-active DuckDB file path.
 
-- **`versions(name)`** — list all versions of a logical table or artifact. Returns a data frame with hash, first/last seen timestamps, size, and producing runs.
+- **`versions(name)`** — list all versions of a logical name. Returns a data frame with content hash, first/last seen timestamps, size, and producing runs.
 
-- **`prune_versions(name = NULL, keep = NULL, keep_latest = FALSE, older_than = NULL, ...)`** — explicit, user-invoked garbage collection. Policy arguments include `keep = N` (most recent N), `keep_latest = TRUE` (only the current), `older_than = "30d"` (time-based). Versions referenced by recent run records are protected from pruning unless the user passes `force = TRUE`. Called without a name, applies to all tables and artifacts.
+- **`prune_versions(name = NULL, keep = NULL, keep_latest = FALSE, older_than = NULL, force = FALSE)`** — explicit, user-invoked garbage collection. Policy arguments include `keep = N` (most recent N), `keep_latest = TRUE` (only the current), `older_than = "30d"` (time-based). Versions referenced by recent run records are protected from pruning unless `force = TRUE`. Called without `name`, applies to all stored names.
 
 **Configuration** is managed via R `options()`, not setter functions:
 
-- `options(modelrunnR.db = "path/to/custom.duckdb")` overrides the default DuckDB location.
-- `options(modelrunnR.blob_threshold = n_bytes)` sets the artifact BLOB-vs-filesystem threshold (default 10 MB).
+- `options(modelrunnR.db = "path/to/custom.duckdb")` — override the default DuckDB location.
+- `options(modelrunnR.blob_threshold = n_bytes)` — artifact BLOB-vs-filesystem threshold (default 10 MB).
+- `options(modelrunnR.version_warn_threshold = N)` — version-count threshold for gc warnings (default 20).
 
 There is no `connect()` function — the name would collide with `DBI::dbConnect()` idioms, and options-based configuration keeps the API surface smaller.
 
 ### Execution flow
 
-When `run(script_path)` is called:
+When `launch(script_path)` is called:
 
 1. Compute the content hash of the script file.
 2. Open (or reuse) the DuckDB connection for the current artifact store.
-3. Establish a recording context that instruments `read_table()` / `write_table()` calls made during the source.
+3. Establish a recording context that instruments `grab()` / `stow()` calls made during the source.
 4. `source()` the script in that context.
 5. On completion (success or failure), write a run record to the metadata table with: step identifier (script path), code hash, observed inputs, observed outputs, start timestamp, duration, status.
 6. Surface timing output to the user.
@@ -134,7 +133,7 @@ The approach is a **hybrid**: content-addressed physical storage combined with a
 
 #### Physical layer
 
-When `write_table("features", df)` is called:
+When `stow("features", df)` is called:
 
 1. Compute a stable, order-independent content hash of `df` (exact algorithm TBD; likely a streaming aggregate hash over sorted rows using DuckDB's built-in `hash()` function).
 2. Check whether a physical table `features__<hash>` already exists.
@@ -182,12 +181,12 @@ Schema uses only portable SQL types so the metadata layer can migrate to other a
 
 ```r
 # Read current latest (the normal case)
-read_table("features")
+grab("features")
 
 # Read a specific version
-read_table("features", version = "ab3f7...")        # by content hash
-read_table("features", from_run = "run_42")         # via run metadata
-read_table("features", as_of = "2026-04-08 14:00")  # as-of-time lookup
+grab("features", version = "ab3f7...")        # by content hash
+grab("features", from_run = "run_42")         # via run metadata
+grab("features", as_of = "2026-04-08 14:00")  # as-of-time lookup
 
 # Inspect history
 versions("features")
@@ -199,9 +198,9 @@ versions("features")
 
 Versioning is non-destructive by design, so disk grows over time. Two mechanisms for cleanup:
 
-**Automatic warning** when a logical table accumulates more than `getOption("modelrunnR.version_warn_threshold", 20)` versions. The warning surfaces on the next write or the next `run()` call, telling the user to consider running `prune_versions()`. No automatic pruning ever happens.
+**Automatic warning** when a logical table accumulates more than `getOption("modelrunnR.version_warn_threshold", 20)` versions. The warning surfaces on the next write or the next `launch()` call, telling the user to consider running `prune_versions()`. No automatic pruning ever happens.
 
-**Explicit pruning** via `prune_versions()` (see User-facing API above). Policy arguments control what gets kept: `keep = N`, `keep_latest = TRUE`, `older_than = "30d"`. Versions referenced by recent run records (even if not "latest") are protected from pruning unless the user passes `force = TRUE` — this prevents gc from silently breaking `read_table(..., from_run = ...)` queries.
+**Explicit pruning** via `prune_versions()` (see User-facing API above). Policy arguments control what gets kept: `keep = N`, `keep_latest = TRUE`, `older_than = "30d"`. Versions referenced by recent run records (even if not "latest") are protected from pruning unless the user passes `force = TRUE` — this prevents gc from silently breaking `grab(..., from_run = ...)` queries.
 
 #### Cost model
 
@@ -219,28 +218,30 @@ Connection lifecycle: lazy-opened on first use, reused for the rest of the R ses
 
 The project-root walker should be implemented internally (~20 lines) rather than depending on `here` or `rprojroot`, to keep Imports lean.
 
-### Non-table outputs (artifacts)
+### Non-table storage
 
-Step outputs that are not naturally tables — fitted model objects, serialized objects from other languages, images, etc. — are persisted via `save_artifact()` / `load_artifact()`.
+When `stow()` is called with a value that isn't a data frame, it's persisted as an artifact rather than a DuckDB table. Artifacts cover fitted model objects, serialized objects from other languages, images, and any other R object the user wants to version alongside their tables. The storage mechanism:
 
+- **Dispatch rule**: `stow()` checks `is.data.frame(value)` (which covers tibbles and data.tables). True → store as a DuckDB table. False → store as an artifact.
 - **Serialization**: `qs::qsave()` (fast, compact; adds `qs` to Imports). Chosen over base `serialize()` / `saveRDS()` because it handles R model objects substantially better.
-- **Storage dispatch**: objects whose serialized size is below `getOption("modelrunnR.blob_threshold")` (default 10 MB) are stored as a BLOB row in the metadata table inside the DuckDB file. Objects above the threshold are written to `./modelrunnR_artifacts/<name>.qs` on the filesystem, with the path recorded in metadata. Small artifacts preserve the "one DuckDB file = entire artifact store" property; large artifacts escape to the filesystem rather than bloating the DB file.
-- **Namespace**: artifacts and tables share a single unified namespace. A name cannot refer to both. `save_artifact("features", ...)` errors if `features` already exists as a table, and vice versa. Checked at write time.
-- **Tracking**: artifacts appear in a step's `outputs` alongside tables and participate in staleness detection identically.
+- **Storage location**: objects whose serialized size is below `getOption("modelrunnR.blob_threshold")` (default 10 MB) are stored as a BLOB row in the metadata table inside the DuckDB file. Objects above the threshold are written to `./modelrunnR_artifacts/<name>__<hash>.qs` on the filesystem, with the path recorded in metadata. Small artifacts preserve the "one DuckDB file = entire artifact store" property; large artifacts escape to the filesystem rather than bloating the DB file.
+- **Namespace**: artifacts and tables share a single unified namespace. A name cannot refer to both. `stow("features", model)` errors if `features` already exists as a table, and vice versa. Checked at write time.
+- **Retrieval**: `grab("model_xgb")` returns the original R object by deserializing from whichever storage location the metadata points to. The user doesn't need to know whether a given name is a table or an artifact — `grab()` returns whatever was stowed.
+- **Tracking**: artifacts appear in a step's `outputs` alongside tables and participate in versioning and staleness detection identically.
 
 ### Interactive I/O
 
-`read_table()` and `write_table()` can be called outside a `run()` boundary — from the REPL, from a plain `source()`, or from any untracked R code. Behavior:
+`grab()` and `stow()` can be called outside a `launch()` boundary — from the REPL, from a plain `source()`, or from any untracked R code. Behavior:
 
-- **Interactive writes** are recorded with a synthetic step identifier of the form `<interactive:YYYY-MM-DD HH:MM:SS>`. This captures the fact that a table was mutated outside any reproducible script.
-- **Interactive reads** are *not* recorded. Reads don't change state, and recording every REPL exploration would clutter the metadata without benefit.
-- **Reproducibility warnings**: when a scripted run's recorded inputs include a table whose most recent write came from an interactive session, modelrunnR warns the user at run time: *"step `X` reads `Y`, which was last written interactively on [timestamp]. This step is not fully reproducible from source."*
+- **Interactive writes** (`stow()` calls) are recorded with a synthetic step identifier of the form `<interactive:YYYY-MM-DD HH:MM:SS>`. This captures the fact that a name was mutated outside any reproducible script.
+- **Interactive reads** (`grab()` calls) are *not* recorded. Reads don't change state, and recording every REPL exploration would clutter the metadata without benefit.
+- **Reproducibility warnings**: when a scripted launch's recorded inputs include a name whose most recent write came from an interactive session, modelrunnR warns the user at launch time: *"step `X` grabs `Y`, which was last stowed interactively on [timestamp]. This step is not fully reproducible from source."*
 
 This catches the "I manually patched a table in the REPL and then a script started depending on it" failure mode, which is exactly the kind of non-reproducibility land mine the framework should surface.
 
 ### Parameter passing and sweeps
 
-modelrunnR has no special concept of "parameters." Parameters are just versioned tables, and sweeps are just loops around `run()` that pin different versions of the parameter table(s). This pattern falls out of the versioning system without any framework-level support for sweeps as a first-class concept.
+modelrunnR has no special concept of "parameters." Parameters are just versioned tables, and sweeps are just loops around `launch()` that pin different versions of the parameter table(s). This pattern falls out of the versioning system without any framework-level support for sweeps as a first-class concept.
 
 The typical pattern (inline data variant):
 
@@ -252,7 +253,7 @@ configs <- list(
 )
 
 for (cfg in configs) {
-  run("fit_xgb.R",
+  launch("fit_xgb.R",
       data = list(params_xgb = as.data.frame(cfg)))
 }
 ```
@@ -260,12 +261,12 @@ for (cfg in configs) {
 Inside `fit_xgb.R`:
 
 ```r
-params   <- read_table("params_xgb")
-features <- read_table("features")
+params   <- grab("params_xgb")
+features <- grab("features")
 model    <- xgboost::xgb.train(features,
                                nrounds = params$nrounds,
                                eta     = params$eta)
-write_table("predictions", predict_fn(model, features))
+stow("predictions", predict_fn(model, features))
 ```
 
 Because each iteration writes a different `params_xgb`, each run's input hashes differ, so each run produces distinct output versions under the hybrid versioning system. The three runs' `predictions` outputs coexist automatically and are addressable via `from_run` or `version` in subsequent reads.
@@ -275,13 +276,13 @@ For reusing parameter tables already written to DuckDB, `pin` is the alternative
 ```r
 hashes <- versions("params_xgb")$content_hash
 for (h in hashes) {
-  run("fit_xgb.R", pin = list(params_xgb = h))
+  launch("fit_xgb.R", pin = list(params_xgb = h))
 }
 ```
 
-If neither `pin` nor `data` is passed, `read_table()` calls inside the script resolve to the current latest version — the natural default for non-sweep runs.
+If neither `pin` nor `data` is passed, `grab()` calls inside the script resolve to the current latest version — the natural default for non-sweep runs.
 
-**Status**: tentative pending implementation. The concrete shapes of `pin` and `data` may change once the `run()` execution context is built and the user experience of running sweeps is observable.
+**Status**: tentative pending implementation. The concrete shapes of `pin` and `data` may change once the `launch()` execution context is built and the user experience of running sweeps is observable.
 
 ## Staleness model
 
@@ -305,11 +306,11 @@ The precise definition of "an input has changed" when the input is a DuckDB tabl
 
 Decisions deferred to later conversations or to implementation time. Each has a brief status note.
 
-- **Function naming.** `read_table`, `write_table`, `ingest`, `save_artifact`, etc. are all placeholders. Final names should distinguish from DBI and dplyr idioms. TBD.
+- **Function naming (revisitable).** Current names: `grab`, `stow`, `ingest`, `launch`, `db_path`, `versions`, `prune_versions`. Committed for v0.1 design purposes and to serve as the plan's vocabulary. May be revised if they feel wrong once the API is being used regularly. Low priority.
 - **Project/DB location management.** v0.1 auto-detects a project root and uses `<root>/modelrunnR.duckdb`, overridable via `options()`. But workflows involving multiple DBs per project, swapping between artifact stores, or archiving old runs are not addressed. Parked for later.
-- **Parameter sweeps (validation pending).** Current direction is documented in *Parameter passing and sweeps* above: parameters as versioned tables, `run(..., pin = ...)` or `run(..., data = ...)` as the switching mechanism. Marked tentative because the ergonomics of `pin`/`data` need implementation experience to validate.
+- **Parameter sweeps (validation pending).** Current direction is documented in *Parameter passing and sweeps* above: parameters as versioned tables, `launch(..., pin = ...)` or `launch(..., data = ...)` as the switching mechanism. Marked tentative because the ergonomics of `pin`/`data` need implementation experience to validate.
 - **Rerun semantics.** When the user asks to rerun one step, what happens to downstream steps? Just that step? Downstream-that's-stale? Upstream-that's-stale plus that step plus downstream? TBD.
-- **Multi-script workflows.** How does the user run multiple scripts as a pipeline? Is there a `run_all()` that discovers stale scripts and runs them in dependency order? TBD.
+- **Multi-script workflows.** How does the user run multiple scripts as a pipeline? Is there a `launch_all()` that discovers stale scripts and runs them in dependency order? TBD.
 - **"Manage runs" API.** Shape of the introspection/control API — `run_status()`, `run_history()`, `forget_step()`, `drop_artifact()`, etc. TBD.
 
 ## Out of scope
