@@ -36,6 +36,7 @@ prune_versions <- function(name = NULL,
     stop("prune_versions(): pass either `keep_latest` or `keep`, not both.",
          call. = FALSE)
   }
+  if (!is.null(name)) .mr_validate_name(name, context = "prune_versions")
 
   con <- .mr_get_connection()
 
@@ -93,10 +94,12 @@ prune_versions <- function(name = NULL,
 
   # Tidy up: if we pruned filesystem artifacts and the artifact dir is
   # now empty, remove it so we don't leave orphan directories.
+  # `unlink(dir, recursive = FALSE)` is a silent no-op on directories;
+  # `recursive = TRUE` is required to remove even an empty directory.
   artifact_dir <- file.path(dirname(db_path()), "modelrunnR_artifacts")
   if (dir.exists(artifact_dir) &&
       length(list.files(artifact_dir, all.files = FALSE)) == 0L) {
-    unlink(artifact_dir, recursive = FALSE)
+    unlink(artifact_dir, recursive = TRUE)
   }
 
   invisible(to_prune)

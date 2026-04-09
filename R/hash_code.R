@@ -8,7 +8,7 @@
 ## spurious "code changed" result.
 
 .mr_code_hash <- function(script_path, helpers) {
-  script_hash <- .mr_hash_bytes(.mr_read_file_bytes(script_path))
+  script_hash <- .mr_hash_bytes(.mr_read_code_bytes(script_path))
   helper_hashes <- if (length(helpers) > 0L) sort(unlist(helpers, use.names = FALSE)) else character()
   combined <- paste(c(script_hash, helper_hashes), collapse = "\n")
   .mr_hash_bytes(charToRaw(combined))

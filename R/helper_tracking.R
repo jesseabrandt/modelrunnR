@@ -22,10 +22,10 @@
       return(invisible(NULL))
     }
 
-    # Record the helper's byte hash once per unique path.
+    # Record the helper's code hash once per unique path.
     helpers <- .mr_state$helpers %||% list()
     if (is.null(helpers[[path]])) {
-      bytes <- .mr_read_file_bytes(path)
+      bytes <- .mr_read_code_bytes(path)
       helpers[[path]] <- .mr_hash_bytes(bytes)
       .mr_state$helpers <- helpers
     }
@@ -57,7 +57,7 @@
   helpers
 }
 
-.mr_read_file_bytes <- function(path) {
+.mr_read_code_bytes <- function(path) {
   # Used only for CODE hashing (scripts and their sourced helpers).
   # Read as text (always UTF-8) and normalize line endings so the
   # same script produces the same hash whether it was saved on

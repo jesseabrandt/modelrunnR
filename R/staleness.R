@@ -69,7 +69,7 @@
     if (!file.exists(h$path)) {
       return("code")  # helper disappeared -> treat as changed
     }
-    current_helpers[[h$path]] <- .mr_hash_bytes(.mr_read_file_bytes(h$path))
+    current_helpers[[h$path]] <- .mr_hash_bytes(.mr_read_code_bytes(h$path))
   }
 
   current_code_hash <- .mr_code_hash(step, current_helpers)

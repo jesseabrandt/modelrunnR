@@ -13,11 +13,7 @@
 #'   `first_seen`.
 #' @export
 versions <- function(name) {
-  stopifnot(
-    is.character(name),
-    length(name) == 1L,
-    nzchar(name)
-  )
+  .mr_validate_name(name, context = "versions")
   con <- .mr_get_connection()
 
   v <- DBI::dbGetQuery(

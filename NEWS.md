@@ -13,7 +13,7 @@
 
 ## New features
 
-* `_mr_versions` now carries a `UNIQUE INDEX` on `(logical_name, content_hash)` as belt-and-suspenders protection against duplicate rows.
+* `_mr_versions` now carries a `UNIQUE INDEX` on `(logical_name, content_hash)` as belt-and-suspenders protection against duplicate rows. **Caveat**: on connect, `.mr_migrate_versions()` runs `CREATE UNIQUE INDEX IF NOT EXISTS`, which will error loudly if a pre-existing `.duckdb` happens to contain duplicate `(logical_name, content_hash)` rows (e.g. from hand-editing). In normal single-writer operation this cannot happen, but if it does, resolve by deduplicating the table manually before reopening the DB.
 * `stow()` emits a warning when a data frame has non-default row names, since DBI's backend does not persist them.
 * Staleness checks now distinguish `code_unknown` (pre-migration runs that predate `code_hash` tracking) from `code` (actual mismatch). **Users upgrading an existing `.duckdb` may see a one-time `code_unknown` advisory** on the next run after upgrade. Subsequent runs record a real `code_hash` and return to reporting `fresh`.
 

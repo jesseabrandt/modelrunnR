@@ -101,6 +101,18 @@ code, and the audit reviewer that flagged it.
   a dead lead. Update to reflect what v0.1 actually borrowed (entry-point
   vocabulary, nothing else). `[readability]`
 
+## Data integrity (future)
+
+- **Crash window between `writeBin()` and `dbBegin()` in `.mr_stow_artifact`**
+  — `R/stow.R:112-134`. For filesystem artifacts, the bytes are written to
+  disk *before* the transaction around the `_mr_versions` insert begins, so
+  a crash in that narrow window would leave an orphan `.qs2` file that the
+  rollback handler never runs against. The file is safely named
+  (`<name>__<hash16>.qs2`) and can be recovered manually, but a startup-time
+  scan that compares `modelrunnR_artifacts/` against `_mr_versions` and
+  reports orphans would close the gap. Lower-risk than the in-transaction
+  crash recovery already covered. `[code]`
+
 ## Security (future)
 
 - **MD5 → SHA-256 migration** — `R/hash_file.R`, `R/hash_artifact.R`,

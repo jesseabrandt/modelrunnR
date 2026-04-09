@@ -197,3 +197,17 @@ test_that("prune removes filesystem artifact files when storage = 'file'", {
   expect_false(any(file.exists(pruned_files)))
   expect_true(file.exists(v2$physical_name))
 })
+
+test_that("empty modelrunnR_artifacts/ dir is removed after a full-prune", {
+  new_test_db()
+  withr::local_options(list(modelrunnR.blob_threshold = 16L))
+
+  # Stow one disk-resident artifact so the dir gets created.
+  stow("a", runif(50))
+  artifact_dir <- file.path(dirname(db_path()), "modelrunnR_artifacts")
+  expect_true(dir.exists(artifact_dir))
+
+  # Prune it; the dir should now be empty and then removed.
+  prune_versions("a", keep = 0, force = TRUE)
+  expect_false(dir.exists(artifact_dir))
+})
