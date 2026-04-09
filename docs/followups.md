@@ -29,6 +29,18 @@ code, and the audit reviewer that flagged it.
   gc decisions see inflated numbers. Use DuckDB `estimated_size` or document
   as an R-side memory estimate. `[code, pipeline]`
 
+- **Double-pass over labeled-runs in propagation** —
+  `R/propagation.R`. `.mr_propagate_label()` calls
+  `.mr_label_for_produced_hash()` once per input (N walks of
+  `_mr_runs WHERE variant_label IS NOT NULL`); on inheritance success
+  the launch path then calls `.mr_first_input_producing()`, which
+  walks the inputs AGAIN with the same per-input full-table-scan
+  pattern, paying 2N table scans for an inheritance event. The
+  single-pass fix is to have `.mr_propagate_label()` return
+  `list(label, source_name)` directly so the caller doesn't need a
+  second pass; this can land alongside the broader O(runs × outputs)
+  refactor flagged elsewhere in this section. `[code]`
+
 - **`.mr_read_value` uses `readBin` instead of `qs2::qs_read`** —
   `R/grab.R:85`. Loads the entire file into a raw vector, then deserializes.
   `qs2::qs_read(path)` reads directly from the path. Marginal for small

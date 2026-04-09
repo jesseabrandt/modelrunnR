@@ -18,7 +18,7 @@
   labels_by_name <- list()
   for (p in inputs) {
     label <- .mr_label_for_produced_hash(con, p$name, p$hash)
-    if (!is.null(label) && !is.na(label)) {
+    if (!is.na(label)) {
       labels_by_name[[p$name]] <- label
     }
   }
