@@ -44,6 +44,13 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL, source = N
     .mr_maybe_ingest(con, name, source)
   }
 
+  # If a launch has pinned this name and the caller didn't provide
+  # an explicit selector, resolve via the pinned content hash.
+  if (is.null(version) && is.null(from_run) && is.null(as_of)) {
+    pinned <- .mr_pinned_hash(name)
+    if (!is.null(pinned)) version <- pinned
+  }
+
   resolved <- .mr_resolve_version(con, name, version, from_run, as_of)
   .mr_record_read(name, resolved$content_hash)
   .mr_read_value(con, resolved)

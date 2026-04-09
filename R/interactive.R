@@ -13,6 +13,9 @@
 
 .mr_maybe_record_interactive_write <- function(name, hash) {
   if (.mr_is_recording()) return(invisible(NULL))
+  # launch() suppresses interactive tracking while resolving `data`
+  # — those stows are launch setup, not REPL activity.
+  if (isTRUE(.mr_state$suppress_interactive)) return(invisible(NULL))
 
   con <- .mr_get_connection()
   now <- Sys.time()

@@ -16,6 +16,14 @@
 #' preceding `library(modelrunnR)`.
 #'
 #' @param script_path Path to the R script to run.
+#' @param pin Optional named list mapping logical names to content
+#'   hashes or run ids. During recording, `grab(name)` inside the
+#'   script resolves to the pinned version rather than the latest.
+#'   Unknown hashes/run-ids error *before* the script is sourced.
+#' @param data Optional named list of R values. Each value is stowed
+#'   under its name (getting a fresh content hash via the normal
+#'   stow pathway) and then pinned for the duration of the launch.
+#'   Inline values behave identically to values already in DuckDB.
 #' @param external_inputs Optional named list with fields `files` (a
 #'   character vector of paths) and/or `env` (a character vector of
 #'   environment variable names). Each declared input is hashed and
@@ -24,7 +32,7 @@
 #'
 #' @return The run record (one row of `_mr_runs`), invisibly.
 #' @export
-launch <- function(script_path, external_inputs = NULL) {
+launch <- function(script_path, pin = NULL, data = NULL, external_inputs = NULL) {
   stopifnot(
     is.character(script_path),
     length(script_path) == 1L,
@@ -47,12 +55,18 @@ launch <- function(script_path, external_inputs = NULL) {
   # before we write anything to _mr_runs.
   resolved_ext <- .mr_resolve_external_inputs(external_inputs)
 
+  # Resolve pin/data up-front too. data is stowed first (producing
+  # fresh hashes), then pin can override on name collisions.
+  resolved_pins <- .mr_resolve_pins(pin, data)
+
   .mr_start_recording()
   .mr_start_helper_tracking()
+  .mr_start_pinning(resolved_pins)
   on.exit(
     {
       if (.mr_is_recording()) .mr_stop_recording()
       if (!is.null(.mr_state$helpers)) .mr_stop_helper_tracking()
+      .mr_stop_pinning()
     },
     add = TRUE
   )

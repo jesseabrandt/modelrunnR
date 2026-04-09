@@ -4,10 +4,20 @@
 \alias{launch}
 \title{Launch an R script as a tracked modelrunnR step}
 \usage{
-launch(script_path, external_inputs = NULL)
+launch(script_path, pin = NULL, data = NULL, external_inputs = NULL)
 }
 \arguments{
 \item{script_path}{Path to the R script to run.}
+
+\item{pin}{Optional named list mapping logical names to content
+hashes or run ids. During recording, \code{grab(name)} inside the
+script resolves to the pinned version rather than the latest.
+Unknown hashes/run-ids error \emph{before} the script is sourced.}
+
+\item{data}{Optional named list of R values. Each value is stowed
+under its name (getting a fresh content hash via the normal
+stow pathway) and then pinned for the duration of the launch.
+Inline values behave identically to values already in DuckDB.}
 
 \item{external_inputs}{Optional named list with fields \code{files} (a
 character vector of paths) and/or \code{env} (a character vector of
