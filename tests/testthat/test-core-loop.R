@@ -30,3 +30,14 @@ test_that("stow outside launch writes, grab outside launch reads (no recording)"
   got <- grab("direct")
   expect_equal(got$a, c(1, 2, 3))
 })
+
+test_that("nested launch() errors instead of clobbering outer state", {
+  new_test_db()
+
+  inner <- write_script("stow('inner', data.frame(a = 1))")
+  outer <- write_script(c(
+    sprintf("launch(%s)", deparse(inner))
+  ))
+
+  expect_error(launch(outer), "nested launches are not supported")
+})

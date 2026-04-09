@@ -221,11 +221,31 @@ versions are addressable by content hash, run id, or as-of time.
 **Deferred.** Version-count warnings and `prune_versions()` (Slice 11).
 Artifact hashing (Slice 5 reuses the `.mr_hash_*` pattern over bytes).
 
-**Open question surfaced.** The exact hash algorithm is TBD in design.md;
-Slice 3 commits to `SUM(HASH(col_1) # HASH(col_2) # …)` (XOR or sum is
-order-independent). If benchmarking on ~100M rows reveals problems, revisit
-before Slice 5 (where artifacts would reuse the pattern conceptually but
-over bytes instead of rows).
+**Algorithm shipped.** Per-row `HASH(c1, c2, …)` over columns in sorted
+column-name order, then `MD5(STRING_AGG(CAST(row_hash AS VARCHAR), '|' ORDER BY
+row_hash))` as the whole-frame hash. Row-order invariance comes from the
+`ORDER BY` inside `STRING_AGG`; column-order invariance comes from sorting
+column names before hashing. Multiplicity is preserved because `STRING_AGG`
+emits one token per row.
+
+**Rejected alternatives.** `SUM(HASH(c1) # HASH(c2) # …)` with `#` = XOR was
+the initial sketch but was discarded during Slice 3:
+
+- XOR is **multiplicity-insensitive**: two copies of the same row cancel
+  (`h XOR h = 0`), so `{r, r}` would hash the same as `{}` for any row whose
+  columns produce the same partial XOR. The "preserves multiplicity" contract
+  would fail silently.
+- Plain `SUM` over DuckDB `HASH()` (which returns `UBIGINT`) wraps modulo 2^64
+  — still deterministic, but combined with XOR it compounds the loss.
+
+The STRING_AGG approach is O(N) intermediate memory (not streaming), which is
+acceptable at v0.1 scale; a true streaming alternative is noted in
+`docs/followups.md` for when run histories exceed ~100M rows per frame.
+
+One caveat: `ORDER BY HASH(cols)` is a 64-bit total order, so collisions
+(~0.03% probability at 100M distinct rows per frame) could defeat row-order
+invariance on the colliding tie. Acceptable at v0.1 scale; a tiebreaker is
+listed in followups.
 
 **Ship check.** Run the same script three times with a changing RNG seed →
 three physical tables, three `_mr_versions` rows, and

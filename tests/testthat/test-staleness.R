@@ -71,6 +71,43 @@ test_that("a changed input produces 'input:<name>' staleness downstream", {
   expect_true(any(grepl("^input:x$", result$reasons)))
 })
 
+test_that("a declared env var that stays set is fresh on re-check", {
+  new_test_db()
+  withr::local_envvar(MR_TEST_VAR = "hello")
+
+  s <- write_script("stow('x', data.frame(n = 1))")
+  launch(s, external_inputs = list(env = "MR_TEST_VAR"))
+
+  # Unchanged env var: second check must NOT report stale
+  # (regression: JSON round-trip of the stored hash used to turn
+  # NA_character_ into NULL and falsely flag the step).
+  result <- .mr_is_stale(normalizePath(s))
+  expect_false(any(grepl("^external:env:", result$reasons)))
+})
+
+test_that("a declared env var that was and remains unset is fresh on re-check", {
+  new_test_db()
+  Sys.unsetenv("MR_TEST_VAR_UNSET")
+
+  s <- write_script("stow('x', data.frame(n = 1))")
+  launch(s, external_inputs = list(env = "MR_TEST_VAR_UNSET"))
+
+  result <- .mr_is_stale(normalizePath(s))
+  expect_false(any(grepl("^external:env:", result$reasons)))
+})
+
+test_that("a declared env var whose value changes is stale", {
+  new_test_db()
+  withr::local_envvar(MR_TEST_VAR = "before")
+
+  s <- write_script("stow('x', data.frame(n = 1))")
+  launch(s, external_inputs = list(env = "MR_TEST_VAR"))
+
+  Sys.setenv(MR_TEST_VAR = "after")
+  result <- .mr_is_stale(normalizePath(s))
+  expect_true(any(grepl("^external:env:MR_TEST_VAR$", result$reasons)))
+})
+
 test_that("touching a declared external file produces 'external:...' staleness", {
   new_test_db()
   dir <- withr::local_tempdir()

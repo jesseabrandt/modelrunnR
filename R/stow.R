@@ -55,34 +55,48 @@ stow <- function(name, value) {
 # without re-hashing.
 .mr_stow_table <- function(name, value) {
   con  <- .mr_get_connection()
+  # `.mr_hash_frame` creates a DuckDB temp table; DuckDB supports
+  # transactional DDL so this is safe to run inside the wrapping
+  # transaction below if we choose -- but we hash first so a bad value
+  # fails fast before we ever dbBegin().
   hash <- .mr_hash_frame(con, value)
   physical_name <- .mr_physical_name(name, hash)
 
   existing <- .mr_get_version_row(con, name, hash)
   now <- Sys.time()
 
-  if (nrow(existing) == 0L) {
-    .mr_table_write(con, physical_name, value, overwrite = TRUE)
-    size_bytes <- as.numeric(object.size(value))
-    DBI::dbExecute(
-      con,
-      "INSERT INTO _mr_versions
-         (logical_name, content_hash, physical_name, kind,
-          first_seen, last_seen, size_bytes, storage_location)
-       VALUES (?, ?, ?, 'table', ?, ?, ?, NULL)",
-      params = list(name, hash, physical_name, now, now, size_bytes)
-    )
-  } else {
-    DBI::dbExecute(
-      con,
-      "UPDATE _mr_versions
-         SET last_seen = ?
-       WHERE logical_name = ? AND content_hash = ?",
-      params = list(now, name, hash)
-    )
-  }
+  # Atomic write: physical table + _mr_versions row + view refresh must
+  # all succeed or all roll back. A crash between them would leave
+  # orphaned physical tables or a stale view pointing at nothing.
+  DBI::dbBegin(con)
+  tryCatch({
+    if (nrow(existing) == 0L) {
+      .mr_table_write(con, physical_name, value, overwrite = TRUE)
+      size_bytes <- as.numeric(object.size(value))
+      DBI::dbExecute(
+        con,
+        "INSERT INTO _mr_versions
+           (logical_name, content_hash, physical_name, kind,
+            first_seen, last_seen, size_bytes, storage_location)
+         VALUES (?, ?, ?, 'table', ?, ?, ?, NULL)",
+        params = list(name, hash, physical_name, now, now, size_bytes)
+      )
+    } else {
+      DBI::dbExecute(
+        con,
+        "UPDATE _mr_versions
+           SET last_seen = ?
+         WHERE logical_name = ? AND content_hash = ?",
+        params = list(now, name, hash)
+      )
+    }
+    .mr_refresh_latest_view(con, name)
+    DBI::dbCommit(con)
+  }, error = function(e) {
+    DBI::dbRollback(con)
+    stop(e)
+  })
 
-  .mr_refresh_latest_view(con, name)
   .mr_record_write(name, hash)
   .mr_maybe_record_interactive_write(name, hash)
   .mr_maybe_warn_version_count(con, name)
@@ -111,25 +125,42 @@ stow <- function(name, value) {
       .mr_artifact_file_path(name, hash)
     }
 
-    if (storage == "blob") {
-      DBI::dbExecute(
-        con,
-        "INSERT INTO _mr_artifacts (physical_name, payload) VALUES (?, ?)",
-        params = list(physical_name, list(bytes))
-      )
-    } else {
+    # For filesystem artifacts: write the file before starting the
+    # transaction, so if the file write itself fails we haven't begun a
+    # transaction. If the later INSERT rolls back, we delete the file in
+    # the error handler so no orphan is left behind.
+    file_written <- FALSE
+    if (storage == "file") {
       dir.create(dirname(physical_name), recursive = TRUE, showWarnings = FALSE)
       writeBin(bytes, physical_name)
+      file_written <- TRUE
     }
 
-    DBI::dbExecute(
-      con,
-      "INSERT INTO _mr_versions
-         (logical_name, content_hash, physical_name, kind,
-          first_seen, last_seen, size_bytes, storage_location)
-       VALUES (?, ?, ?, 'artifact', ?, ?, ?, ?)",
-      params = list(name, hash, physical_name, now, now, size, storage)
-    )
+    DBI::dbBegin(con)
+    tryCatch({
+      if (storage == "blob") {
+        DBI::dbExecute(
+          con,
+          "INSERT INTO _mr_artifacts (physical_name, payload) VALUES (?, ?)",
+          params = list(physical_name, list(bytes))
+        )
+      }
+      DBI::dbExecute(
+        con,
+        "INSERT INTO _mr_versions
+           (logical_name, content_hash, physical_name, kind,
+            first_seen, last_seen, size_bytes, storage_location)
+         VALUES (?, ?, ?, 'artifact', ?, ?, ?, ?)",
+        params = list(name, hash, physical_name, now, now, size, storage)
+      )
+      DBI::dbCommit(con)
+    }, error = function(e) {
+      DBI::dbRollback(con)
+      # Clean up the orphaned file artifact so crash-then-fix doesn't
+      # leave untracked bytes on disk.
+      if (file_written) try(file.remove(physical_name), silent = TRUE)
+      stop(e)
+    })
   } else {
     DBI::dbExecute(
       con,

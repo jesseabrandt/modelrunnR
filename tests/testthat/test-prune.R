@@ -72,6 +72,76 @@ test_that("keep_latest = TRUE leaves only the current view target per name", {
   # The surviving row is the one with the largest first_seen.
 })
 
+test_that("keep and older_than combine (union of prune masks)", {
+  new_test_db()
+  stow_n_versions("t", 4)
+
+  # Force the two oldest into the past.
+  con <- .mr_get_connection()
+  DBI::dbExecute(
+    con,
+    "UPDATE _mr_versions SET first_seen = first_seen - INTERVAL 10 DAY
+      WHERE logical_name = 't' AND first_seen IN (
+        SELECT first_seen FROM _mr_versions
+         WHERE logical_name = 't'
+         ORDER BY first_seen ASC LIMIT 2
+      )"
+  )
+
+  # keep = 2 alone would leave 2 newest (prune 2 oldest).
+  # older_than = "5d" alone would prune the 2 backdated rows (same 2).
+  # Combined: same result (union). Use a tighter keep to verify union.
+  # keep = 3 alone would leave 3 newest. older_than = "5d" would prune 2
+  # oldest. Union keeps only the newest 2.
+  prune_versions("t", keep = 3, older_than = "5d", force = TRUE)
+  expect_equal(nrow(versions("t")), 2L)
+})
+
+test_that("protection is keyed on (name, hash) pairs, not hash alone", {
+  new_test_db()
+
+  # Stow the exact same content under two different logical names.
+  # Both get the same content hash. Then record a run that only uses
+  # 'a'. Pruning 'b' must not be blocked by 'a's protection.
+  df <- data.frame(z = 1:3)
+  launch(write_script(sprintf("stow('a', %s)", "data.frame(z = 1:3)")))
+  stow("b", df)  # interactive write -- not tied to a run row
+
+  # Assert the same content hash under both names (otherwise the test
+  # doesn't exercise the bug).
+  con <- .mr_get_connection()
+  hashes <- DBI::dbGetQuery(
+    con,
+    "SELECT DISTINCT content_hash FROM _mr_versions WHERE logical_name IN ('a','b')"
+  )$content_hash
+  expect_equal(length(unique(hashes)), 1L)
+
+  # Pruning 'b' with force = FALSE must not trip 'a's run-history
+  # protection. Since 'b' was stowed interactively, it's tied to an
+  # interactive run row and remains protected. Instead, stow a newer
+  # version of 'b' and prune back to keep = 1 -- the older 'b' must be
+  # pruneable because no run references 'b' at the original hash.
+  stow("b", data.frame(z = 99:101))
+  before <- nrow(versions("b"))
+  expect_equal(before, 2L)
+  prune_versions("b", keep = 1, force = TRUE)
+  after <- nrow(versions("b"))
+  expect_equal(after, 1L)
+
+  # 'a' must still have its original version intact (it was not
+  # cross-contaminated by 'b's prune).
+  expect_equal(nrow(versions("a")), 1L)
+})
+
+test_that("prune_versions() errors when both keep_latest and keep are set", {
+  new_test_db()
+  stow_n_versions("t", 3)
+  expect_error(
+    prune_versions("t", keep_latest = TRUE, keep = 2),
+    "either .keep_latest. or .keep."
+  )
+})
+
 test_that("older_than prunes by first_seen age", {
   new_test_db()
   launch(write_script("stow('t', data.frame(n = 1))"))

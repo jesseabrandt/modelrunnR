@@ -63,6 +63,14 @@ launch <- function(script_path, pin = NULL, data = NULL, external_inputs = NULL)
   staleness <- .mr_is_stale(step)
   .mr_print_staleness(step, staleness)
 
+  # Nested launches would clobber the outer launch's recording, helpers,
+  # and pins state (all held in .mr_state singletons). Detect and error
+  # rather than silently corrupting the outer run. A push/pop stack is
+  # post-v0.1.
+  if (.mr_is_recording() || !is.null(.mr_state$helpers) || !is.null(.mr_state$pins)) {
+    stop("launch(): nested launches are not supported in v0.1.", call. = FALSE)
+  }
+
   .mr_start_recording()
   .mr_start_helper_tracking()
   .mr_start_pinning(resolved_pins)

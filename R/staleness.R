@@ -112,16 +112,24 @@
     error = function(e) list()
   )
   reasons <- character()
+  # jsonlite round-trips NA_character_ as `null` -> R NULL on read, so
+  # recorded hashes must be coerced back to NA_character_ before
+  # comparison. Without this, any env var that was unset at resolve time
+  # compares NA to NULL via `identical()` and always reports stale.
   for (f in (ext$files %||% list())) {
+    prior <- f$hash %||% NA_character_
     if (!file.exists(f$path) ||
-        !identical(.mr_file_hash(f$path), f$hash)) {
+        !identical(.mr_file_hash(f$path), prior)) {
       reasons <- c(reasons, sprintf("external:%s", f$path))
     }
   }
   for (e in (ext$env %||% list())) {
     val <- Sys.getenv(e$name, unset = NA_character_)
     current <- if (is.na(val)) NA_character_ else .mr_hash_bytes(charToRaw(val))
-    if (is.na(current) || !identical(current, e$hash)) {
+    prior   <- e$hash %||% NA_character_
+    # Both NA means: was unset then, still unset now -- not stale.
+    if (is.na(current) && is.na(prior)) next
+    if (!identical(current, prior)) {
       reasons <- c(reasons, sprintf("external:env:%s", e$name))
     }
   }

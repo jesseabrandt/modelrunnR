@@ -29,6 +29,14 @@ prune_versions <- function(name = NULL,
                            keep_latest = FALSE,
                            older_than = NULL,
                            force = FALSE) {
+  # `keep_latest` is a shorthand for `keep = 1`; passing both is an
+  # overlapping-intent error (unlike `keep` + `older_than`, which combine
+  # naturally as a union of prune masks).
+  if (isTRUE(keep_latest) && !is.null(keep)) {
+    stop("prune_versions(): pass either `keep_latest` or `keep`, not both.",
+         call. = FALSE)
+  }
+
   con <- .mr_get_connection()
 
   candidates <- if (is.null(name)) {
@@ -49,8 +57,20 @@ prune_versions <- function(name = NULL,
     return(invisible(to_prune))
   }
 
-  protected <- if (force) character() else .mr_protected_version_hashes(con)
-  keepers   <- to_prune$content_hash %in% protected
+  protected <- if (force) {
+    data.frame(name = character(), hash = character(), stringsAsFactors = FALSE)
+  } else {
+    .mr_protected_version_hashes(con)
+  }
+  # Membership test must be on (name, hash) PAIRS, not on hash alone:
+  # two different logical names can happen to share a content hash, and
+  # keying on hash alone lets one name's protection cross-contaminate
+  # the other. \x1f (unit separator) cannot appear in names (rejected by
+  # .mr_validate_name in slice 3) or in hex hashes, so it's a safe
+  # delimiter for the string-concatenation key.
+  key <- paste0(to_prune$logical_name, "\x1f", to_prune$content_hash)
+  protected_key <- paste0(protected$name, "\x1f", protected$hash)
+  keepers <- key %in% protected_key
   if (any(keepers) && !force) {
     warning(sprintf(
       "%d version(s) protected from pruning because they are referenced by run history. Pass force = TRUE to prune them anyway.",
@@ -80,24 +100,27 @@ prune_versions <- function(name = NULL,
   out <- candidates[FALSE, , drop = FALSE]
   if (nrow(candidates) == 0L) return(out)
 
+  # Policy masks combine as a UNION: a version is pruned if any active
+  # policy says so. No active policy -> nothing is pruned.
   for (nm in unique(candidates$logical_name)) {
     rows <- candidates[candidates$logical_name == nm, , drop = FALSE]
     rows <- rows[order(rows$first_seen, decreasing = FALSE), , drop = FALSE]
     n <- nrow(rows)
-    prune_mask <- rep(TRUE, n)
+    prune_mask <- rep(FALSE, n)
 
     if (isTRUE(keep_latest)) {
-      prune_mask[n] <- FALSE
-    } else if (!is.null(keep)) {
+      # keep_latest: prune everything except the newest row
+      prune_mask <- prune_mask | (seq_len(n) != n)
+    }
+    if (!is.null(keep)) {
       k <- as.integer(keep)
       if (k < 0L) stop("prune_versions(): keep must be non-negative.", call. = FALSE)
-      keep_idx <- seq_len(n) > max(0L, n - k)
-      prune_mask <- !keep_idx
-    } else if (!is.null(older_than)) {
+      # keep: prune rows that are NOT in the newest `k`
+      prune_mask <- prune_mask | !(seq_len(n) > max(0L, n - k))
+    }
+    if (!is.null(older_than)) {
       cutoff <- Sys.time() - .mr_parse_duration(older_than)
-      prune_mask <- rows$first_seen < cutoff
-    } else {
-      prune_mask <- rep(FALSE, n)
+      prune_mask <- prune_mask | (rows$first_seen < cutoff)
     }
 
     if (any(prune_mask)) {
@@ -124,38 +147,71 @@ prune_versions <- function(name = NULL,
     con,
     "SELECT outputs FROM _mr_runs WHERE outputs IS NOT NULL AND outputs <> '[]'"
   )
-  if (nrow(rows) == 0L) return(character())
-  hashes <- character()
+  empty <- data.frame(name = character(), hash = character(),
+                      stringsAsFactors = FALSE)
+  if (nrow(rows) == 0L) return(empty)
+  names_out  <- character()
+  hashes_out <- character()
   for (j in seq_len(nrow(rows))) {
     pairs <- tryCatch(
       jsonlite::fromJSON(rows$outputs[j], simplifyVector = FALSE),
       error = function(e) list()
     )
-    for (p in pairs) hashes <- c(hashes, p$hash)
+    for (p in pairs) {
+      nm <- p$name %||% NA_character_
+      hs <- p$hash %||% NA_character_
+      names_out  <- c(names_out,  nm)
+      hashes_out <- c(hashes_out, hs)
+    }
   }
-  unique(hashes)
+  df <- data.frame(name = names_out, hash = hashes_out,
+                   stringsAsFactors = FALSE)
+  unique(df)
 }
 
 .mr_drop_version <- function(con, row) {
   kind <- row$kind[1]
-  if (identical(kind, "table")) {
-    try(.mr_drop_table(con, row$physical_name[1]), silent = TRUE)
-  } else if (identical(kind, "artifact")) {
-    storage <- row$storage_location[1]
-    if (identical(storage, "blob")) {
-      DBI::dbExecute(
-        con,
-        "DELETE FROM _mr_artifacts WHERE physical_name = ?",
-        params = list(row$physical_name[1])
-      )
-    } else if (identical(storage, "file")) {
-      try(file.remove(row$physical_name[1]), silent = TRUE)
+  storage <- row$storage_location[1]
+
+  # Atomic drop: the physical drop and the metadata delete must both
+  # succeed or both roll back. Previously, silent `try()` on the
+  # physical drop could leave an orphaned file/table while the metadata
+  # row was deleted unconditionally, hiding corruption.
+  DBI::dbBegin(con)
+  tryCatch({
+    if (identical(kind, "table")) {
+      .mr_drop_table(con, row$physical_name[1])
+    } else if (identical(kind, "artifact")) {
+      if (identical(storage, "blob")) {
+        DBI::dbExecute(
+          con,
+          "DELETE FROM _mr_artifacts WHERE physical_name = ?",
+          params = list(row$physical_name[1])
+        )
+      } else if (identical(storage, "file")) {
+        # file.remove returns FALSE rather than erroring on failure, so
+        # check explicitly and raise so the transaction rolls back.
+        if (file.exists(row$physical_name[1]) &&
+            !isTRUE(file.remove(row$physical_name[1]))) {
+          stop(sprintf("prune_versions(): failed to remove file artifact '%s'",
+                       row$physical_name[1]),
+               call. = FALSE)
+        }
+      }
     }
-  }
-  DBI::dbExecute(
-    con,
-    "DELETE FROM _mr_versions WHERE logical_name = ? AND content_hash = ?",
-    params = list(row$logical_name[1], row$content_hash[1])
-  )
+    DBI::dbExecute(
+      con,
+      "DELETE FROM _mr_versions WHERE logical_name = ? AND content_hash = ?",
+      params = list(row$logical_name[1], row$content_hash[1])
+    )
+    DBI::dbCommit(con)
+  }, error = function(e) {
+    DBI::dbRollback(con)
+    warning(sprintf(
+      "prune_versions(): could not drop '%s' @ %s: %s",
+      row$logical_name[1], substr(row$content_hash[1], 1L, 12L),
+      conditionMessage(e)
+    ), call. = FALSE)
+  })
   invisible(NULL)
 }
