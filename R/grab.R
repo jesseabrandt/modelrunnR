@@ -9,8 +9,14 @@
 #' `{name, hash}` pair on the run row. Outside a launch, the read
 #' is not logged.
 #'
-#' Slice 3 of v0.1: tables only. Artifact support arrives in Slice 5.
-#' The `source` argument for implicit ingest arrives in Slice 4.
+#' Slice 4 of v0.1: tables only. Artifact support arrives in Slice 5.
+#'
+#' When `source` is supplied, `grab()` behaves as an idempotent
+#' read-or-ingest: if `name` does not exist yet, [ingest()] is called
+#' under the hood. If `name` exists and the file's current content
+#' hash differs from the latest stored `source_hash`, `ingest()`
+#' is called again and a new version is created. If the file is
+#' unchanged, the cached version is returned.
 #'
 #' @param name A length-one character vector naming a logical value.
 #' @param version Optional content hash (as returned by [versions()])
@@ -20,10 +26,13 @@
 #'   by that run.
 #' @param as_of Optional `POSIXct` timestamp; returns the version
 #'   that was latest at that time.
+#' @param source Optional path to a CSV or Parquet file. Triggers an
+#'   implicit [ingest()] when the file hash differs from (or is not
+#'   yet present in) the stored source metadata.
 #'
 #' @return A data frame.
 #' @export
-grab <- function(name, version = NULL, from_run = NULL, as_of = NULL) {
+grab <- function(name, version = NULL, from_run = NULL, as_of = NULL, source = NULL) {
   stopifnot(
     is.character(name),
     length(name) == 1L,
@@ -31,9 +40,34 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL) {
   )
   con <- .mr_get_connection()
 
+  if (!is.null(source)) {
+    .mr_maybe_ingest(con, name, source)
+  }
+
   resolved <- .mr_resolve_version(con, name, version, from_run, as_of)
   .mr_record_read(name, resolved$content_hash)
   .mr_table_read(con, resolved$physical_name)
+}
+
+# Called by grab(source = …). Ingests when either (a) the name has
+# never been stored or (b) the current file's md5 differs from the
+# latest stored source_hash. Silently no-ops otherwise.
+.mr_maybe_ingest <- function(con, name, source) {
+  existing <- DBI::dbGetQuery(
+    con,
+    "SELECT 1 FROM _mr_versions WHERE logical_name = ? LIMIT 1",
+    params = list(name)
+  )
+  if (nrow(existing) == 0L) {
+    ingest(name, source)
+    return(invisible(NULL))
+  }
+  current <- .mr_file_hash(source)
+  stored  <- .mr_latest_source_hash(con, name)
+  if (is.na(stored) || !identical(current, stored)) {
+    ingest(name, source)
+  }
+  invisible(NULL)
 }
 
 ## Internals ------------------------------------------------------------------

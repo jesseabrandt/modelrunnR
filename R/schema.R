@@ -38,4 +38,27 @@
     )
   "
   .mr_execute(con, sql)
+  # Slice 4 additions: track the flat-file source a version was
+  # ingested from so grab(source = path) can detect changes.
+  .mr_add_column_if_missing(con, "_mr_versions", "source_uri",  "TEXT")
+  .mr_add_column_if_missing(con, "_mr_versions", "source_hash", "TEXT")
+}
+
+.mr_add_column_if_missing <- function(con, table, column, type) {
+  info <- DBI::dbGetQuery(
+    con,
+    sprintf("PRAGMA table_info(%s)", .mr_quote_ident(table))
+  )
+  if (!(column %in% info$name)) {
+    .mr_execute(
+      con,
+      sprintf(
+        "ALTER TABLE %s ADD COLUMN %s %s",
+        .mr_quote_ident(table),
+        .mr_quote_ident(column),
+        type
+      )
+    )
+  }
+  invisible(NULL)
 }

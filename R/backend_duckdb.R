@@ -50,6 +50,31 @@
   sprintf('"%s"', gsub('"', '""', name, fixed = TRUE))
 }
 
+# Read a flat file into a data frame via DuckDB's table functions.
+# Dispatches on extension. Slice 4 supports CSV and Parquet; more
+# formats land when a real workflow asks for them.
+#
+# DuckDB's read_csv_auto()/read_parquet() don't accept bound
+# parameters in the path slot, so we interpolate after escaping
+# single quotes. Paths come from user code, not untrusted input.
+.mr_read_file <- function(con, path) {
+  if (!file.exists(path)) {
+    stop(sprintf("ingest(): file does not exist: %s", path), call. = FALSE)
+  }
+  ext <- tolower(tools::file_ext(path))
+  reader <- switch(
+    ext,
+    csv     = "read_csv_auto",
+    tsv     = "read_csv_auto",
+    parquet = "read_parquet",
+    pq      = "read_parquet",
+    stop(sprintf("ingest(): unsupported file extension '%s'", ext), call. = FALSE)
+  )
+  escaped <- gsub("'", "''", normalizePath(path, mustWork = TRUE), fixed = TRUE)
+  sql <- sprintf("SELECT * FROM %s('%s')", reader, escaped)
+  DBI::dbGetQuery(con, sql)
+}
+
 # Content-hash a data frame in a row- and column-order-independent way.
 #
 # Algorithm (Slice 3 commitment; may be revisited):

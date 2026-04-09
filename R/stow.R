@@ -34,6 +34,16 @@ stow <- function(name, value) {
     )
   }
 
+  .mr_stow_table(name, value)
+  invisible(value)
+}
+
+# Shared implementation for stowing a data frame. Called directly
+# by stow() and by ingest() (which additionally updates source
+# metadata on the just-written _mr_versions row). Returns the
+# content hash invisibly so callers can key UPDATEs off of it
+# without re-hashing.
+.mr_stow_table <- function(name, value) {
   con  <- .mr_get_connection()
   hash <- .mr_hash_frame(con, value)
   physical_name <- .mr_physical_name(name, hash)
@@ -69,7 +79,7 @@ stow <- function(name, value) {
   .mr_refresh_latest_view(con, name)
 
   .mr_record_write(name, hash)
-  invisible(value)
+  invisible(hash)
 }
 
 ## Internals ------------------------------------------------------------------

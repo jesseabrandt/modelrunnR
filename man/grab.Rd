@@ -4,7 +4,7 @@
 \alias{grab}
 \title{Retrieve a value from the modelrunnR artifact store}
 \usage{
-grab(name, version = NULL, from_run = NULL, as_of = NULL)
+grab(name, version = NULL, from_run = NULL, as_of = NULL, source = NULL)
 }
 \arguments{
 \item{name}{A length-one character vector naming a logical value.}
@@ -18,6 +18,10 @@ by that run.}
 
 \item{as_of}{Optional \code{POSIXct} timestamp; returns the version
 that was latest at that time.}
+
+\item{source}{Optional path to a CSV or Parquet file. Triggers an
+implicit \code{\link[=ingest]{ingest()}} when the file hash differs from (or is not
+yet present in) the stored source metadata.}
 }
 \value{
 A data frame.
@@ -33,6 +37,12 @@ Inside a tracked \code{\link[=launch]{launch()}}, the read is recorded as an inp
 \verb{\{name, hash\}} pair on the run row. Outside a launch, the read
 is not logged.
 
-Slice 3 of v0.1: tables only. Artifact support arrives in Slice 5.
-The \code{source} argument for implicit ingest arrives in Slice 4.
+Slice 4 of v0.1: tables only. Artifact support arrives in Slice 5.
+
+When \code{source} is supplied, \code{grab()} behaves as an idempotent
+read-or-ingest: if \code{name} does not exist yet, \code{\link[=ingest]{ingest()}} is called
+under the hood. If \code{name} exists and the file's current content
+hash differs from the latest stored \code{source_hash}, \code{ingest()}
+is called again and a new version is created. If the file is
+unchanged, the cached version is returned.
 }
