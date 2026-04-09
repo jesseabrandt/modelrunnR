@@ -99,15 +99,19 @@
     "SELECT outputs FROM _mr_runs WHERE run_id = ?",
     params = list(run_id)
   )
-  if (nrow(run) == 0L || is.na(run$outputs[1])) {
+  if (nrow(run) == 0L) {
     stop(sprintf(
       "launch(rebind=): mr_run('%s') is not a known run id.", run_id
     ), call. = FALSE)
   }
-  pairs <- tryCatch(
-    jsonlite::fromJSON(run$outputs[1], simplifyVector = FALSE),
-    error = function(e) list()
-  )
+  pairs <- if (is.na(run$outputs[1]) || !nzchar(run$outputs[1])) {
+    list()
+  } else {
+    tryCatch(
+      jsonlite::fromJSON(run$outputs[1], simplifyVector = FALSE),
+      error = function(e) list()
+    )
+  }
   for (p in pairs) {
     if (identical(p$name, name)) return(p$hash)
   }

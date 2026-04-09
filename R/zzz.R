@@ -1,7 +1,7 @@
 ## Internal package-level state.
 ##
 ## `.mr_state` holds mutable runtime state (active connection, recording
-## context, pin map) in a single internal environment so we never touch
+## context, rebind map) in a single internal environment so we never touch
 ## `.GlobalEnv` or `options()` for per-session bookkeeping.
 .mr_state <- new.env(parent = emptyenv())
 

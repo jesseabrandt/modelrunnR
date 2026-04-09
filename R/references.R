@@ -42,7 +42,10 @@ mr_variant <- function(label) {
 #' @rdname references
 #' @export
 mr_as_of <- function(time) {
-  if (is.character(time)) time <- as.POSIXct(time)
+  # Parse string timestamps as UTC for reproducibility — DuckDB
+  # TIMESTAMP columns are timezone-naive, and the session TZ could
+  # otherwise shift which version this resolves to across machines.
+  if (is.character(time)) time <- as.POSIXct(time, tz = "UTC")
   stopifnot(inherits(time, "POSIXct"), length(time) == 1L)
   structure(list(kind = "as_of", value = time), class = "mr_ref")
 }

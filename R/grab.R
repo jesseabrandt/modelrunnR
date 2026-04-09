@@ -49,8 +49,8 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL, source = N
   # If a launch has rebound this name and the caller didn't provide
   # an explicit selector, resolve via the rebound content hash.
   if (is.null(version) && is.null(from_run) && is.null(as_of)) {
-    pinned <- .mr_rebound_hash(name)
-    if (!is.null(pinned)) version <- pinned
+    rebound <- .mr_rebound_hash(name)
+    if (!is.null(rebound)) version <- rebound
   }
 
   resolved <- .mr_resolve_version(con, name, version, from_run, as_of)
