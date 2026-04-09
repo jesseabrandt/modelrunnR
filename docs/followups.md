@@ -56,6 +56,17 @@ code, and the audit reviewer that flagged it.
   `.mr_build_run_row()` helper that fills unspecified columns with defaults.
   `[code]`
 
+- **`paste()`-based dedup key collision risk in `variants_unexplored()`** —
+  `R/variants_unexplored.R` around line 81. `paste()` with default space
+  separator could collide when a label or name contains an internal space
+  (e.g., `("a b", "c", h)` vs `("a", "b c", h)` both produce `"a b c h"`).
+  Hashes are 32-char hex (no spaces) so hash-positional collisions are not
+  reachable, but the name/label span is. Label validation currently allows
+  internal whitespace. Fix: use a separator provably excluded by name/label
+  validation (e.g., `sep = "\x00"`) or tighten label validation to forbid
+  internal whitespace. Low-probability but worth pinning before multi-word
+  labels become common. `[code]`
+
 ## Tests
 
 - **`Sys.sleep(0.01)` flake risk** — `tests/testthat/test-versioning.R:25`.

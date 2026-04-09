@@ -35,14 +35,17 @@ variants_unexplored <- function(script) {
 
   # 2. For each logical name, find labeled upstream hashes that have
   #    been produced for it and when.
+  # Fetch labeled-upstream rows once — the result doesn't depend on
+  # the per-input-name loop variable.
+  rows <- DBI::dbGetQuery(
+    con,
+    "SELECT variant_label, outputs, started_at
+       FROM _mr_runs
+      WHERE variant_label IS NOT NULL"
+  )
+
   upstreams <- list()
   for (nm in input_names) {
-    rows <- DBI::dbGetQuery(
-      con,
-      "SELECT variant_label, outputs, started_at
-         FROM _mr_runs
-        WHERE variant_label IS NOT NULL"
-    )
     for (j in seq_len(nrow(rows))) {
       raw <- rows$outputs[j]
       pairs <- if (is.na(raw) || !nzchar(raw)) {
