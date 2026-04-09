@@ -89,7 +89,10 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   resolved_rebinds <- .mr_resolve_rebinds(rebind)
 
   # Advisory staleness check -- report only, never auto-skip.
-  staleness <- .mr_is_stale(step)
+  # Pass the explicit label only (auto-propagation hasn't run yet, so
+  # inherited labels aren't known here; passing label= ensures per-variant
+  # history is consulted when the user supplied an explicit label).
+  staleness <- .mr_is_stale(step, variant_label = label)
   .mr_print_staleness(step, staleness)
 
   # Nested launches would clobber the outer launch's recording, helpers,
@@ -171,7 +174,15 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     variant_label   = label
   )
 
-  .mr_print_timing_summary(step, duration_ms, status)
+  .mr_print_timing_summary(
+    step,
+    duration_ms,
+    status,
+    n_grabs            = rec$n_grabs,
+    n_stows            = rec$n_stows,
+    variant_label      = label,
+    propagation_source = propagation_source
+  )
 
   if (!is.null(err_obj)) {
     stop(err_obj)
@@ -239,11 +250,24 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   jsonlite::toJSON(pairs, auto_unbox = TRUE)
 }
 
-.mr_print_timing_summary <- function(step, duration_ms, status) {
-  message(sprintf(
-    "modelrunnR: %s [%s] in %s ms",
-    basename(step), status, format(duration_ms, big.mark = ",")
-  ))
+.mr_print_timing_summary <- function(step, duration_ms, status,
+                                     n_grabs = 0L, n_stows = 0L,
+                                     variant_label = NA_character_,
+                                     propagation_source = NULL) {
+  lines <- sprintf(
+    "modelrunnR: %s [%s] in %s ms (%d grabs, %d stows)",
+    basename(step), status, format(duration_ms, big.mark = ","),
+    n_grabs, n_stows
+  )
+  if (!is.na(variant_label)) {
+    if (!is.null(propagation_source) && !is.na(propagation_source)) {
+      lines <- c(lines, sprintf("  variant: %s (inherited from %s)",
+                                variant_label, propagation_source))
+    } else {
+      lines <- c(lines, sprintf("  variant: %s", variant_label))
+    }
+  }
+  message(paste(lines, collapse = "\n"))
 }
 
 .mr_print_staleness <- function(step, staleness) {

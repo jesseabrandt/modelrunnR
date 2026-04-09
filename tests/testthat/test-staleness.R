@@ -125,3 +125,35 @@ test_that("touching a declared external file produces 'external:...' staleness",
   expect_true(result2$stale)
   expect_true(any(grepl("^external:", result2$reasons)))
 })
+
+test_that("per-variant staleness: two labels get independent histories", {
+  new_test_db()
+
+  s <- write_script('stow("out", data.frame(a = 1))')
+  launch(s, label = "alpha")
+  launch(s, label = "beta")
+
+  # Both are now "fresh" against their own histories.
+  expect_match(
+    capture.output(launch(s, label = "alpha"), type = "message") |> paste(collapse = "\n"),
+    "fresh"
+  )
+  expect_match(
+    capture.output(launch(s, label = "beta"), type = "message") |> paste(collapse = "\n"),
+    "fresh"
+  )
+})
+
+test_that("editing the script invalidates all variants via code_hash", {
+  new_test_db()
+
+  s <- write_script('stow("out", data.frame(a = 1))')
+  launch(s, label = "alpha")
+
+  writeLines(c('x <- 1', 'stow("out", data.frame(a = 1))'), s)
+
+  out <- capture.output(launch(s, label = "alpha"), type = "message") |>
+         paste(collapse = "\n")
+  expect_match(out, "stale")
+  expect_match(out, "code")
+})

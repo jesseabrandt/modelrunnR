@@ -13,7 +13,9 @@
 .mr_start_recording <- function() {
   .mr_state$recording <- list(
     inputs  = list(),
-    outputs = list()
+    outputs = list(),
+    n_grabs = 0L,
+    n_stows = 0L
   )
   invisible(NULL)
 }
@@ -36,10 +38,11 @@
   if (!.mr_is_recording()) return(invisible(NULL))
   rec <- .mr_state$recording
   pair <- .mr_pair(name, hash)
+  rec$n_grabs <- rec$n_grabs + 1L
   if (!.mr_pair_in(pair, rec$inputs)) {
     rec$inputs <- c(rec$inputs, list(pair))
-    .mr_state$recording <- rec
   }
+  .mr_state$recording <- rec
   invisible(NULL)
 }
 
@@ -47,10 +50,11 @@
   if (!.mr_is_recording()) return(invisible(NULL))
   rec <- .mr_state$recording
   pair <- .mr_pair(name, hash)
+  rec$n_stows <- rec$n_stows + 1L
   if (!.mr_pair_in(pair, rec$outputs)) {
     rec$outputs <- c(rec$outputs, list(pair))
-    .mr_state$recording <- rec
   }
+  .mr_state$recording <- rec
   invisible(NULL)
 }
 

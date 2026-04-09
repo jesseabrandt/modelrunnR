@@ -18,20 +18,36 @@
 #' list with `stale` (logical) and `reasons` (character vector).
 #'
 #' @param step Normalized path to the step's script file.
+#' @param variant_label When non-NA, restrict the "most recent run" lookup to
+#'   runs with this exact label. When NA (the default), the lookup considers
+#'   any run for this step, regardless of label.
 #'
 #' @return A list with fields `stale` and `reasons`.
 #' @keywords internal
-.mr_is_stale <- function(step) {
+.mr_is_stale <- function(step, variant_label = NA_character_) {
   con <- .mr_get_connection()
-  prior <- DBI::dbGetQuery(
-    con,
-    "SELECT code_hash, inputs, external_inputs, helpers
-       FROM _mr_runs
-      WHERE step = ?
-      ORDER BY started_at DESC
-      LIMIT 1",
-    params = list(step)
-  )
+  if (!is.na(variant_label)) {
+    prior <- DBI::dbGetQuery(
+      con,
+      "SELECT code_hash, inputs, external_inputs, helpers
+         FROM _mr_runs
+        WHERE step = ?
+          AND variant_label = ?
+        ORDER BY started_at DESC
+        LIMIT 1",
+      params = list(step, variant_label)
+    )
+  } else {
+    prior <- DBI::dbGetQuery(
+      con,
+      "SELECT code_hash, inputs, external_inputs, helpers
+         FROM _mr_runs
+        WHERE step = ?
+        ORDER BY started_at DESC
+        LIMIT 1",
+      params = list(step)
+    )
+  }
   if (nrow(prior) == 0L) {
     return(list(stale = TRUE, reasons = "never_run"))
   }
