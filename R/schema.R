@@ -45,6 +45,8 @@
   # the run sourced. Needed so pre-run staleness checks can detect
   # a helper's content changing without having to source the script.
   .mr_add_column_if_missing(con, "_mr_runs", "helpers", "TEXT")
+  # Swappability (Slice A): nullable label for tracked variants.
+  .mr_add_column_if_missing(con, "_mr_runs", "variant_label", "TEXT")
 }
 
 .mr_migrate_versions <- function(con) {

@@ -46,3 +46,17 @@ test_that("run record stores a positive duration and a valid timestamp", {
   expect_gte(runs$duration_ms[1], 0)
   expect_true(inherits(runs$started_at[[1]], "POSIXct"))
 })
+
+test_that("_mr_runs has a nullable variant_label column", {
+  new_test_db()
+
+  con  <- .mr_get_connection()
+  info <- DBI::dbGetQuery(con, "PRAGMA table_info(_mr_runs)")
+  expect_true("variant_label" %in% info$name)
+
+  # New runs still write NULL until later slices opt in.
+  script <- write_script('stow("out", data.frame(a = 1))')
+  launch(script)
+  row <- DBI::dbGetQuery(con, "SELECT variant_label FROM _mr_runs")
+  expect_true(all(is.na(row$variant_label)))
+})
