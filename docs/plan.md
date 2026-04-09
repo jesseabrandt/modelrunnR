@@ -1319,10 +1319,12 @@ Find `.mr_protected_version_hashes()` (or whatever the current helper is called 
 
 ```r
 .mr_protected_version_hashes <- function(con, force = FALSE) {
-  # Existing "referenced by recent runs" protection retained below.
-  protected <- .mr_protected_by_recent_runs(con)  # existing helper
+  # force = TRUE bypasses BOTH recent-runs and label protection in one
+  # shot, matching the prose contract below ("force=TRUE overrides both
+  # the recent-runs and the variant protection").
+  if (isTRUE(force)) return(character(0))
 
-  if (isTRUE(force)) return(protected)
+  protected <- .mr_protected_by_recent_runs(con)  # existing helper
 
   # Additional unconditional protection for labeled-variant outputs.
   label_rows <- DBI::dbGetQuery(

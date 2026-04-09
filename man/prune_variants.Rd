@@ -14,7 +14,9 @@ prune_variants(script, label, dry_run = FALSE)
 \item{dry_run}{If \code{TRUE}, print the summary without deleting.}
 }
 \value{
-The summary (\code{n_runs}, \code{run_ids}) invisibly.
+Invisibly, a list with fields \code{script} (normalized path),
+\code{label}, \code{n_runs} (rows deleted), and \code{run_ids} (character vector
+of deleted run IDs).
 }
 \description{
 Removes all \verb{_mr_runs} rows for \code{script} whose \code{variant_label}

@@ -13,7 +13,9 @@
 #' @param script Path to the script whose variant should be removed.
 #' @param label The variant label to delete.
 #' @param dry_run If `TRUE`, print the summary without deleting.
-#' @return The summary (`n_runs`, `run_ids`) invisibly.
+#' @return Invisibly, a list with fields `script` (normalized path),
+#'   `label`, `n_runs` (rows deleted), and `run_ids` (character vector
+#'   of deleted run IDs).
 #' @export
 prune_variants <- function(script, label, dry_run = FALSE) {
   if (missing(script)) stop("prune_variants(): `script` is required.", call. = FALSE)
@@ -45,11 +47,19 @@ prune_variants <- function(script, label, dry_run = FALSE) {
   ))
 
   if (!dry_run && summary$n_runs > 0L) {
-    .mr_execute(
-      con,
-      "DELETE FROM _mr_runs WHERE step = ? AND variant_label = ?",
-      params = list(step, label)
-    )
+    DBI::dbBegin(con)
+    tryCatch({
+      .mr_execute(
+        con,
+        "DELETE FROM _mr_runs WHERE step = ? AND variant_label = ?",
+        params = list(step, label)
+      )
+      DBI::dbCommit(con)
+    }, error = function(e) {
+      DBI::dbRollback(con)
+      stop(sprintf("prune_variants(): DELETE failed: %s", conditionMessage(e)),
+           call. = FALSE)
+    })
   }
 
   invisible(summary)

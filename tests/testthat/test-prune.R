@@ -231,7 +231,13 @@ test_that("prune_versions() unconditionally protects labeled-variant versions", 
   }
 
   # keep = 1 would normally delete all but the latest plain version.
-  prune_versions("features", keep = 1)
+  # Both label protection AND existing recent-runs protection cover all
+  # 12 versions, so the existing advisory fires; document it as
+  # intentional.
+  expect_warning(
+    prune_versions("features", keep = 1),
+    regexp = "protected|referenced"
+  )
 
   # The labeled version's hash (v = 1:100) must still be present.
   con <- .mr_get_connection()
