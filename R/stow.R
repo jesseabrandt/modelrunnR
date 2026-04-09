@@ -84,6 +84,7 @@ stow <- function(name, value) {
 
   .mr_refresh_latest_view(con, name)
   .mr_record_write(name, hash)
+  .mr_maybe_record_interactive_write(name, hash)
   invisible(hash)
 }
 
@@ -139,6 +140,7 @@ stow <- function(name, value) {
   }
 
   .mr_record_write(name, hash)
+  .mr_maybe_record_interactive_write(name, hash)
   invisible(hash)
 }
 

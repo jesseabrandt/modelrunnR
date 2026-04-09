@@ -60,6 +60,12 @@ launch <- function(script_path) {
   rec <- .mr_stop_recording()
   duration_ms <- as.integer(round((as.numeric(Sys.time()) - start_secs) * 1000))
 
+  # Surface inputs that trace back to interactive writes — design's
+  # "patched a table from the REPL and then a script depended on it"
+  # land mine. Done before writing the run row so the warning never
+  # looks at the current, in-progress run.
+  .mr_warn_interactive_inputs(step, rec$inputs)
+
   run_row <- .mr_write_run_row(
     step        = step,
     run_id      = run_id,
