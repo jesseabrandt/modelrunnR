@@ -58,11 +58,7 @@ prune_versions <- function(name = NULL,
     return(invisible(to_prune))
   }
 
-  protected <- if (force) {
-    data.frame(name = character(), hash = character(), stringsAsFactors = FALSE)
-  } else {
-    .mr_protected_version_hashes(con)
-  }
+  protected <- .mr_protected_version_hashes(con, force = force)
   # Membership test must be on (name, hash) PAIRS, not on hash alone:
   # two different logical names can happen to share a content hash, and
   # keying on hash alone lets one name's protection cross-contaminate
@@ -153,28 +149,65 @@ prune_versions <- function(name = NULL,
   as.difftime(seconds, units = "secs")
 }
 
-.mr_protected_version_hashes <- function(con) {
+.mr_protected_version_hashes <- function(con, force = FALSE) {
+  empty <- data.frame(name = character(), hash = character(),
+                      stringsAsFactors = FALSE)
+  if (force) return(empty)
+
   rows <- DBI::dbGetQuery(
     con,
     "SELECT outputs FROM _mr_runs WHERE outputs IS NOT NULL AND outputs <> '[]'"
   )
-  empty <- data.frame(name = character(), hash = character(),
-                      stringsAsFactors = FALSE)
-  if (nrow(rows) == 0L) return(empty)
   names_out  <- character()
   hashes_out <- character()
-  for (j in seq_len(nrow(rows))) {
-    pairs <- tryCatch(
-      jsonlite::fromJSON(rows$outputs[j], simplifyVector = FALSE),
-      error = function(e) list()
-    )
-    for (p in pairs) {
-      nm <- p$name %||% NA_character_
-      hs <- p$hash %||% NA_character_
-      names_out  <- c(names_out,  nm)
-      hashes_out <- c(hashes_out, hs)
+  if (nrow(rows) > 0L) {
+    for (j in seq_len(nrow(rows))) {
+      raw <- rows$outputs[j]
+      pairs <- if (is.na(raw) || !nzchar(raw)) {
+        list()
+      } else {
+        tryCatch(
+          jsonlite::fromJSON(raw, simplifyVector = FALSE),
+          error = function(e) list()
+        )
+      }
+      for (p in pairs) {
+        nm <- p$name %||% NA_character_
+        hs <- p$hash %||% NA_character_
+        names_out  <- c(names_out,  nm)
+        hashes_out <- c(hashes_out, hs)
+      }
     }
   }
+
+  # Additionally, protect all versions produced by labeled-variant runs.
+  # A labeled-variant version is unconditionally protected when force = FALSE
+  # so that labels act as "keep this" signals.
+  label_rows <- DBI::dbGetQuery(
+    con,
+    "SELECT outputs FROM _mr_runs WHERE variant_label IS NOT NULL"
+  )
+  if (nrow(label_rows) > 0L) {
+    for (j in seq_len(nrow(label_rows))) {
+      raw <- label_rows$outputs[j]
+      pairs <- if (is.na(raw) || !nzchar(raw)) {
+        list()
+      } else {
+        tryCatch(
+          jsonlite::fromJSON(raw, simplifyVector = FALSE),
+          error = function(e) list()
+        )
+      }
+      for (p in pairs) {
+        nm <- p$name %||% NA_character_
+        hs <- p$hash %||% NA_character_
+        names_out  <- c(names_out,  nm)
+        hashes_out <- c(hashes_out, hs)
+      }
+    }
+  }
+
+  if (length(names_out) == 0L) return(empty)
   df <- data.frame(name = names_out, hash = hashes_out,
                    stringsAsFactors = FALSE)
   unique(df)

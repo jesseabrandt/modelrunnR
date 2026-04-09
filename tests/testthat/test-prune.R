@@ -211,3 +211,52 @@ test_that("empty modelrunnR_artifacts/ dir is removed after a full-prune", {
   prune_versions("a", keep = 0, force = TRUE)
   expect_false(dir.exists(artifact_dir))
 })
+
+test_that("prune_versions() unconditionally protects labeled-variant versions", {
+  new_test_db()
+
+  # Use v = 1:100 to ensure a hash distinct from all plain-loop versions
+  # (k in 2:12 below), avoiding false-positive protection via
+  # "latest plain" logic rather than the label-protection path.
+  s <- write_script('stow("features", data.frame(v = 1:100))')
+  launch(s, label = "slow")
+
+  # Write many more plain versions to push the labeled one out of any
+  # `keep = N` window.
+  for (k in 2:12) {
+    s2 <- write_script(sprintf(
+      'stow("features", data.frame(v = 1:%d))', k
+    ))
+    launch(s2)
+  }
+
+  # keep = 1 would normally delete all but the latest plain version.
+  prune_versions("features", keep = 1)
+
+  # The labeled version's hash (v = 1:100) must still be present.
+  con <- .mr_get_connection()
+  labeled_hash <- DBI::dbGetQuery(
+    con,
+    "SELECT r.outputs FROM _mr_runs r WHERE r.variant_label = 'slow'"
+  )$outputs[[1L]]
+  pairs <- jsonlite::fromJSON(labeled_hash, simplifyVector = FALSE)
+  labeled_content_hash <- pairs[[1L]]$hash
+
+  remaining_hashes <- DBI::dbGetQuery(
+    con,
+    "SELECT content_hash FROM _mr_versions WHERE logical_name = 'features'"
+  )$content_hash
+
+  expect_true(labeled_content_hash %in% remaining_hashes)
+})
+
+test_that("prune_versions(force = TRUE) can delete labeled-variant versions", {
+  new_test_db()
+
+  s <- write_script('stow("features", data.frame(v = 1:3))')
+  launch(s, label = "slow")
+
+  prune_versions("features", keep_latest = TRUE, force = TRUE)
+  # keep_latest=TRUE + force should leave only the single latest row
+  expect_equal(nrow(versions("features")), 1L)
+})
