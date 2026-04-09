@@ -3,7 +3,7 @@
 ## code_hash = md5( script_byte_hash || '\n' || sorted(helper_byte_hashes) )
 ##
 ## The sort makes the hash order-stable across runs. Helpers are
-## contributed by their byte hash only — paths are not part of the
+## contributed by their byte hash only -- paths are not part of the
 ## hash so that moving a helper within the project doesn't force a
 ## spurious "code changed" result.
 

@@ -34,7 +34,7 @@ default 10 MB) or written to
 }
 
 Table and artifact names share a single logical namespace. A name
-cannot refer to both — \code{stow("x", df)} after \code{stow("x", model)}
+cannot refer to both -- \code{stow("x", df)} after \code{stow("x", model)}
 errors, and vice versa.
 
 Inside a tracked \code{\link[=launch]{launch()}}, the write is recorded as an output

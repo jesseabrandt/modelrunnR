@@ -4,7 +4,7 @@
 ## the write is attributed to a synthetic step id of the form
 ## `<interactive:YYYY-MM-DD HH:MM:OS3>`. One _mr_runs row is written
 ## per interactive write so later launches can detect when a script's
-## inputs trace back to the REPL — a reproducibility land mine the
+## inputs trace back to the REPL -- a reproducibility land mine the
 ## design doc explicitly wants surfaced.
 ##
 ## Interactive reads (`grab()` outside launch) are intentionally not
@@ -14,7 +14,7 @@
 .mr_maybe_record_interactive_write <- function(name, hash) {
   if (.mr_is_recording()) return(invisible(NULL))
   # launch() suppresses interactive tracking while resolving `data`
-  # — those stows are launch setup, not REPL activity.
+  # -- those stows are launch setup, not REPL activity.
   if (isTRUE(.mr_state$suppress_interactive)) return(invisible(NULL))
 
   con <- .mr_get_connection()
@@ -62,7 +62,7 @@
 
 # Emit one reproducibility warning per input that traces back to an
 # interactive write. Wording taken verbatim from docs/design.md
-# §"Interactive I/O".
+# section "Interactive I/O".
 .mr_warn_interactive_inputs <- function(step, inputs) {
   if (length(inputs) == 0L) return(invisible(NULL))
   con <- .mr_get_connection()

@@ -15,7 +15,7 @@
 #'   `<db_dir>/modelrunnR_artifacts/<name>__<hash>.qs2` otherwise.
 #'
 #' Table and artifact names share a single logical namespace. A name
-#' cannot refer to both — `stow("x", df)` after `stow("x", model)`
+#' cannot refer to both -- `stow("x", df)` after `stow("x", model)`
 #' errors, and vice versa.
 #'
 #' Inside a tracked [launch()], the write is recorded as an output
@@ -85,6 +85,7 @@ stow <- function(name, value) {
   .mr_refresh_latest_view(con, name)
   .mr_record_write(name, hash)
   .mr_maybe_record_interactive_write(name, hash)
+  .mr_maybe_warn_version_count(con, name)
   invisible(hash)
 }
 
@@ -141,10 +142,27 @@ stow <- function(name, value) {
 
   .mr_record_write(name, hash)
   .mr_maybe_record_interactive_write(name, hash)
+  .mr_maybe_warn_version_count(con, name)
   invisible(hash)
 }
 
 ## Internals ------------------------------------------------------------------
+
+.mr_maybe_warn_version_count <- function(con, name) {
+  threshold <- getOption("modelrunnR.version_warn_threshold", 20L)
+  count <- DBI::dbGetQuery(
+    con,
+    "SELECT COUNT(*) AS c FROM _mr_versions WHERE logical_name = ?",
+    params = list(name)
+  )$c[1]
+  if (count > threshold) {
+    warning(sprintf(
+      "'%s' has %d versions (threshold: %d). Consider running prune_versions('%s', ...) to reclaim storage.",
+      name, count, threshold, name
+    ), call. = FALSE)
+  }
+  invisible(NULL)
+}
 
 .mr_physical_name <- function(name, hash) {
   sprintf("%s__%s", name, substr(hash, 1L, 16L))

@@ -7,7 +7,7 @@
 ##
 ## Slice 1 recorded names only; Slice 3 evolved the shape to
 ## name/hash pairs once versioning landed. Deduplication is on
-## (name, hash) — if a script reads the exact same version twice,
+## (name, hash) -- if a script reads the exact same version twice,
 ## it is recorded once.
 
 .mr_start_recording <- function() {

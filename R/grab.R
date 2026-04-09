@@ -86,7 +86,7 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL, source = N
   qs2::qs_deserialize(bytes)
 }
 
-# Called by grab(source = …). Ingests when either (a) the name has
+# Called by grab(source = ...). Ingests when either (a) the name has
 # never been stored or (b) the current file's md5 differs from the
 # latest stored source_hash. Silently no-ops otherwise.
 .mr_maybe_ingest <- function(con, name, source) {
@@ -149,8 +149,10 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL, source = N
       params = list(name, hash)
     )
     if (nrow(row) == 0L) {
-      stop(sprintf("grab(): version '%s' for '%s' not found (pruned?)", hash, name),
-           call. = FALSE)
+      stop(sprintf(
+        "grab(): version '%s' for '%s' not found - the run's output has been pruned.",
+        hash, name
+      ), call. = FALSE)
     }
     return(row[1, , drop = FALSE])
   }

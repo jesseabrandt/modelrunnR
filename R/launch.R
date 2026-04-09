@@ -59,7 +59,7 @@ launch <- function(script_path, pin = NULL, data = NULL, external_inputs = NULL)
   # fresh hashes), then pin can override on name collisions.
   resolved_pins <- .mr_resolve_pins(pin, data)
 
-  # Advisory staleness check — report only, never auto-skip.
+  # Advisory staleness check -- report only, never auto-skip.
   staleness <- .mr_is_stale(step)
   .mr_print_staleness(step, staleness)
 
@@ -91,7 +91,7 @@ launch <- function(script_path, pin = NULL, data = NULL, external_inputs = NULL)
 
   code_hash <- .mr_code_hash(step, helpers)
 
-  # Surface inputs that trace back to interactive writes — design's
+  # Surface inputs that trace back to interactive writes -- design's
   # "patched a table from the REPL and then a script depended on it"
   # land mine. Done before writing the run row so the warning never
   # looks at the current, in-progress run.

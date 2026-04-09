@@ -38,15 +38,15 @@
 
   reasons <- character()
 
-  # 1 & 2: code hash arm — reconstruct using current helper bytes but
+  # 1 & 2: code hash arm -- reconstruct using current helper bytes but
   # the prior-known helper path list, and compare to the prior code_hash.
   reasons <- c(reasons, .mr_check_code_hash(step, prior))
 
-  # 3: input hash arm — iterate recorded inputs and compare to the
+  # 3: input hash arm -- iterate recorded inputs and compare to the
   # current latest version of each logical name.
   reasons <- c(reasons, .mr_check_inputs(con, prior$inputs[1]))
 
-  # 4: external input arm — recompute each declared file/env hash.
+  # 4: external input arm -- recompute each declared file/env hash.
   reasons <- c(reasons, .mr_check_external_inputs(prior$external_inputs[1]))
 
   list(stale = length(reasons) > 0L, reasons = reasons)
@@ -67,7 +67,7 @@
   code_reason <- character()
   for (h in helpers) {
     if (!file.exists(h$path)) {
-      return("code")  # helper disappeared → treat as changed
+      return("code")  # helper disappeared -> treat as changed
     }
     current_helpers[[h$path]] <- .mr_hash_bytes(.mr_read_file_bytes(h$path))
   }

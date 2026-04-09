@@ -6,7 +6,7 @@
 ## (or `stop_at`, used by tests to bound the walk).
 ##
 ## Kept internal (~20 LOC, no external deps) per docs/design.md
-## §"Connection and project layout".
+## section "Connection and project layout".
 
 .mr_project_markers <- function() {
   c("DESCRIPTION", ".Rproj", ".git/", "renv.lock", ".here")
@@ -17,7 +17,7 @@
     if (identical(m, ".git/")) {
       if (dir.exists(file.path(dir, ".git"))) return(TRUE)
     } else if (identical(m, ".Rproj")) {
-      # .Rproj is an extension, not a file name — look for any *.Rproj.
+      # .Rproj is an extension, not a file name -- look for any *.Rproj.
       # all.files = TRUE so literal ".Rproj" (a dotfile) is matched too.
       if (length(list.files(dir, pattern = "\\.Rproj$", all.files = TRUE)) > 0L) return(TRUE)
     } else {

@@ -16,7 +16,7 @@
   files <- external_inputs$files %||% character()
   envs  <- external_inputs$env   %||% character()
 
-  # File hashing (md5 via .mr_file_hash) — missing files error here.
+  # File hashing (md5 via .mr_file_hash) -- missing files error here.
   file_entries <- lapply(files, function(path) {
     if (!file.exists(path)) {
       stop(sprintf("launch(): declared external input file not found: %s", path),

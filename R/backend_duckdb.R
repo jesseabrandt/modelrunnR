@@ -2,7 +2,7 @@
 ##
 ## These are the only places in the package that are allowed to mention
 ## DuckDB directly. All other files route through the `.mr_*` helpers
-## defined here. See `docs/design.md` §"DuckDB-native in v0.1".
+## defined here. See `docs/design.md` section "DuckDB-native in v0.1".
 
 .mr_connect <- function(path) {
   # Create the parent directory lazily.
