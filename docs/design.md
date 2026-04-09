@@ -90,7 +90,7 @@ All function names below are placeholders; final naming to be revisited before t
 
 **Primary functions**:
 
-- **`read_table(name, source = NULL)`** — read a DuckDB table by name. If `source` is given and the table does not exist, `ingest()` is called under the hood. If the table exists but the recorded source hash differs from the current file at `source`, modelrunnR errors rather than silently re-ingesting (see Data mutation policy under Open questions). Outside a tracked run, behaves as a plain read.
+- **`read_table(name, source = NULL, version = NULL, from_run = NULL, as_of = NULL)`** — read a table. With no modifiers, returns the current latest version. If `source` is given and the table does not exist, `ingest()` is called under the hood. If `source` is given and the table exists with a different source hash, `ingest()` is called again and produces a new version (the old version remains queryable — see Versioning below). `version`, `from_run`, and `as_of` select specific historical versions. Outside a tracked run, behaves as a plain read.
 
 - **`write_table(name, data)`** — write an R data frame to a DuckDB table. Inside a tracked run, the write is recorded as an output. Outside a tracked run (e.g., from the REPL), the write is recorded under a synthetic interactive step identifier; see Interactive I/O below.
 
@@ -101,6 +101,10 @@ All function names below are placeholders; final naming to be revisited before t
 - **`run(script_path)`** — entry point for tracked execution. Sources `script_path` in an instrumented context, records observed I/O, measures wall-clock time, and writes a run record to the metadata table on completion.
 
 - **`db_path()`** — inspector; returns the currently-active DuckDB file path.
+
+- **`versions(name)`** — list all versions of a logical table or artifact. Returns a data frame with hash, first/last seen timestamps, size, and producing runs.
+
+- **`prune_versions(name = NULL, keep = NULL, keep_latest = FALSE, older_than = NULL, ...)`** — explicit, user-invoked garbage collection. Policy arguments include `keep = N` (most recent N), `keep_latest = TRUE` (only the current), `older_than = "30d"` (time-based). Versions referenced by recent run records are protected from pruning unless the user passes `force = TRUE`. Called without a name, applies to all tables and artifacts.
 
 **Configuration** is managed via R `options()`, not setter functions:
 
@@ -122,23 +126,86 @@ When `run(script_path)` is called:
 
 Errors during script execution should not prevent the run record from being written — a failed run is still a fact worth recording.
 
-### Metadata (sketch)
+### Versioning and non-destructive writes
 
-A metadata table lives inside the same DuckDB file as the artifacts. Exact schema is provisional and will be nailed down during implementation. Rough shape:
+Writes to tables and artifacts in modelrunnR are non-destructive by default. Every write is content-addressed, deduplicated, and preserved. The user opts into cleanup via explicit garbage collection (`prune_versions()`).
+
+The approach is a **hybrid**: content-addressed physical storage combined with a temporal metadata layer. Physical storage is like a git object store — keyed by the hash of what's inside. The metadata layer adds timestamps, run identifiers, and logical names on top, so users get temporal semantics without losing dedup.
+
+#### Physical layer
+
+When `write_table("features", df)` is called:
+
+1. Compute a stable, order-independent content hash of `df` (exact algorithm TBD; likely a streaming aggregate hash over sorted rows using DuckDB's built-in `hash()` function).
+2. Check whether a physical table `features__<hash>` already exists.
+3. **If it exists**: no new physical table is created. This is automatic dedup — running the same script twice with identical output costs nothing in storage. Metadata is updated to record that the current run also produced this hash.
+4. **If it doesn't exist**: create `features__<hash>` with the content and insert a metadata row linking the logical name `features`, the hash, the physical table, and the producing run.
+5. Create or update a DuckDB view named `features` pointing to the most recent hash.
+
+Artifacts follow the same pattern: serialized bytes are hashed, stored under a hash-keyed name (as a BLOB row or filesystem file depending on size), and the logical name resolves via metadata to the latest hash.
+
+#### Metadata layer
+
+Two tables in the DuckDB file alongside the user's data:
+
+**`_mr_versions`** — one row per distinct (logical name, content hash) pair:
+
+| column | type | meaning |
+|---|---|---|
+| `logical_name` | TEXT | user-facing name (e.g., `features`) |
+| `content_hash` | TEXT | hash of the stored content |
+| `physical_name` | TEXT | actual DuckDB table name or filesystem path |
+| `kind` | TEXT | `table` or `artifact` |
+| `first_seen` | TIMESTAMP | first time this hash was written |
+| `last_seen` | TIMESTAMP | most recent time a run produced this hash |
+| `size_bytes` | BIGINT | storage footprint (used for gc decisions) |
+
+**`_mr_runs`** — one row per tracked run:
 
 | column | type | meaning |
 |---|---|---|
 | `step` | TEXT | script path, relative to project root |
 | `run_id` | TEXT or BIGINT | unique identifier for this run |
-| `code_hash` | TEXT | hash of script file contents at run time |
-| `inputs` | TEXT (JSON) | list of tables observed to be read |
-| `outputs` | TEXT (JSON) | list of tables observed to be written |
-| `external_inputs` | TEXT (JSON) | user-declared external inputs (files, env vars) and their hashes |
+| `code_hash` | TEXT | hash of script + helper files at run time |
+| `inputs` | TEXT (JSON) | list of `{name, hash}` pairs for tables read |
+| `outputs` | TEXT (JSON) | list of `{name, hash}` pairs for tables and artifacts written |
+| `external_inputs` | TEXT (JSON) | declared external inputs (files, env vars) and their hashes |
 | `started_at` | TIMESTAMP | run start time |
 | `duration_ms` | BIGINT | wall-clock duration |
-| `status` | TEXT | success / error / running |
+| `status` | TEXT | `success` / `error` / `running` |
 
-The exact shape of `inputs` / `outputs` / `external_inputs` (JSON column vs. separate rows, how nested structure is stored) is TBD. Schema should use only portable SQL types so it can migrate to other analytical backends without a rewrite.
+Temporal semantics come from joining these: "what did run 42 produce for `features`?" → look up `_mr_runs` for run 42, find the `features` hash in its `outputs`, then resolve via `_mr_versions` to the physical table.
+
+Schema uses only portable SQL types so the metadata layer can migrate to other analytical backends without a rewrite.
+
+#### Read API
+
+```r
+# Read current latest (the normal case)
+read_table("features")
+
+# Read a specific version
+read_table("features", version = "ab3f7...")        # by content hash
+read_table("features", from_run = "run_42")         # via run metadata
+read_table("features", as_of = "2026-04-08 14:00")  # as-of-time lookup
+
+# Inspect history
+versions("features")
+# -> data.frame with columns: content_hash, first_seen, last_seen,
+#    size_bytes, produced_by_runs
+```
+
+#### Garbage collection
+
+Versioning is non-destructive by design, so disk grows over time. Two mechanisms for cleanup:
+
+**Automatic warning** when a logical table accumulates more than `getOption("modelrunnR.version_warn_threshold", 20)` versions. The warning surfaces on the next write or the next `run()` call, telling the user to consider running `prune_versions()`. No automatic pruning ever happens.
+
+**Explicit pruning** via `prune_versions()` (see User-facing API above). Policy arguments control what gets kept: `keep = N`, `keep_latest = TRUE`, `older_than = "30d"`. Versions referenced by recent run records (even if not "latest") are protected from pruning unless the user passes `force = TRUE` — this prevents gc from silently breaking `read_table(..., from_run = ...)` queries.
+
+#### Cost model
+
+Content hashing adds per-write overhead. For small tables this is negligible; for very large tables (tens of millions of rows) hashing costs non-trivial time and should use a fast streaming aggregate rather than materializing the full serialization in memory. Exact hash algorithm is TBD pending a survey of DuckDB's aggregate-hash capabilities, but the target is: stable across row/column order (so "the same data" always produces the same hash), fast (can handle ~100M rows in seconds), and deterministic (no salt).
 
 ### Connection and project layout
 
@@ -194,7 +261,6 @@ The precise definition of "an input has changed" when the input is a DuckDB tabl
 Decisions deferred to later conversations or to implementation time. Each has a brief status note.
 
 - **Function naming.** `read_table`, `write_table`, `ingest`, `save_artifact`, etc. are all placeholders. Final names should distinguish from DBI and dplyr idioms. TBD.
-- **Data mutation policy.** When a write would change existing table contents (most concretely, when `read_table(name, source = path)` detects that the source file's hash has changed since the recorded ingest), modelrunnR errors and requires explicit user resolution. But the *shape* of resolution — replace in place, create a new named version (e.g., `raw_v2`), keep a snapshot of the old version for diff/comparison, something more git-like — is not yet designed. More broadly: should writes that change existing table contents be non-destructive by default, with old versions preserved for inspection? This extends beyond ingestion to step outputs and is a significant design question parked until real usage reveals its shape. Interim behavior: error rather than silently overwrite.
 - **Project/DB location management.** v0.1 auto-detects a project root and uses `<root>/modelrunnR.duckdb`, overridable via `options()`. But workflows involving multiple DBs per project, swapping between artifact stores, or archiving old runs are not addressed. Parked for later.
 - **Parameter sweeps.** One script, multiple runs with different hyperparameters — how are they distinguished? (User has design thoughts; to be discussed next.)
 - **Rerun semantics.** When the user asks to rerun one step, what happens to downstream steps? Just that step? Downstream-that's-stale? Upstream-that's-stale plus that step plus downstream? TBD.
