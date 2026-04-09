@@ -39,6 +39,8 @@
   .mr_execute(con, sql)
   # Slice 7 addition: content hash of the script + its helpers.
   .mr_add_column_if_missing(con, "_mr_runs", "code_hash", "TEXT")
+  # Slice 8 addition: declared external inputs (files + env vars).
+  .mr_add_column_if_missing(con, "_mr_runs", "external_inputs", "TEXT")
 }
 
 .mr_migrate_versions <- function(con) {

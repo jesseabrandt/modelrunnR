@@ -16,10 +16,15 @@
 #' preceding `library(modelrunnR)`.
 #'
 #' @param script_path Path to the R script to run.
+#' @param external_inputs Optional named list with fields `files` (a
+#'   character vector of paths) and/or `env` (a character vector of
+#'   environment variable names). Each declared input is hashed and
+#'   recorded on the run row so later staleness checks can detect
+#'   changes. Missing files error *before* the script is sourced.
 #'
 #' @return The run record (one row of `_mr_runs`), invisibly.
 #' @export
-launch <- function(script_path) {
+launch <- function(script_path, external_inputs = NULL) {
   stopifnot(
     is.character(script_path),
     length(script_path) == 1L,
@@ -37,6 +42,10 @@ launch <- function(script_path) {
 
   # Ensure the connection + schema exist before we start timing user code.
   .mr_get_connection()
+
+  # Resolve declared external inputs up-front so a missing file errors
+  # before we write anything to _mr_runs.
+  resolved_ext <- .mr_resolve_external_inputs(external_inputs)
 
   .mr_start_recording()
   .mr_start_helper_tracking()
@@ -71,14 +80,15 @@ launch <- function(script_path) {
   .mr_warn_interactive_inputs(step, rec$inputs)
 
   run_row <- .mr_write_run_row(
-    step        = step,
-    run_id      = run_id,
-    inputs      = rec$inputs,
-    outputs     = rec$outputs,
-    started_at  = started_at,
-    duration_ms = duration_ms,
-    status      = status,
-    code_hash   = code_hash
+    step            = step,
+    run_id          = run_id,
+    inputs          = rec$inputs,
+    outputs         = rec$outputs,
+    started_at      = started_at,
+    duration_ms     = duration_ms,
+    status          = status,
+    code_hash       = code_hash,
+    external_inputs = resolved_ext
   )
 
   .mr_print_timing_summary(step, duration_ms, status)
@@ -112,17 +122,19 @@ launch <- function(script_path) {
 
 .mr_write_run_row <- function(step, run_id, inputs, outputs,
                               started_at, duration_ms, status,
-                              code_hash = NA_character_) {
+                              code_hash = NA_character_,
+                              external_inputs = list(files = list(), env = list())) {
   con <- .mr_get_connection()
   row <- data.frame(
-    step        = step,
-    run_id      = run_id,
-    inputs      = .mr_pairs_to_json(inputs),
-    outputs     = .mr_pairs_to_json(outputs),
-    started_at  = started_at,
-    duration_ms = duration_ms,
-    status      = status,
-    code_hash   = code_hash,
+    step            = step,
+    run_id          = run_id,
+    inputs          = .mr_pairs_to_json(inputs),
+    outputs         = .mr_pairs_to_json(outputs),
+    started_at      = started_at,
+    duration_ms     = duration_ms,
+    status          = status,
+    code_hash       = code_hash,
+    external_inputs = .mr_external_inputs_to_json(external_inputs),
     stringsAsFactors = FALSE
   )
   DBI::dbAppendTable(con, "_mr_runs", row)

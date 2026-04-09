@@ -4,10 +4,16 @@
 \alias{launch}
 \title{Launch an R script as a tracked modelrunnR step}
 \usage{
-launch(script_path)
+launch(script_path, external_inputs = NULL)
 }
 \arguments{
 \item{script_path}{Path to the R script to run.}
+
+\item{external_inputs}{Optional named list with fields \code{files} (a
+character vector of paths) and/or \code{env} (a character vector of
+environment variable names). Each declared input is hashed and
+recorded on the run row so later staleness checks can detect
+changes. Missing files error \emph{before} the script is sourced.}
 }
 \value{
 The run record (one row of \verb{_mr_runs}), invisibly.
