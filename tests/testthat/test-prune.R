@@ -163,6 +163,18 @@ test_that("older_than prunes by first_seen age", {
   expect_equal(nrow(v), 1L)
 })
 
+test_that("prune-all drops the logical view (no dangling pointer)", {
+  new_test_db()
+  stow_n_versions("t", 2)
+  con <- .mr_get_connection()
+  expect_true("t" %in% .mr_list_tables(con))
+
+  # Force-prune every version; the view over 't' must be dropped too.
+  prune_versions("t", keep = 0, force = TRUE)
+  expect_equal(nrow(versions("t")), 0L)
+  expect_false("t" %in% .mr_list_tables(con))
+})
+
 test_that("prune removes filesystem artifact files when storage = 'file'", {
   new_test_db()
   withr::local_options(list(modelrunnR.blob_threshold = 16L))

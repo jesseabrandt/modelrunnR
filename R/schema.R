@@ -64,6 +64,15 @@
   # ingested from so grab(source = path) can detect changes.
   .mr_add_column_if_missing(con, "_mr_versions", "source_uri",  "TEXT")
   .mr_add_column_if_missing(con, "_mr_versions", "source_hash", "TEXT")
+  # Belt-and-suspenders: the query-then-insert pattern in .mr_stow_*
+  # already prevents duplicates in single-writer operation, but the
+  # unique index makes the invariant enforced at the DB level against
+  # concurrent writers or hand-edited databases.
+  .mr_execute(
+    con,
+    "CREATE UNIQUE INDEX IF NOT EXISTS _mr_versions_logical_content_idx
+       ON _mr_versions (logical_name, content_hash)"
+  )
 }
 
 .mr_add_column_if_missing <- function(con, table, column, type) {

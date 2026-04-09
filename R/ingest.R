@@ -8,6 +8,13 @@
 #' `ingest()` routes through the same storage path as [stow()], so
 #' dedup, versioning, and view refresh all behave identically.
 #'
+#' @section Hashing contract:
+#' Column types inferred by DuckDB's `read_csv_auto()` may differ from
+#' the types of a frame you might `stow()` directly. Because the
+#' content hash is type-sensitive (see [stow()]'s hashing contract), a
+#' CSV round-trip through `ingest()` can produce a new version even
+#' when the values are numerically identical.
+#'
 #' @param name Logical name to store the loaded table under.
 #' @param source Path to a `.csv`, `.tsv`, or `.parquet` file.
 #'

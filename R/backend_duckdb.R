@@ -38,6 +38,17 @@
   DBI::dbWriteTable(con, name, value, overwrite = overwrite)
 }
 
+# Check whether `df` has non-default row names. DBI::dbWriteTable
+# silently discards row names, so callers should warn the user once
+# at the stow() boundary rather than leave the loss unmentioned.
+.mr_has_nondefault_rownames <- function(df) {
+  if (!is.data.frame(df) || nrow(df) == 0L) return(FALSE)
+  rn <- attr(df, "row.names")
+  if (is.integer(rn)) return(!identical(rn, seq_len(nrow(df))))
+  # Character row names are always non-default.
+  TRUE
+}
+
 .mr_table_read <- function(con, name) {
   DBI::dbReadTable(con, name)
 }
@@ -77,15 +88,23 @@
 
 # Content-hash a data frame in a row- and column-order-independent way.
 #
-# Algorithm (Slice 3 commitment; may be revisited):
+# Algorithm:
 #   1. Write `df` to a transient DuckDB temp table.
 #   2. Compute a per-row hash using DuckDB HASH() over columns in sorted
 #      column-name order. This makes the hash invariant to column order.
 #   3. STRING_AGG the row hashes in sorted row-hash order, separated by
 #      '|'. ORDER BY inside STRING_AGG is what makes the aggregate
-#      row-order invariant while preserving row multiplicity.
+#      row-order invariant (up to 64-bit HASH collisions; see below)
+#      while preserving row multiplicity.
 #   4. MD5 the aggregate string. Gives a compact 32-char hex digest that
 #      round-trips as VARCHAR.
+#
+# Caveat: the ORDER BY sort key is a 64-bit UBIGINT, so row pairs that
+# hash to the same value break the total-order guarantee. Birthday-bound
+# collision probability is ~0.03% at 100M distinct rows, acceptable at
+# v0.1 scale; a deterministic tiebreaker is tracked in docs/followups.md.
+# Type-sensitive: HASH(INTEGER 1) != HASH(DOUBLE 1.0), so changing a
+# column's R storage type produces a new version.
 #
 # An empty frame hashes on its sorted column names alone.
 .mr_hash_frame <- function(con, df) {

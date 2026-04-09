@@ -74,7 +74,13 @@
 
   current_code_hash <- .mr_code_hash(step, current_helpers)
   prior_code_hash   <- prior$code_hash[1]
-  if (is.na(prior_code_hash) || !identical(current_code_hash, prior_code_hash)) {
+  if (is.na(prior_code_hash)) {
+    # Pre-Slice-7 runs didn't record a code hash. Distinguish this from
+    # an actual mismatch so users upgrading an existing .duckdb can
+    # tell "we don't know" from "you edited the script".
+    return("code_unknown")
+  }
+  if (!identical(current_code_hash, prior_code_hash)) {
     return("code")
   }
   code_reason

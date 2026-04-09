@@ -25,6 +25,14 @@
 #' longer maintained for recent R versions, so modelrunnR uses its
 #' successor `qs2`, which provides the same fast/compact format.
 #'
+#' @section Hashing contract:
+#' The content hash for data frames is computed from the data as
+#' stored in DuckDB, which is **type-sensitive**: an `integer` column
+#' and a `double` column holding the same values produce different
+#' hashes. Round-tripping a frame through CSV (where `read_csv_auto`
+#' infers types) can therefore produce a new version even when the
+#' values are numerically identical. Row names are not persisted.
+#'
 #' @param name A length-one character vector. Logical name for the
 #'   value.
 #' @param value Any R value.
@@ -55,6 +63,14 @@ stow <- function(name, value) {
 # without re-hashing.
 .mr_stow_table <- function(name, value) {
   con  <- .mr_get_connection()
+  if (.mr_has_nondefault_rownames(value)) {
+    warning(
+      "stow(): row names are not persisted by the DuckDB backend. ",
+      "Convert to a column (e.g. with `tibble::rownames_to_column()`) ",
+      "if you need them.",
+      call. = FALSE
+    )
+  }
   # `.mr_hash_frame` creates a DuckDB temp table; DuckDB supports
   # transactional DDL so this is safe to run inside the wrapping
   # transaction below if we choose -- but we hash first so a bad value
@@ -222,7 +238,16 @@ stow <- function(name, value) {
       LIMIT 1",
     params = list(name)
   )
-  if (nrow(latest) == 0L) return(invisible(NULL))
+  if (nrow(latest) == 0L) {
+    # No versions left (prune-all). Drop the dangling view so direct
+    # SQL against the logical name fails cleanly instead of pointing at
+    # a dropped physical table.
+    .mr_execute(
+      con,
+      sprintf("DROP VIEW IF EXISTS %s", .mr_quote_ident(name))
+    )
+    return(invisible(NULL))
+  }
   sql <- sprintf(
     "CREATE OR REPLACE VIEW %s AS SELECT * FROM %s",
     .mr_quote_ident(name),

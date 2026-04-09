@@ -134,7 +134,16 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL, source = N
     if (nrow(run) == 0L) {
       stop(sprintf("grab(): no run with run_id '%s'", from_run), call. = FALSE)
     }
-    pairs <- jsonlite::fromJSON(run$outputs[1], simplifyVector = FALSE)
+    # Legacy/hand-edited rows can have NA or empty outputs; guard the
+    # JSON parse rather than crash with an opaque jsonlite error.
+    pairs <- if (is.na(run$outputs[1]) || !nzchar(run$outputs[1])) {
+      list()
+    } else {
+      tryCatch(
+        jsonlite::fromJSON(run$outputs[1], simplifyVector = FALSE),
+        error = function(e) list()
+      )
+    }
     hash <- NULL
     for (p in pairs) {
       if (identical(p$name, name)) { hash <- p$hash; break }
@@ -158,7 +167,11 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL, source = N
   }
 
   if (!is.null(as_of)) {
-    if (!inherits(as_of, "POSIXct")) as_of <- as.POSIXct(as_of)
+    # DuckDB TIMESTAMP columns are timezone-naive. Parse string inputs
+    # as UTC so `grab(as_of = "...")` is reproducible across machines
+    # regardless of session `TZ`. Users who need a local-time reading
+    # should pass an explicit POSIXct.
+    if (!inherits(as_of, "POSIXct")) as_of <- as.POSIXct(as_of, tz = "UTC")
     row <- DBI::dbGetQuery(
       con,
       "SELECT * FROM _mr_versions

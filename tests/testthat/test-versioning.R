@@ -125,3 +125,40 @@ test_that("grab(version = ...) errors cleanly when the hash is unknown", {
   stow("t", data.frame(x = 1))
   expect_error(grab("t", version = "deadbeef"), "version")
 })
+
+test_that("grab(from_run=) with NULL/empty outputs errors cleanly, not a JSON crash", {
+  new_test_db()
+  stow("t", data.frame(x = 1))
+  # Hand-insert a fake run row with NULL outputs to simulate legacy data.
+  con <- .mr_get_connection()
+  DBI::dbExecute(
+    con,
+    "INSERT INTO _mr_runs (step, run_id, inputs, outputs, started_at, duration_ms, status)
+     VALUES ('fake.R', 'fake_run', '[]', NULL, ?, 0, 'success')",
+    params = list(Sys.time())
+  )
+  expect_error(grab("t", from_run = "fake_run"), "did not produce")
+})
+
+test_that("grab(as_of = 'string') is reproducible across session TZ", {
+  new_test_db()
+  stow("t", data.frame(x = 1L))
+  Sys.sleep(0.05)
+  stow("t", data.frame(x = 2L))
+
+  # Both invocations must resolve identically to the UTC-parsed timestamp.
+  withr::with_envvar(c(TZ = "UTC"), {
+    r_utc <- grab("t", as_of = "3000-01-01 00:00:00")
+  })
+  withr::with_envvar(c(TZ = "US/Eastern"), {
+    r_est <- grab("t", as_of = "3000-01-01 00:00:00")
+  })
+  expect_equal(r_utc$x, r_est$x)
+})
+
+test_that("stow() warns when a data frame has non-default row names", {
+  new_test_db()
+  df <- data.frame(a = 1:3)
+  rownames(df) <- c("r1", "r2", "r3")
+  expect_warning(stow("with_rn", df), "row names are not persisted")
+})

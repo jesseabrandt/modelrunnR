@@ -44,3 +44,13 @@ Note on serialization: the design commits to \code{qs}; \code{qs} is no
 longer maintained for recent R versions, so modelrunnR uses its
 successor \code{qs2}, which provides the same fast/compact format.
 }
+\section{Hashing contract}{
+
+The content hash for data frames is computed from the data as
+stored in DuckDB, which is \strong{type-sensitive}: an \code{integer} column
+and a \code{double} column holding the same values produce different
+hashes. Round-tripping a frame through CSV (where \code{read_csv_auto}
+infers types) can therefore produce a new version even when the
+values are numerically identical. Row names are not persisted.
+}
+

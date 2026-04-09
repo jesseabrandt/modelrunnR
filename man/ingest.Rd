@@ -24,3 +24,12 @@ detect changes and re-ingest when needed.
 \code{ingest()} routes through the same storage path as \code{\link[=stow]{stow()}}, so
 dedup, versioning, and view refresh all behave identically.
 }
+\section{Hashing contract}{
+
+Column types inferred by DuckDB's \code{read_csv_auto()} may differ from
+the types of a frame you might \code{stow()} directly. Because the
+content hash is type-sensitive (see \code{\link[=stow]{stow()}}'s hashing contract), a
+CSV round-trip through \code{ingest()} can produce a new version even
+when the values are numerically identical.
+}
+
