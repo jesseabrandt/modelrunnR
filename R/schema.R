@@ -76,6 +76,17 @@
 }
 
 .mr_add_column_if_missing <- function(con, table, column, type) {
+  # SQL column types cannot be bound as parameters, so `type` is
+  # interpolated; constrain it to a small allowlist so a future caller
+  # can't accidentally open an injection vector.
+  valid_types <- c("TEXT", "BIGINT", "INTEGER", "DOUBLE",
+                   "BLOB", "TIMESTAMP", "BOOLEAN")
+  if (!(type %in% valid_types)) {
+    stop(sprintf(
+      ".mr_add_column_if_missing(): unsupported type '%s'. Allowed: %s",
+      type, paste(valid_types, collapse = ", ")
+    ), call. = FALSE)
+  }
   info <- DBI::dbGetQuery(
     con,
     sprintf("PRAGMA table_info(%s)", .mr_quote_ident(table))

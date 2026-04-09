@@ -46,3 +46,13 @@ hash differs from the latest stored \code{source_hash}, \code{ingest()}
 is called again and a new version is created. If the file is
 unchanged, the cached version is returned.
 }
+\section{Security note}{
+
+Artifacts stored via \code{\link[=stow]{stow()}} are deserialized on read with
+\code{qs2::qs_deserialize()}. Opening a project produced by someone else
+trusts the artifacts to the same extent as trusting that party's R
+code: \code{qs2} does not have \code{readRDS}'s historical callback
+arbitrary-code-execution surface, but it has not been independently
+audited. Do not \code{grab()} from projects you would not \code{source()}.
+}
+

@@ -30,14 +30,18 @@
 #'   implicit [ingest()] when the file hash differs from (or is not
 #'   yet present in) the stored source metadata.
 #'
+#' @section Security note:
+#' Artifacts stored via [stow()] are deserialized on read with
+#' `qs2::qs_deserialize()`. Opening a project produced by someone else
+#' trusts the artifacts to the same extent as trusting that party's R
+#' code: `qs2` does not have `readRDS`'s historical callback
+#' arbitrary-code-execution surface, but it has not been independently
+#' audited. Do not `grab()` from projects you would not `source()`.
+#'
 #' @return A data frame.
 #' @export
 grab <- function(name, version = NULL, from_run = NULL, as_of = NULL, source = NULL) {
-  stopifnot(
-    is.character(name),
-    length(name) == 1L,
-    nzchar(name)
-  )
+  .mr_validate_name(name, context = "grab")
   con <- .mr_get_connection()
 
   if (!is.null(source)) {

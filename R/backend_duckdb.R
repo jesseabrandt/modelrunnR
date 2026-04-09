@@ -69,10 +69,21 @@
 # parameters in the path slot, so we interpolate after escaping
 # single quotes. Paths come from user code, not untrusted input.
 .mr_read_file <- function(con, path) {
-  if (!file.exists(path)) {
+  # Null-byte guard: most C-level parsers treat nul as string terminator.
+  # Check the raw bytes rather than the R string (R strings cannot
+  # contain embedded nuls natively, but a file system or external API
+  # could still smuggle one in).
+  if (any(charToRaw(path) == as.raw(0L))) {
+    stop("ingest(): path contains a null byte.", call. = FALSE)
+  }
+  # Normalize first so `file.exists` and the SQL interpolation agree
+  # on the canonical path (closes a small TOCTOU gap where a relative
+  # path could resolve differently between the two calls).
+  normalized <- normalizePath(path, mustWork = FALSE)
+  if (!file.exists(normalized)) {
     stop(sprintf("ingest(): file does not exist: %s", path), call. = FALSE)
   }
-  ext <- tolower(tools::file_ext(path))
+  ext <- tolower(tools::file_ext(normalized))
   reader <- switch(
     ext,
     csv     = "read_csv_auto",
@@ -81,7 +92,7 @@
     pq      = "read_parquet",
     stop(sprintf("ingest(): unsupported file extension '%s'", ext), call. = FALSE)
   )
-  escaped <- gsub("'", "''", normalizePath(path, mustWork = TRUE), fixed = TRUE)
+  escaped <- gsub("'", "''", normalized, fixed = TRUE)
   sql <- sprintf("SELECT * FROM %s('%s')", reader, escaped)
   DBI::dbGetQuery(con, sql)
 }

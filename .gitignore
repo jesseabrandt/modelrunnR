@@ -3,3 +3,8 @@
 .RData
 .Ruserdata
 *.Rproj
+
+# modelrunnR runtime state
+*.duckdb
+*.duckdb.wal
+modelrunnR_artifacts/

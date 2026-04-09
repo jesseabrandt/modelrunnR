@@ -40,11 +40,7 @@
 #' @return `value`, invisibly.
 #' @export
 stow <- function(name, value) {
-  stopifnot(
-    is.character(name),
-    length(name) == 1L,
-    nzchar(name)
-  )
+  .mr_validate_name(name, context = "stow")
 
   if (is.data.frame(value)) {
     .mr_guard_namespace(name, "table")

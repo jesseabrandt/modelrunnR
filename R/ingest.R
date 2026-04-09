@@ -21,10 +21,8 @@
 #' @return The ingested data frame, invisibly.
 #' @export
 ingest <- function(name, source) {
+  .mr_validate_name(name, context = "ingest")
   stopifnot(
-    is.character(name),
-    length(name) == 1L,
-    nzchar(name),
     is.character(source),
     length(source) == 1L,
     nzchar(source)

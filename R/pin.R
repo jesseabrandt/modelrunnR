@@ -37,6 +37,7 @@
     if (!is.list(data) || is.null(names(data)) || any(!nzchar(names(data)))) {
       stop("launch(): `data` must be a named list.", call. = FALSE)
     }
+    for (nm in names(data)) .mr_validate_name(nm, context = "launch(data=)")
     .mr_state$suppress_interactive <- TRUE
     on.exit(.mr_state$suppress_interactive <- NULL, add = TRUE)
     for (nm in names(data)) {
@@ -58,6 +59,7 @@
     if (!is.list(pin) || is.null(names(pin)) || any(!nzchar(names(pin)))) {
       stop("launch(): `pin` must be a named list.", call. = FALSE)
     }
+    for (nm in names(pin)) .mr_validate_name(nm, context = "launch(pin=)")
     con <- .mr_get_connection()
     for (nm in names(pin)) {
       spec <- pin[[nm]]
