@@ -134,6 +134,29 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   # looks at the current, in-progress run.
   .mr_warn_interactive_inputs(step, rec$inputs)
 
+  # Auto-propagation: if the user didn't pass label= explicitly,
+  # inspect the observed inputs for labeled upstreams and inherit if
+  # all agree.
+  propagation_source <- NULL
+  if (is.na(label)) {
+    con_for_prop <- .mr_get_connection()
+    prop <- .mr_propagate_label(con_for_prop, rec$inputs)
+    if (!is.na(prop)) {
+      inherited_label <- unclass(prop)
+      label <- inherited_label
+      propagation_source <- .mr_first_input_producing(rec$inputs,
+                                                       con_for_prop,
+                                                       inherited_label)
+    } else if (!is.null(attr(prop, "disagreement"))) {
+      disagreement <- attr(prop, "disagreement")
+      warning(sprintf(
+        "ambiguous upstream variants: %s. Running without a label; pass label= to disambiguate.",
+        paste(sprintf("%s -> %s", names(disagreement), unlist(disagreement)),
+              collapse = ", ")
+      ), call. = FALSE)
+    }
+  }
+
   run_row <- .mr_write_run_row(
     step            = step,
     run_id          = run_id,
