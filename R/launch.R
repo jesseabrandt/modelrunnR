@@ -59,6 +59,10 @@ launch <- function(script_path, pin = NULL, data = NULL, external_inputs = NULL)
   # fresh hashes), then pin can override on name collisions.
   resolved_pins <- .mr_resolve_pins(pin, data)
 
+  # Advisory staleness check — report only, never auto-skip.
+  staleness <- .mr_is_stale(step)
+  .mr_print_staleness(step, staleness)
+
   .mr_start_recording()
   .mr_start_helper_tracking()
   .mr_start_pinning(resolved_pins)
@@ -102,7 +106,8 @@ launch <- function(script_path, pin = NULL, data = NULL, external_inputs = NULL)
     duration_ms     = duration_ms,
     status          = status,
     code_hash       = code_hash,
-    external_inputs = resolved_ext
+    external_inputs = resolved_ext,
+    helpers         = helpers
   )
 
   .mr_print_timing_summary(step, duration_ms, status)
@@ -137,7 +142,8 @@ launch <- function(script_path, pin = NULL, data = NULL, external_inputs = NULL)
 .mr_write_run_row <- function(step, run_id, inputs, outputs,
                               started_at, duration_ms, status,
                               code_hash = NA_character_,
-                              external_inputs = list(files = list(), env = list())) {
+                              external_inputs = list(files = list(), env = list()),
+                              helpers = list()) {
   con <- .mr_get_connection()
   row <- data.frame(
     step            = step,
@@ -149,10 +155,17 @@ launch <- function(script_path, pin = NULL, data = NULL, external_inputs = NULL)
     status          = status,
     code_hash       = code_hash,
     external_inputs = .mr_external_inputs_to_json(external_inputs),
+    helpers         = .mr_helpers_to_json(helpers),
     stringsAsFactors = FALSE
   )
   DBI::dbAppendTable(con, "_mr_runs", row)
   row
+}
+
+.mr_helpers_to_json <- function(helpers) {
+  if (length(helpers) == 0L) return("[]")
+  entries <- lapply(names(helpers), function(p) list(path = p, hash = helpers[[p]]))
+  jsonlite::toJSON(entries, auto_unbox = TRUE)
 }
 
 # Serialize a list of list(name, hash) pairs to a JSON array of objects.
@@ -168,4 +181,17 @@ launch <- function(script_path, pin = NULL, data = NULL, external_inputs = NULL)
     "modelrunnR: %s [%s] in %s ms",
     basename(step), status, format(duration_ms, big.mark = ",")
   ))
+}
+
+.mr_print_staleness <- function(step, staleness) {
+  if (!staleness$stale) {
+    message(sprintf("modelrunnR: %s is fresh", basename(step)))
+    return(invisible(NULL))
+  }
+  message(sprintf(
+    "modelrunnR: %s is stale (reasons: %s)",
+    basename(step),
+    paste(staleness$reasons, collapse = ", ")
+  ))
+  invisible(NULL)
 }

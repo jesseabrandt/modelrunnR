@@ -41,6 +41,10 @@
   .mr_add_column_if_missing(con, "_mr_runs", "code_hash", "TEXT")
   # Slice 8 addition: declared external inputs (files + env vars).
   .mr_add_column_if_missing(con, "_mr_runs", "external_inputs", "TEXT")
+  # Slice 10 addition: the set of helper files (path + byte hash)
+  # the run sourced. Needed so pre-run staleness checks can detect
+  # a helper's content changing without having to source the script.
+  .mr_add_column_if_missing(con, "_mr_runs", "helpers", "TEXT")
 }
 
 .mr_migrate_versions <- function(con) {
