@@ -2,7 +2,7 @@
 
 **Status**: Initial design, pre-implementation. Subject to revision as implementation surfaces new questions.
 
-**Last updated**: 2026-04-08
+**Last updated**: 2026-04-09
 
 ---
 
@@ -27,6 +27,14 @@ This is the single most important property of the design. Everything else falls 
 The MVP user interacts with modelrunnR through exactly two functions: `grab()` and `stow()`. They do not need to learn anything else to get staleness tracking, timing, and run history. Additional API surface (inspection, forced reruns, cleanup, run metadata queries) is layered on top and only needed when the user wants to *manage* their runs, not just execute them.
 
 A corollary: the adoption path from "existing R script that reads a CSV and fits a model" to "modelrunnR-tracked step" is a two-line change plus an entry-point swap (`source(script)` → `modelrunnR::launch(script)`).
+
+### Grabs are articulation points
+
+Every `grab()` call is a seam where behavior can be swapped at launch time. A script that reads a CSV path literal, a learning-rate literal, and a formula literal has zero articulation points — it produces one thing, one way. The same script rewritten to grab `features`, `params_xgb`, and `target_formula` has three, and the user can now vary any of them independently, track the history of each, and compose variants across them without editing the script.
+
+modelrunnR's job is to make articulation both **cheap** and **valuable**. Cheap: converting a hardcoded literal into a grab is a two-line rewrite. Valuable: each new grab unlocks a new axis of tracking, swapping, and discoverability — a reward for articulation, made visible on every launch via the grab/stow count in the timing summary.
+
+This principle is load-bearing for the parameter-sweep story (see *Variants and swappability* under *MVP architecture*), but it extends further. Feature substitution, "re-run this with yesterday's inputs," and "what if I swapped the regularizer" are all expressions of the same idea — substitution at grab time — and the package surfaces one mechanism (labeled variants) that covers all of them.
 
 ### DuckDB-native in v0.1; analytical-SQL-capable in the seams
 
@@ -80,29 +88,48 @@ Rejected because it adds a modal gate at exactly the wrong moment in the user's 
 
 Rejected in favor of "the script is the step." Explicit wrappers add ceremony without adding information — the framework can observe everything a wrapper would declare, and the script file is already a natural boundary for R code. This is closely related to the progressive-disclosure principle: the MVP user shouldn't need to learn a wrapper syntax.
 
+### Separate `pin` and `data` arguments on `launch()`
+
+An earlier draft split rebinding into two arguments: `pin` for specifying existing versions by hash or run ID, and `data` for inlining R values that would be stowed and then pinned. Rejected because users think in terms of intent (*"use this as `features`"*) rather than mechanism (*"reference vs. inline"*). The split created two arguments to remember, forced callers to merge defaults in two places, and made table-shaped parameters awkward — there was no round-trip-free way to say *"use the `features` table produced under the `slow_features` variant"* without hand-resolving hashes via `variants()`. A single polymorphic `rebind` argument, dispatching on whether the value is a bare R object or a reference constructor (`mr_hash()`, `mr_run()`, `mr_variant()`, `mr_as_of()`), collapses this to one concept and composes cleanly with the variant vocabulary — see *Variants and swappability*.
+
 ## MVP architecture
 
 This section is specific enough to guide implementation but intentionally leaves details open where the design hasn't converged.
 
 ### User-facing API (v0.1)
 
-Seven functions total. Names are considered committed for v0.1 design purposes but may be revised if they feel wrong during implementation.
+Ten user-facing functions plus four reference constructors used inside `rebind = list(...)`. Names are considered committed for v0.1 design purposes but may be revised if they feel wrong during implementation.
 
 **Primary functions**:
 
-- **`grab(name, source = NULL, version = NULL, from_run = NULL, as_of = NULL)`** — retrieve whatever is stowed under `name`. Returns the appropriate R type automatically: a data frame for tables, the original object for artifacts. With no selectors, returns the current latest version. If `source` is given and `name` does not exist, `ingest()` is called under the hood. If `source` is given and `name` exists with a different source hash, `ingest()` is called again and produces a new version (the old version remains queryable — see Versioning below). `version`, `from_run`, and `as_of` select specific historical versions. Outside a tracked launch, behaves as a plain read.
+- **`grab(name, source = NULL, version = NULL, from_run = NULL, as_of = NULL, variant = NULL)`** — retrieve whatever is stowed under `name`. Returns the appropriate R type automatically: a data frame for tables, the original object for artifacts. With no selectors, returns the current latest version. If `source` is given and `name` does not exist, `ingest()` is called under the hood. If `source` is given and `name` exists with a different source hash, `ingest()` is called again and produces a new version (the old version remains queryable — see Versioning below). `version`, `from_run`, `as_of`, and `variant` select specific historical versions — the last of these resolves to the latest `content_hash` produced under a labeled variant (see *Variants and swappability* below). Specifying more than one selector is an error. Outside a tracked launch, behaves as a plain read.
 
 - **`stow(name, value)`** — persist `value` under a logical name. Dispatches on type: data frames (and tibbles, data.tables) are stored as DuckDB tables; all other R objects are stored as artifacts (see Non-table storage below). Inside a tracked launch, the write is recorded as an output. Outside a tracked launch, it's recorded under a synthetic interactive step identifier; see Interactive I/O below.
 
 - **`ingest(name, source)`** — read a flat file (CSV, parquet, etc.) and load it into DuckDB as `name`, recording the source file path and content hash in metadata. Callable explicitly, or implicitly via `grab(name, source = ...)`.
 
-- **`launch(script_path, pin = NULL, data = NULL, external_inputs = NULL)`** — entry point for tracked execution. Sources `script_path` in an instrumented context, records observed I/O, measures wall-clock time, and writes a run record to the metadata table on completion. The `pin` argument accepts a named list mapping logical names to specific content hashes (or run IDs), forcing `grab()` calls inside the script to return the pinned versions rather than the latest. The `data` argument accepts a named list of R values; each is stowed under its name (getting a content hash) and then pinned for the duration of the launch. Together, `pin` and `data` are the primary mechanism for parameter sweeps — see Parameter passing and sweeps below. `external_inputs` allows declaring file paths or env vars that should be tracked as inputs for staleness.
+- **`launch(script_path, rebind = NULL, label = NULL, external_inputs = NULL)`** — entry point for tracked execution. Sources `script_path` in an instrumented context, records observed I/O, measures wall-clock time, and writes a run record to the metadata table on completion. The `rebind` argument accepts a named list mapping logical names to replacement values, overriding what each `grab()` inside the script resolves to; list values may be bare R objects (stowed inline through the normal versioning path) or reference constructors (`mr_hash()`, `mr_run()`, `mr_variant()`, `mr_as_of()`) that resolve to existing versions without round-tripping through R memory. The `label` argument marks the run as belonging to a tracked variant — a user-named experimental thread that survives code edits, is protected from `prune_versions()`, and is visible in `variants()`. Runs without a label are plain runs. See *Variants and swappability* below for the full semantics of rebinding, labels, and auto-propagation. `external_inputs` allows declaring file paths or env vars that should be tracked as inputs for staleness.
 
 - **`db_path()`** — inspector; returns the currently-active DuckDB file path.
 
 - **`versions(name)`** — list all versions of a logical name. Returns a data frame with content hash, first/last seen timestamps, size, and producing runs.
 
-- **`prune_versions(name = NULL, keep = NULL, keep_latest = FALSE, older_than = NULL, force = FALSE)`** — explicit, user-invoked garbage collection. Policy arguments include `keep = N` (most recent N), `keep_latest = TRUE` (only the current), `older_than = "30d"` (time-based). Versions referenced by recent run records are protected from pruning unless `force = TRUE`. Called without `name`, applies to all stored names.
+- **`prune_versions(name = NULL, keep = NULL, keep_latest = FALSE, older_than = NULL, force = FALSE)`** — explicit, user-invoked garbage collection. Policy arguments include `keep = N` (most recent N), `keep_latest = TRUE` (only the current), `older_than = "30d"` (time-based). Versions referenced by recent run records are protected from pruning unless `force = TRUE`. Versions whose producing run has a non-null `variant_label` are **unconditionally protected** — labels are the user's explicit "keep this" signal, and the normal `keep` / `older_than` policies do not apply to them. Only `force = TRUE` can delete labeled-variant versions. Called without `name`, applies to all stored names.
+
+- **`variants(script = NULL, name = NULL)`** — inspection. Returns a data frame listing labeled variants. Called with neither argument, lists every distinct label in the system. With `script =`, lists variants of that script. With `name =`, lists variants that have produced outputs under that logical name. Columns: `script`, `label`, `first_seen`, `last_seen`, `n_runs`, `latest_run_id`.
+
+- **`variants_unexplored(script)`** — discoverability. For each grab the script has historically made, returns which labeled upstreams exist and which have been exercised by this script. Columns: `logical_name`, `upstream_label`, `upstream_hash`, `last_seen`, `used_by_this_script`. A user scanning this table sees at a glance which experimental combinations they haven't run downstream yet.
+
+- **`prune_variants(script, label, dry_run = FALSE)`** — deletion of labeled variants. Both `script` and `label` are required (no global "delete all" shortcut). Counts affected runs and prints a summary before executing; `dry_run = TRUE` prints the summary without deleting. The deletion itself removes matching rows from `_mr_runs`; versions produced by those runs fall back under the normal "referenced by recent runs" protection, so downstream plain runs that consumed them keep their inputs resolvable. Downstream *labeled* variants are left alone — tearing down a whole labeled pipeline requires calling `prune_variants()` at each level.
+
+**Reference constructors** — small wrappers used inside `launch(rebind = list(...))` to address existing versions by identity instead of inlining R values. Each returns a tagged list that `launch()` resolves to a content hash before recording starts:
+
+- **`mr_hash(hash)`** — bind to a specific `content_hash`.
+- **`mr_run(run_id)`** — bind to whatever output that run produced under this name.
+- **`mr_variant(label)`** — bind to the latest hash produced under that labeled variant.
+- **`mr_as_of(time)`** — bind to the latest hash as of a point in time.
+
+These mirror the selector arguments on `grab()` (`version`, `from_run`, `variant`, `as_of`) so both launch-time rebinding and in-script grabbing share a single vocabulary for addressing values.
 
 **Configuration** is managed via R `options()`, not setter functions:
 
@@ -114,14 +141,16 @@ There is no `connect()` function — the name would collide with `DBI::dbConnect
 
 ### Execution flow
 
-When `launch(script_path)` is called:
+When `launch(script_path, rebind = NULL, label = NULL)` is called:
 
 1. Compute the content hash of the script file.
 2. Open (or reuse) the DuckDB connection for the current artifact store.
 3. Establish a recording context that instruments `grab()` / `stow()` calls made during the source.
-4. `source()` the script in that context.
-5. On completion (success or failure), write a run record to the metadata table with: step identifier (script path), code hash, observed inputs, observed outputs, start timestamp, duration, status.
-6. Surface timing output to the user.
+4. If `rebind` is non-empty, populate the rebind map: bare R values are stowed through the normal versioning path and their resulting content hashes recorded; `mr_*()` references are resolved to content hashes directly. The rebind map overrides default `grab()` resolution for the duration of the launch.
+5. `source()` the script in that context.
+6. Resolve the run's `variant_label`: if `label =` was passed, use it; otherwise, if all labeled upstreams among the observed grabs agree on a single label, inherit it and emit a launch-time message; otherwise leave `variant_label` NULL (with a warning if upstreams disagreed).
+7. On completion (success or failure), write a run record to the metadata table with: step identifier (script path), code hash, observed inputs, observed outputs, `variant_label`, external inputs, start timestamp, duration, status.
+8. Surface timing output to the user. The summary always includes the script path, status, wall-clock duration, and counts of `grab()` and `stow()` calls observed during the run. When `variant_label` is non-null, a variant line is appended naming the label and (if auto-inherited) its upstream source.
 
 Errors during script execution should not prevent the run record from being written — a failed run is still a fact worth recording.
 
@@ -169,9 +198,12 @@ Two tables in the DuckDB file alongside the user's data:
 | `inputs` | TEXT (JSON) | list of `{name, hash}` pairs for tables read |
 | `outputs` | TEXT (JSON) | list of `{name, hash}` pairs for tables and artifacts written |
 | `external_inputs` | TEXT (JSON) | declared external inputs (files, env vars) and their hashes |
+| `variant_label` | TEXT (nullable) | user-provided or auto-propagated label; NULL for plain runs |
 | `started_at` | TIMESTAMP | run start time |
 | `duration_ms` | BIGINT | wall-clock duration |
 | `status` | TEXT | `success` / `error` / `running` |
+
+The relationship *variant → version* is derived via `_mr_runs.outputs`; no separate `_mr_variants` metadata table is introduced in v0.1 (deferred until labels need lifecycle attributes beyond what fits on a run row).
 
 Temporal semantics come from joining these: "what did run 42 produce for `features`?" → look up `_mr_runs` for run 42, find the `features` hash in its `outputs`, then resolve via `_mr_versions` to the physical table.
 
@@ -239,50 +271,73 @@ When `stow()` is called with a value that isn't a data frame, it's persisted as 
 
 This catches the "I manually patched a table in the REPL and then a script started depending on it" failure mode, which is exactly the kind of non-reproducibility land mine the framework should surface.
 
-### Parameter passing and sweeps
+### Variants and swappability
 
-modelrunnR has no special concept of "parameters." Parameters are just versioned tables, and sweeps are just loops around `launch()` that pin different versions of the parameter table(s). This pattern falls out of the versioning system without any framework-level support for sweeps as a first-class concept.
+modelrunnR has no special concept of "parameters." Parameters are values a script grabs, and a sweep is a loop around `launch()` that varies which value each grab resolves to. This falls out of the versioning system: each iteration binds different inputs, so each produces distinct output versions that coexist automatically.
 
-The typical pattern (inline data variant):
+But sweeps are not a distinct feature. They are one application of a broader principle: **every `grab()` call is a default binding that `launch()` can rebind.** The machinery has two pieces, orthogonal in role.
+
+**Rebinding — the `rebind` argument.** `launch(script, rebind = list(...))` accepts a named list that overrides what each grab in the script resolves to. The list is polymorphic on what you pass:
+
+- A **bare R value** (typically a data frame, but any R object) — stowed into DuckDB, hashed, and bound for the duration of the launch. Ergonomic for config-shaped inputs that naturally live in R memory.
+- **`mr_hash("ab3f...")`** — binds to a specific content hash.
+- **`mr_run("run_42")`** — binds to whatever output that run produced under this name.
+- **`mr_variant("slow_features")`** — binds to the latest hash produced under that labeled variant (see *Identity* below).
+- **`mr_as_of("2026-04-08")`** — binds to the latest hash as of a point in time.
+
+These forms are deliberately parallel to the selector arguments on `grab()` itself (`version`, `from_run`, `as_of`, `variant`) so launch-time rebinding and in-script grabbing share a single mental model for addressing values. **Bare R values stow; `mr_*()` references do not** — for large tables that should stay in DuckDB, reach for a reference.
+
+**Identity — the `label` argument.** `launch(script, label = "...")` marks a run as belonging to a tracked **variant**: a user-named experimental thread the framework remembers and protects. Labels are free-text strings (`"eta_0.01"`, `"fast_features"`). A run without a label is a plain run, exactly as today. A run with a label is a variant — addressable via `grab(name, variant = ...)` or `rebind = list(name = mr_variant(...))`, protected from `prune_versions()`, and visible in `variants()`.
+
+The key distinction: **`rebind` delivers values; `label` confers identity.** Passing `rebind =` without `label =` is valid and common — it says "run the script with these values, but I'm not claiming a distinct experimental thread." Casual iteration (edit, run, edit, run) stays plain; only explicit labels mint variants. Labels also span code edits: a comment tweak in `fit_xgb.R` changes `code_hash` but not the label, so tomorrow's `launch("fit_xgb.R", label = "eta_0.01", rebind = ...)` is a new run of the same labeled variant with a fresh `code_hash` recorded for audit.
+
+**Auto-propagation.** When a downstream script launches without an explicit label, modelrunnR inspects the resolved hashes of its grabs. If all labeled upstreams agree on one label, the downstream run inherits it automatically and a launch-time message announces the inheritance:
+
+```
+modelrunnR: predict.R [success] in 2,312 ms (3 grabs, 1 stow)
+  variant: eta_0.01 (inherited from model_xgb)
+```
+
+If upstreams disagree, the run is plain and a warning surfaces the ambiguity:
+
+```
+ambiguous upstream variants: model_xgb → eta_0.01, features → fast_features.
+Running without a label; pass label= to disambiguate.
+```
+
+Propagation only extends labels along paths the user has not contradicted — it never invents new ones — so variant count is bounded by the labels users deliberately created.
+
+**Examples.**
+
+A hyperparameter sweep, using bare values (config-shaped, naturally in R memory):
 
 ```r
 configs <- list(
-  list(nrounds = 100, eta = 0.10),
-  list(nrounds = 200, eta = 0.05),
-  list(nrounds = 500, eta = 0.01)
+  list(label = "eta_0.10", nrounds = 100, eta = 0.10),
+  list(label = "eta_0.05", nrounds = 200, eta = 0.05),
+  list(label = "eta_0.01", nrounds = 500, eta = 0.01)
 )
 
 for (cfg in configs) {
   launch("fit_xgb.R",
-      data = list(params_xgb = as.data.frame(cfg)))
+    rebind = list(params_xgb = as.data.frame(cfg[c("nrounds", "eta")])),
+    label  = cfg$label)
 }
 ```
 
-Inside `fit_xgb.R`:
+A feature-set sweep, using variant references (table-shaped, stays in DuckDB):
 
 ```r
-params   <- grab("params_xgb")
-features <- grab("features")
-model    <- xgboost::xgb.train(features,
-                               nrounds = params$nrounds,
-                               eta     = params$eta)
-stow("predictions", predict_fn(model, features))
-```
-
-Because each iteration writes a different `params_xgb`, each run's input hashes differ, so each run produces distinct output versions under the hybrid versioning system. The three runs' `predictions` outputs coexist automatically and are addressable via `from_run` or `version` in subsequent reads.
-
-For reusing parameter tables already written to DuckDB, `pin` is the alternative:
-
-```r
-hashes <- versions("params_xgb")$content_hash
-for (h in hashes) {
-  launch("fit_xgb.R", pin = list(params_xgb = h))
+for (fs in c("slow", "fast", "huge")) {
+  launch("fit_xgb.R",
+    rebind = list(features = mr_variant(paste0(fs, "_features"))),
+    label  = paste0("fit_", fs))
 }
 ```
 
-If neither `pin` nor `data` is passed, `grab()` calls inside the script resolve to the current latest version — the natural default for non-sweep runs.
+A subsequent `launch("predict.R")` without an explicit label will grab `model_xgb`, see it came from a labeled variant, and inherit that label. `grab("predictions", variant = "eta_0.01")` then works across days, code edits, and downstream scripts — the label is the durable handle, the hash is the audit trail.
 
-**Status**: tentative pending implementation. The concrete shapes of `pin` and `data` may change once the `launch()` execution context is built and the user experience of running sweeps is observable.
+**Explicitly deferred past v0.1:** `rename_variant()` (to fix label typos), `launch_unexplored()` (run the missing combinations reported by `variants_unexplored()`), and an automatic labeled-cascade mode on `prune_variants()`. See *Open questions*.
 
 ## Staleness model
 
@@ -293,6 +348,8 @@ A step is **stale** if any of the following hold:
 3. Any of its declared external inputs (files, env vars) have changed since the most recent run.
 
 A step is **fresh** only if none of the above hold.
+
+**Per-variant staleness.** When a variant is in play, staleness is evaluated *per variant*, not per script. Two runs of `fit_xgb.R` under labels `eta_0.01` and `eta_0.05` each have their own staleness state — edits to the script invalidate both (code hash), but changes to upstream inputs only invalidate the variants that actually grabbed those upstreams. For plain (unlabeled) runs, staleness is evaluated per script as before.
 
 The precise definition of "an input has changed" when the input is a DuckDB table (does the table itself have a hash? is it enough that the upstream step ran again?) is an open question. The likely answer is: track the `run_id` of the upstream step that produced each input, and consider an input changed if a newer upstream run exists.
 
@@ -306,14 +363,14 @@ The precise definition of "an input has changed" when the input is a DuckDB tabl
 
 Decisions deferred to later conversations or to implementation time. Each has a brief status note.
 
-- **Function naming (revisitable).** Current names: `grab`, `stow`, `ingest`, `launch`, `db_path`, `versions`, `prune_versions`. Committed for v0.1 design purposes and to serve as the plan's vocabulary. May be revised if they feel wrong once the API is being used regularly. Low priority.
+- **Function naming (revisitable).** Current names: `grab`, `stow`, `ingest`, `launch`, `db_path`, `versions`, `prune_versions`, `variants`, `variants_unexplored`, `prune_variants`, plus the `mr_hash` / `mr_run` / `mr_variant` / `mr_as_of` reference constructors. Committed for v0.1 design purposes and to serve as the plan's vocabulary. May be revised if they feel wrong once the API is being used regularly. Low priority.
 - **Project/DB location management.** v0.1 auto-detects a project root and uses `<root>/modelrunnR.duckdb`, overridable via `options()`. But workflows involving multiple DBs per project, swapping between artifact stores, or archiving old runs are not addressed. Parked for later.
-- **Parameter sweeps (validation pending).** Current direction is documented in *Parameter passing and sweeps* above: parameters as versioned tables, `launch(..., pin = ...)` or `launch(..., data = ...)` as the switching mechanism. Marked tentative because the ergonomics of `pin`/`data` need implementation experience to validate.
+- **Ergonomics of rebinding and labels (validation pending).** Current direction is documented in *Variants and swappability* above: one polymorphic `rebind` argument that accepts bare R values or `mr_*()` reference constructors, plus an identity-conferring `label` argument with auto-propagation from labeled upstreams. Marked tentative because the unified shape needs implementation experience to validate — in particular, whether bare-value dispatch inside `rebind` feels natural or surprising in practice, and whether the auto-propagation warning on upstream disagreement is the right default.
 - **Rerun semantics.** When the user asks to rerun one step, what happens to downstream steps? Just that step? Downstream-that's-stale? Upstream-that's-stale plus that step plus downstream? TBD.
 - **Multi-script workflows.** How does the user run multiple scripts as a pipeline? Is there a `launch_all()` that discovers stale scripts and runs them in dependency order? TBD.
 - **"Manage runs" API.** Shape of the introspection/control API — `run_status()`, `run_history()`, `forget_step()`, `drop_artifact()`, etc. TBD.
-- **`data`/`pin` + script `stow()` collisions.** (Surfaced during planning of `docs/plan.md` Slice 9.) If `launch(..., data = list(p = df))` is called and the script also calls `stow("p", ...)`, what semantics apply? Candidates: (a) error on the second write, (b) record a new version normally via the hybrid versioning path, (c) silently overwrite the pinned value for subsequent grabs in the same launch. Plan's tentative direction: (b). Revisit once the first real sweep surfaces surprising behavior.
-- **Scope of "recent run records" for GC protection.** (Surfaced during planning of `docs/plan.md` Slice 11.) `prune_versions()` protects versions referenced by "recent" run records unless `force = TRUE`. What counts as "recent"? Candidates: all non-pruned runs, the last N runs, runs within an age window, or an explicit retention policy. Plan's tentative direction: all non-pruned runs. Revisit once version histories get large enough for the distinction to matter.
+- **`rebind` + script `stow()` collisions (resolved — kept for discoverability).** If `launch(..., rebind = list(p = df))` is called and the script also calls `stow("p", ...)`, what semantics apply? **Resolution:** bindings and stows are separate axes — a rebind is a grab-side input override, a stow is an output-side write. Both happen independently: the rebound value governs `grab("p")` calls inside the script, and the stow records a new version for `p` as an output through the normal hybrid-versioning path. No collision.
+- **Scope of "recent run records" for GC protection (partially resolved).** (Surfaced during planning of `docs/plan.md` Slice 11.) `prune_versions()` protects versions referenced by "recent" run records unless `force = TRUE`. Versions whose producing run has a non-null `variant_label` are now **unconditionally protected** (see *User-facing API*), resolving the question for labeled-variant runs. For *unlabeled* runs, the original question remains open: what counts as "recent"? Candidates: all non-pruned runs, the last N runs, runs within an age window, or an explicit retention policy. Plan's tentative direction: all non-pruned runs. Revisit once version histories get large enough for the distinction to matter.
 - **Input-change rule for staleness (locked tentatively).** (Related to the open question already noted in *Staleness model* — surfaced again during planning of `docs/plan.md` Slice 10.) A downstream input is considered "changed" only if the upstream content hash differs, not merely if the upstream run_id is newer. Plan commits to the stricter rule; design may relax it if real usage shows pain.
 
 ## Out of scope

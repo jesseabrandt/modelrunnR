@@ -167,3 +167,50 @@ code, and the audit reviewer that flagged it.
   Returns a data frame of stale steps across all `_mr_runs` paths. Out of
   scope for the audit-remediation slice. Implement post-v0.1 if users ask.
   `[design]`
+
+- **Bulk variant operations** — `rename_variant(script, old_label, new_label)`
+  for fixing label typos, `launch_unexplored(script)` to actually run the
+  missing combinations surfaced by `variants_unexplored()`, and an automatic
+  labeled-cascade mode on `prune_variants(..., cascade = TRUE)` that walks
+  downstream labeled variants. All deferred from the swappability design
+  (see `design.md` *Variants and swappability*). Cascade deletion is
+  policy-heavy; hold until real usage shows the right default. `[design]`
+
+- **Virtual stow / inline recomputation** — a per-name knob marking an
+  intermediate as "virtual": not materialized to disk, recomputed on demand
+  by recursively re-launching the producing script. Swaps storage cost for
+  compute cost; useful when intermediates are cheap to compute (~seconds)
+  but expensive to store (~100s of MB). Composes cleanly with variants —
+  `grab("features", variant = "eta_0.01")` would recompute that upstream.
+  Architectural hooks to preserve in v0.1: keep the grab-side read path in
+  `R/grab.R` free of "rows are always stored" assumptions so a future
+  `materialization` column check drops in at the top of the resolver; keep
+  any `_mr_versions.materialization` column addition purely additive. The
+  user-facing shape (package-wide option, per-stow flag at write time, or
+  per-name marker) is explicitly unresolved. `[design]`
+
+- **Script move detection + `rename_step()`** — if a user moves
+  `fit_xgb.R` to `models/fit_xgb.R`, naive launching creates fresh runs
+  under the new `step` path, visually splitting history. `_mr_runs.code_hash`
+  already provides a near-free detection signal: a new launch whose
+  `code_hash` matches prior runs under a different `step` path is
+  (probably) a move. Surface as an advisory message at launch time, and
+  offer `rename_step(old_path, new_path)` — a ~20-line UPDATE over
+  `_mr_runs` rewriting the `step` column. Automatic silent re-parenting
+  is rejected: two unrelated near-empty scripts can share a `code_hash`
+  in principle, and silent re-parenting on a false positive is a bad
+  failure mode. `[design]`
+
+- **Label validators** — v0.1 labels are free-text. Typo drift
+  (`"eta_0.01"` vs `"eta_.01"`) is a real risk users can self-police in
+  loop bodies. Post-v0.1, consider a label registry or a
+  `valid_labels = c(...)` constraint argument on `launch()`. `[design]`
+
+- **Vignette note on the `y ~ .` sharp edge** — the features-as-parameter
+  pattern documented in *Variants and swappability* has one hazard: `y ~ .`
+  means "all non-`y` columns in whatever frame you pass." Swapping a
+  20-column features table for a 25-column one silently picks up five new
+  predictors — usually fine for tree learners, occasionally surprising for
+  regularized linear models. This is an R formula-semantics issue, not a
+  modelrunnR issue, but the introductory vignette should name it in one
+  sentence so readers don't get bitten. `[readability]`
