@@ -4,7 +4,14 @@
 \alias{grab}
 \title{Retrieve a value from the modelrunnR artifact store}
 \usage{
-grab(name, version = NULL, from_run = NULL, as_of = NULL, source = NULL)
+grab(
+  name,
+  version = NULL,
+  from_run = NULL,
+  as_of = NULL,
+  source = NULL,
+  variant = NULL
+)
 }
 \arguments{
 \item{name}{A length-one character vector naming a logical value.}
@@ -22,6 +29,11 @@ that was latest at that time.}
 \item{source}{Optional path to a CSV or Parquet file. Triggers an
 implicit \code{\link[=ingest]{ingest()}} when the file hash differs from (or is not
 yet present in) the stored source metadata.}
+
+\item{variant}{Optional string; resolves to the latest version produced
+by any run launched with \code{label = variant}. Mutually exclusive with
+\code{version}, \code{from_run}, and \code{as_of}. See \emph{Variants and swappability}
+in docs/design.md for the full semantics.}
 }
 \value{
 A data frame.

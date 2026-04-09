@@ -57,11 +57,16 @@
       hash    = .mr_resolve_ref_hash(con, name, value$value),
       run     = .mr_resolve_ref_run(con, name, value$value),
       as_of   = .mr_resolve_ref_as_of(con, name, value$value),
-      variant = stop(
-        "launch(rebind=): mr_variant() resolution is not yet implemented ",
-        "(scheduled for Slice C of the swappability plan).",
-        call. = FALSE
-      ),
+      variant = {
+        hash <- .mr_latest_hash_for_variant(con, name, value$value)
+        if (is.null(hash)) {
+          stop(sprintf(
+            "launch(rebind=): mr_variant('%s') has not produced '%s'.",
+            value$value, name
+          ), call. = FALSE)
+        }
+        hash
+      },
       stop(sprintf("launch(rebind=): unknown reference kind '%s'.", value$kind),
            call. = FALSE)
     )

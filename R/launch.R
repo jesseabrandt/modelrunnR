@@ -36,12 +36,16 @@
 #'   environment variable names). Each declared input is hashed and
 #'   recorded on the run row so later staleness checks can detect
 #'   changes. Missing files error *before* the script is sourced.
+#' @param label Optional string marking this run as belonging to a tracked
+#'   variant (labeled experimental thread). Empty / whitespace-only labels
+#'   are rejected; whitespace is trimmed. See *Variants and swappability*
+#'   in docs/design.md for the full semantics.
 #' @param ... Reserved for future arguments and for catching the
 #'   removed `pin`/`data` arguments with a clear error message.
 #'
 #' @return The run record (one row of `_mr_runs`), invisibly.
 #' @export
-launch <- function(script_path, rebind = NULL, external_inputs = NULL, ...) {
+launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = NULL, ...) {
   dots <- list(...)
   if ("pin" %in% names(dots) || "data" %in% names(dots)) {
     stop(
@@ -57,6 +61,7 @@ launch <- function(script_path, rebind = NULL, external_inputs = NULL, ...) {
                  paste(names(dots), collapse = ", ")),
          call. = FALSE)
   }
+  label <- .mr_validate_label(label)
   stopifnot(
     is.character(script_path),
     length(script_path) == 1L,
@@ -139,7 +144,8 @@ launch <- function(script_path, rebind = NULL, external_inputs = NULL, ...) {
     status          = status,
     code_hash       = code_hash,
     external_inputs = resolved_ext,
-    helpers         = helpers
+    helpers         = helpers,
+    variant_label   = label
   )
 
   .mr_print_timing_summary(step, duration_ms, status)
@@ -175,7 +181,8 @@ launch <- function(script_path, rebind = NULL, external_inputs = NULL, ...) {
                               started_at, duration_ms, status,
                               code_hash = NA_character_,
                               external_inputs = list(files = list(), env = list()),
-                              helpers = list()) {
+                              helpers = list(),
+                              variant_label = NA_character_) {
   con <- .mr_get_connection()
   row <- data.frame(
     step            = step,
@@ -188,6 +195,7 @@ launch <- function(script_path, rebind = NULL, external_inputs = NULL, ...) {
     code_hash       = code_hash,
     external_inputs = .mr_external_inputs_to_json(external_inputs),
     helpers         = .mr_helpers_to_json(helpers),
+    variant_label   = variant_label,
     stringsAsFactors = FALSE
   )
   DBI::dbAppendTable(con, "_mr_runs", row)

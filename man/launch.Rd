@@ -4,7 +4,7 @@
 \alias{launch}
 \title{Launch an R script as a tracked modelrunnR step}
 \usage{
-launch(script_path, rebind = NULL, external_inputs = NULL, ...)
+launch(script_path, rebind = NULL, label = NULL, external_inputs = NULL, ...)
 }
 \arguments{
 \item{script_path}{Path to the R script to run.}
@@ -15,6 +15,11 @@ R objects (stowed inline through the normal versioning path) or
 reference constructors (\code{\link[=mr_hash]{mr_hash()}}, \code{\link[=mr_run]{mr_run()}}, \code{\link[=mr_variant]{mr_variant()}},
 \code{\link[=mr_as_of]{mr_as_of()}}) that resolve to existing versions without
 round-tripping through R memory.}
+
+\item{label}{Optional string marking this run as belonging to a tracked
+variant (labeled experimental thread). Empty / whitespace-only labels
+are rejected; whitespace is trimmed. See \emph{Variants and swappability}
+in docs/design.md for the full semantics.}
 
 \item{external_inputs}{Optional named list with fields \code{files} (a
 character vector of paths) and/or \code{env} (a character vector of

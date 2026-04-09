@@ -22,13 +22,14 @@
   step <- sprintf("<interactive:%s>", format(now, "%Y-%m-%d %H:%M:%OS3"))
 
   row <- data.frame(
-    step        = step,
-    run_id      = .mr_new_run_id(),
-    inputs      = "[]",
-    outputs     = .mr_pairs_to_json(list(.mr_pair(name, hash))),
-    started_at  = now,
-    duration_ms = 0L,
-    status      = "interactive",
+    step          = step,
+    run_id        = .mr_new_run_id(),
+    inputs        = "[]",
+    outputs       = .mr_pairs_to_json(list(.mr_pair(name, hash))),
+    started_at    = now,
+    duration_ms   = 0L,
+    status        = "interactive",
+    variant_label = NA_character_,
     stringsAsFactors = FALSE
   )
   DBI::dbAppendTable(con, "_mr_runs", row)

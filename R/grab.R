@@ -27,6 +27,10 @@
 #' @param source Optional path to a CSV or Parquet file. Triggers an
 #'   implicit [ingest()] when the file hash differs from (or is not
 #'   yet present in) the stored source metadata.
+#' @param variant Optional string; resolves to the latest version produced
+#'   by any run launched with `label = variant`. Mutually exclusive with
+#'   `version`, `from_run`, and `as_of`. See *Variants and swappability*
+#'   in docs/design.md for the full semantics.
 #'
 #' @section Security note:
 #' Artifacts stored via [stow()] are deserialized on read with
@@ -38,12 +42,25 @@
 #'
 #' @return A data frame.
 #' @export
-grab <- function(name, version = NULL, from_run = NULL, as_of = NULL, source = NULL) {
+grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
+                 source = NULL, variant = NULL) {
   .mr_validate_name(name, context = "grab")
   con <- .mr_get_connection()
 
+  selectors <- c(!is.null(version), !is.null(from_run),
+                 !is.null(as_of),   !is.null(variant))
+  if (sum(selectors) > 1L) {
+    stop("grab(): more than one selector passed; specify at most one of ",
+         "`version`, `from_run`, `as_of`, `variant`.",
+         call. = FALSE)
+  }
+
   if (!is.null(source)) {
     .mr_maybe_ingest(con, name, source)
+  }
+
+  if (!is.null(variant)) {
+    return(.mr_grab_by_variant(name, variant))
   }
 
   # If a launch has rebound this name and the caller didn't provide
@@ -202,4 +219,53 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL, source = N
     stop(sprintf("grab(): no value stowed under '%s'", name), call. = FALSE)
   }
   row[1, , drop = FALSE]
+}
+
+# Read a stored value by (logical_name, content_hash). Fetches the
+# _mr_versions row and delegates to .mr_read_value().
+.mr_read_by_hash <- function(name, hash) {
+  con <- .mr_get_connection()
+  row <- DBI::dbGetQuery(
+    con,
+    "SELECT * FROM _mr_versions WHERE logical_name = ? AND content_hash = ?",
+    params = list(name, hash)
+  )
+  if (nrow(row) == 0L) {
+    stop(sprintf("grab(): version '%s' for '%s' not found (pruned?)",
+                 hash, name), call. = FALSE)
+  }
+  .mr_read_value(con, row[1, , drop = FALSE])
+}
+
+.mr_grab_by_variant <- function(name, variant) {
+  con  <- .mr_get_connection()
+  hash <- .mr_latest_hash_for_variant(con, name, variant)
+  if (is.null(hash)) {
+    stop(sprintf("grab(): no variant named '%s' has produced '%s'.",
+                 variant, name), call. = FALSE)
+  }
+  .mr_read_by_hash(name, hash)
+}
+
+.mr_latest_hash_for_variant <- function(con, name, variant) {
+  # Walk _mr_runs for rows with this variant_label, parse outputs
+  # JSON, pick the most recent one that produced `name`.
+  rows <- DBI::dbGetQuery(
+    con,
+    "SELECT outputs FROM _mr_runs
+      WHERE variant_label = ?
+      ORDER BY started_at DESC",
+    params = list(variant)
+  )
+  if (nrow(rows) == 0L) return(NULL)
+  for (j in seq_len(nrow(rows))) {
+    pairs <- tryCatch(
+      jsonlite::fromJSON(rows$outputs[j], simplifyVector = FALSE),
+      error = function(e) list()
+    )
+    for (p in pairs) {
+      if (identical(p$name, name)) return(p$hash)
+    }
+  }
+  NULL
 }

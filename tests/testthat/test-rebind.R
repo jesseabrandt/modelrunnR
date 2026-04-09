@@ -71,13 +71,14 @@ test_that("launch(data = ...) is a hard error with a migration message", {
   )
 })
 
-test_that("mr_variant constructor exists but errors at resolution time", {
+test_that("mr_variant() in rebind errors when no run has produced the name under that label", {
   new_test_db()
+  stow("features", data.frame(v = 1))
 
   script <- write_script('stow("out", data.frame(a = 1))')
   expect_error(
-    launch(script, rebind = list(features = mr_variant("foo"))),
-    regexp = "mr_variant.*not yet",
+    launch(script, rebind = list(features = mr_variant("nobody"))),
+    regexp = "mr_variant.*nobody",
     fixed = FALSE
   )
 })

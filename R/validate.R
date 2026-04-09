@@ -36,3 +36,15 @@
   }
   invisible(name)
 }
+
+.mr_validate_label <- function(label) {
+  if (is.null(label)) return(NA_character_)
+  if (!is.character(label) || length(label) != 1L) {
+    stop("launch(): `label` must be a single string.", call. = FALSE)
+  }
+  trimmed <- trimws(label)
+  if (!nzchar(trimmed)) {
+    stop("launch(): `label` must not be empty or whitespace-only.", call. = FALSE)
+  }
+  trimmed
+}
