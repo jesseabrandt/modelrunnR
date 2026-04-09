@@ -15,6 +15,7 @@ test_that("a script that errors still writes a run row with status = 'error'", {
   expect_false(is.na(runs$duration_ms[1]))
 
   # The stow that happened before the error must still be recorded as output.
-  outputs <- jsonlite::fromJSON(runs$outputs[1], simplifyVector = TRUE)
-  expect_equal(outputs, "partial")
+  outs <- jsonlite::fromJSON(runs$outputs[1], simplifyVector = FALSE)
+  out_names <- vapply(outs, function(p) p$name, character(1))
+  expect_equal(out_names, "partial")
 })

@@ -6,6 +6,7 @@
 
 .mr_migrate <- function(con) {
   .mr_migrate_runs(con)
+  .mr_migrate_versions(con)
   invisible(NULL)
 }
 
@@ -19,6 +20,21 @@
       started_at   TIMESTAMP,
       duration_ms  BIGINT,
       status       TEXT
+    )
+  "
+  .mr_execute(con, sql)
+}
+
+.mr_migrate_versions <- function(con) {
+  sql <- "
+    CREATE TABLE IF NOT EXISTS _mr_versions (
+      logical_name   TEXT,
+      content_hash   TEXT,
+      physical_name  TEXT,
+      kind           TEXT,
+      first_seen     TIMESTAMP,
+      last_seen      TIMESTAMP,
+      size_bytes     BIGINT
     )
   "
   .mr_execute(con, sql)

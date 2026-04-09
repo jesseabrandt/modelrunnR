@@ -7,23 +7,27 @@
 stow(name, value)
 }
 \arguments{
-\item{name}{A length-one character vector. Logical name to write
-the value under.}
+\item{name}{A length-one character vector. Logical name for the
+value.}
 
-\item{value}{A data frame to store.}
+\item{value}{A data frame.}
 }
 \value{
 \code{value}, invisibly.
 }
 \description{
-Stores \code{value} under the logical name \code{name}. Inside a tracked
-\code{launch()}, the write is recorded as an output of the running step.
-Outside, the write still succeeds but is not logged against any
-step (Slice 6 will add a synthetic "interactive" step id).
+Stores \code{value} under the logical name \code{name}. Writes are
+content-addressed and non-destructive: a new version is created
+whenever the content differs from the current latest, and all
+previous versions remain queryable via \code{\link[=grab]{grab()}} selectors.
 }
 \details{
-Slice 1 of v0.1: accepts only data frames, which are written as
-DuckDB tables via an overwriting write. Non-data-frame values
-will be supported as artifacts in Slice 5. Versioning
-(non-destructive writes, content hashing) lands in Slice 3.
+Inside a tracked \code{\link[=launch]{launch()}}, the write is recorded as an output
+\verb{\{name, hash\}} pair on the run row. Outside a launch, the write
+still succeeds but is not logged against any step (Slice 6 will
+add a synthetic interactive step id).
+
+Slice 3 of v0.1: accepts only data frames, which are stored as
+DuckDB tables. Non-data-frame values will be supported as
+artifacts in Slice 5.
 }

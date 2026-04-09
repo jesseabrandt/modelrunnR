@@ -4,23 +4,35 @@
 \alias{grab}
 \title{Retrieve a value from the modelrunnR artifact store}
 \usage{
-grab(name)
+grab(name, version = NULL, from_run = NULL, as_of = NULL)
 }
 \arguments{
-\item{name}{A length-one character vector. Logical name that was
-previously \code{stow()}ed.}
+\item{name}{A length-one character vector naming a logical value.}
+
+\item{version}{Optional content hash (as returned by \code{\link[=versions]{versions()}})
+to select a specific stored version.}
+
+\item{from_run}{Optional run id (as returned by \code{\link[=launch]{launch()}}'s
+invisibly-returned run row) to select the exact version produced
+by that run.}
+
+\item{as_of}{Optional \code{POSIXct} timestamp; returns the version
+that was latest at that time.}
 }
 \value{
-A data frame (v0.1 Slice 1).
+A data frame.
 }
 \description{
-Returns whatever was most recently stowed under \code{name}. Inside a
-tracked \code{launch()}, the read is recorded as an input to the running
-step. Outside, the read is not logged.
+Returns the value stowed under \code{name}. By default returns the
+current latest version. Historical versions can be selected via
+\code{version} (content hash), \code{from_run} (run id), or \code{as_of}
+(timestamp), in that precedence order.
 }
 \details{
-Slice 1 of v0.1: reads a DuckDB table by logical name. Non-table
-artifacts (\code{is.data.frame(value) == FALSE}) are introduced in
-Slice 5; selectors (\code{version}, \code{from_run}, \code{as_of}) and the
-implicit-ingest \code{source} argument land in Slices 3 and 4.
+Inside a tracked \code{\link[=launch]{launch()}}, the read is recorded as an input
+\verb{\{name, hash\}} pair on the run row. Outside a launch, the read
+is not logged.
+
+Slice 3 of v0.1: tables only. Artifact support arrives in Slice 5.
+The \code{source} argument for implicit ingest arrives in Slice 4.
 }

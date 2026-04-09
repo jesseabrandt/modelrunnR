@@ -102,8 +102,8 @@ launch <- function(script_path) {
   row <- data.frame(
     step        = step,
     run_id      = run_id,
-    inputs      = jsonlite::toJSON(inputs,  auto_unbox = FALSE),
-    outputs     = jsonlite::toJSON(outputs, auto_unbox = FALSE),
+    inputs      = .mr_pairs_to_json(inputs),
+    outputs     = .mr_pairs_to_json(outputs),
     started_at  = started_at,
     duration_ms = duration_ms,
     status      = status,
@@ -111,6 +111,14 @@ launch <- function(script_path) {
   )
   DBI::dbAppendTable(con, "_mr_runs", row)
   row
+}
+
+# Serialize a list of list(name, hash) pairs to a JSON array of objects.
+# `auto_unbox = TRUE` keeps scalar fields from getting wrapped in
+# one-element arrays, which would make downstream parsers uglier.
+.mr_pairs_to_json <- function(pairs) {
+  if (length(pairs) == 0L) return("[]")
+  jsonlite::toJSON(pairs, auto_unbox = TRUE)
 }
 
 .mr_print_timing_summary <- function(step, duration_ms, status) {

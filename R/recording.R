@@ -1,17 +1,19 @@
 ## Per-launch recording context.
 ##
-## While a recording context is active, every call to `grab()` appends
-## the name to `inputs` and every call to `stow()` appends the name to
-## `outputs`. Outside a recording context, reads and writes still
-## succeed — they simply aren't logged into the run record.
+## While a recording context is active, every resolved read and write
+## is captured as a `list(name, hash)` pair. The run row later
+## serializes these lists to JSON in `_mr_runs.inputs` and
+## `_mr_runs.outputs`.
 ##
-## Slice 1 records names only. Slice 3 evolves inputs/outputs to
-## carry `{name, hash}` pairs once versioning lands.
+## Slice 1 recorded names only; Slice 3 evolved the shape to
+## name/hash pairs once versioning landed. Deduplication is on
+## (name, hash) — if a script reads the exact same version twice,
+## it is recorded once.
 
 .mr_start_recording <- function() {
   .mr_state$recording <- list(
-    inputs  = character(),
-    outputs = character()
+    inputs  = list(),
+    outputs = list()
   )
   invisible(NULL)
 }
@@ -26,23 +28,38 @@
   !is.null(.mr_state$recording)
 }
 
-.mr_record_read <- function(name) {
+.mr_pair <- function(name, hash) {
+  list(name = name, hash = hash %||% NA_character_)
+}
+
+.mr_record_read <- function(name, hash = NA_character_) {
   if (!.mr_is_recording()) return(invisible(NULL))
   rec <- .mr_state$recording
-  # Deduplicate: if a script reads the same name twice, record it once.
-  if (!(name %in% rec$inputs)) {
-    rec$inputs <- c(rec$inputs, name)
+  pair <- .mr_pair(name, hash)
+  if (!.mr_pair_in(pair, rec$inputs)) {
+    rec$inputs <- c(rec$inputs, list(pair))
     .mr_state$recording <- rec
   }
   invisible(NULL)
 }
 
-.mr_record_write <- function(name) {
+.mr_record_write <- function(name, hash = NA_character_) {
   if (!.mr_is_recording()) return(invisible(NULL))
   rec <- .mr_state$recording
-  if (!(name %in% rec$outputs)) {
-    rec$outputs <- c(rec$outputs, name)
+  pair <- .mr_pair(name, hash)
+  if (!.mr_pair_in(pair, rec$outputs)) {
+    rec$outputs <- c(rec$outputs, list(pair))
     .mr_state$recording <- rec
   }
   invisible(NULL)
 }
+
+.mr_pair_in <- function(pair, pairs) {
+  for (p in pairs) {
+    if (identical(p$name, pair$name) && identical(p$hash, pair$hash)) return(TRUE)
+  }
+  FALSE
+}
+
+# Local utility: safe default-or-value operator.
+`%||%` <- function(x, y) if (is.null(x)) y else x
