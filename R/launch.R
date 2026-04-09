@@ -25,23 +25,38 @@
 #' works.
 #'
 #' @param script_path Path to the R script to run.
-#' @param pin Optional named list mapping logical names to content
-#'   hashes or run ids. During recording, `grab(name)` inside the
-#'   script resolves to the pinned version rather than the latest.
-#'   Unknown hashes/run-ids error *before* the script is sourced.
-#' @param data Optional named list of R values. Each value is stowed
-#'   under its name (getting a fresh content hash via the normal
-#'   stow pathway) and then pinned for the duration of the launch.
-#'   Inline values behave identically to values already in DuckDB.
+#' @param rebind Optional named list that overrides what each
+#'   `grab()` inside the script resolves to. List values may be bare
+#'   R objects (stowed inline through the normal versioning path) or
+#'   reference constructors ([mr_hash()], [mr_run()], [mr_variant()],
+#'   [mr_as_of()]) that resolve to existing versions without
+#'   round-tripping through R memory.
 #' @param external_inputs Optional named list with fields `files` (a
 #'   character vector of paths) and/or `env` (a character vector of
 #'   environment variable names). Each declared input is hashed and
 #'   recorded on the run row so later staleness checks can detect
 #'   changes. Missing files error *before* the script is sourced.
+#' @param ... Reserved for future arguments and for catching the
+#'   removed `pin`/`data` arguments with a clear error message.
 #'
 #' @return The run record (one row of `_mr_runs`), invisibly.
 #' @export
-launch <- function(script_path, pin = NULL, data = NULL, external_inputs = NULL) {
+launch <- function(script_path, rebind = NULL, external_inputs = NULL, ...) {
+  dots <- list(...)
+  if ("pin" %in% names(dots) || "data" %in% names(dots)) {
+    stop(
+      "launch(): `pin` and `data` were removed in the swappability rework. ",
+      "Use `rebind = list(...)`: bare R values replace `data`, ",
+      "and mr_hash()/mr_run() replace `pin`. See docs/design.md ",
+      "section 'Variants and swappability'.",
+      call. = FALSE
+    )
+  }
+  if (length(dots) > 0) {
+    stop(sprintf("launch(): unknown arguments: %s",
+                 paste(names(dots), collapse = ", ")),
+         call. = FALSE)
+  }
   stopifnot(
     is.character(script_path),
     length(script_path) == 1L,
@@ -64,30 +79,30 @@ launch <- function(script_path, pin = NULL, data = NULL, external_inputs = NULL)
   # before we write anything to _mr_runs.
   resolved_ext <- .mr_resolve_external_inputs(external_inputs)
 
-  # Resolve pin/data up-front too. data is stowed first (producing
-  # fresh hashes), then pin can override on name collisions.
-  resolved_pins <- .mr_resolve_pins(pin, data)
+  # Resolve rebind up-front. Bare R values are stowed (producing fresh
+  # hashes); mr_*() references are resolved to existing content_hashes.
+  resolved_rebinds <- .mr_resolve_rebinds(rebind)
 
   # Advisory staleness check -- report only, never auto-skip.
   staleness <- .mr_is_stale(step)
   .mr_print_staleness(step, staleness)
 
   # Nested launches would clobber the outer launch's recording, helpers,
-  # and pins state (all held in .mr_state singletons). Detect and error
+  # and rebinds state (all held in .mr_state singletons). Detect and error
   # rather than silently corrupting the outer run. A push/pop stack is
   # post-v0.1.
-  if (.mr_is_recording() || !is.null(.mr_state$helpers) || !is.null(.mr_state$pins)) {
+  if (.mr_is_recording() || !is.null(.mr_state$helpers) || !is.null(.mr_state$rebinds)) {
     stop("launch(): nested launches are not supported in v0.1.", call. = FALSE)
   }
 
   .mr_start_recording()
   .mr_start_helper_tracking()
-  .mr_start_pinning(resolved_pins)
+  .mr_start_rebinding(resolved_rebinds)
   on.exit(
     {
       if (.mr_is_recording()) .mr_stop_recording()
       if (!is.null(.mr_state$helpers)) .mr_stop_helper_tracking()
-      .mr_stop_pinning()
+      .mr_stop_rebinding()
     },
     add = TRUE
   )

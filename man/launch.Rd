@@ -4,26 +4,26 @@
 \alias{launch}
 \title{Launch an R script as a tracked modelrunnR step}
 \usage{
-launch(script_path, pin = NULL, data = NULL, external_inputs = NULL)
+launch(script_path, rebind = NULL, external_inputs = NULL, ...)
 }
 \arguments{
 \item{script_path}{Path to the R script to run.}
 
-\item{pin}{Optional named list mapping logical names to content
-hashes or run ids. During recording, \code{grab(name)} inside the
-script resolves to the pinned version rather than the latest.
-Unknown hashes/run-ids error \emph{before} the script is sourced.}
-
-\item{data}{Optional named list of R values. Each value is stowed
-under its name (getting a fresh content hash via the normal
-stow pathway) and then pinned for the duration of the launch.
-Inline values behave identically to values already in DuckDB.}
+\item{rebind}{Optional named list that overrides what each
+\code{grab()} inside the script resolves to. List values may be bare
+R objects (stowed inline through the normal versioning path) or
+reference constructors (\code{\link[=mr_hash]{mr_hash()}}, \code{\link[=mr_run]{mr_run()}}, \code{\link[=mr_variant]{mr_variant()}},
+\code{\link[=mr_as_of]{mr_as_of()}}) that resolve to existing versions without
+round-tripping through R memory.}
 
 \item{external_inputs}{Optional named list with fields \code{files} (a
 character vector of paths) and/or \code{env} (a character vector of
 environment variable names). Each declared input is hashed and
 recorded on the run row so later staleness checks can detect
 changes. Missing files error \emph{before} the script is sourced.}
+
+\item{...}{Reserved for future arguments and for catching the
+removed \code{pin}/\code{data} arguments with a clear error message.}
 }
 \value{
 The run record (one row of \verb{_mr_runs}), invisibly.

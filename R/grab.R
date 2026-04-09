@@ -46,10 +46,10 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL, source = N
     .mr_maybe_ingest(con, name, source)
   }
 
-  # If a launch has pinned this name and the caller didn't provide
-  # an explicit selector, resolve via the pinned content hash.
+  # If a launch has rebound this name and the caller didn't provide
+  # an explicit selector, resolve via the rebound content hash.
   if (is.null(version) && is.null(from_run) && is.null(as_of)) {
-    pinned <- .mr_pinned_hash(name)
+    pinned <- .mr_rebound_hash(name)
     if (!is.null(pinned)) version <- pinned
   }
 
