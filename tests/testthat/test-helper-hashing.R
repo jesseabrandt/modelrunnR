@@ -82,6 +82,23 @@ test_that("transitive helpers contribute to code_hash", {
   expect_false(identical(get_code_hash(r1$run_id), get_code_hash(r2$run_id)))
 })
 
+test_that("CRLF vs LF line endings produce the same code_hash", {
+  new_test_db()
+  dir <- withr::local_tempdir()
+  s_lf   <- file.path(dir, "step_lf.R")
+  s_crlf <- file.path(dir, "step_crlf.R")
+
+  # Write the same logical content with different EOL conventions.
+  body <- c("stow('x', data.frame(n = 1))", "")
+  writeBin(charToRaw(paste(body, collapse = "\n")),   s_lf)
+  writeBin(charToRaw(paste(body, collapse = "\r\n")), s_crlf)
+
+  r1 <- launch(s_lf)
+  r2 <- launch(s_crlf)
+
+  expect_identical(get_code_hash(r1$run_id), get_code_hash(r2$run_id))
+})
+
 test_that("cyclic sourcing does not infinite-loop and still records code_hash", {
   new_test_db()
   b <- write_bundle(list(

@@ -58,6 +58,13 @@
 }
 
 .mr_read_file_bytes <- function(path) {
-  n <- file.info(path)$size
-  readBin(path, what = "raw", n = n)
+  # Used only for CODE hashing (scripts and their sourced helpers).
+  # Read as text (always UTF-8) and normalize line endings so the
+  # same script produces the same hash whether it was saved on
+  # Windows (CRLF) or Unix (LF). Data files MUST NOT route through
+  # this function -- use .mr_file_hash() (tools::md5sum on raw bytes)
+  # when byte-exact equality is required.
+  txt <- readLines(path, warn = FALSE, encoding = "UTF-8")
+  normalized <- paste(txt, collapse = "\n")
+  charToRaw(normalized)
 }

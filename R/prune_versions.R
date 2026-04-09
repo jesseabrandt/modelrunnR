@@ -91,6 +91,14 @@ prune_versions <- function(name = NULL,
     .mr_refresh_latest_view(con, nm)
   }
 
+  # Tidy up: if we pruned filesystem artifacts and the artifact dir is
+  # now empty, remove it so we don't leave orphan directories.
+  artifact_dir <- file.path(dirname(db_path()), "modelrunnR_artifacts")
+  if (dir.exists(artifact_dir) &&
+      length(list.files(artifact_dir, all.files = FALSE)) == 0L) {
+    unlink(artifact_dir, recursive = FALSE)
+  }
+
   invisible(to_prune)
 }
 

@@ -36,12 +36,23 @@ writes a run record to \verb{_mr_runs} whether the script succeeds
 or errors.
 }
 \details{
-Slice 1 of v0.1: basic source + timing + run record. Later slices
-add helper-file hashing, \code{code_hash}, \code{external_inputs}, \code{pin},
-and \code{data} arguments, and staleness diagnostics.
-
 The script is sourced in a fresh environment whose parent is
 \code{globalenv()}. \code{grab} and \code{stow} are injected directly into the
 script's environment so scripts can call them bare without a
 preceding \code{library(modelrunnR)}.
 }
+\section{Shadowed \code{source()}}{
+
+During a tracked launch, \code{source()} inside the script (and inside
+any transitively-sourced helper) is shadowed with a wrapper that
+records each sourced file's path + byte hash on the run row.
+
+The wrapper's default for \code{local} is \code{TRUE} (resolving to the
+caller's frame), whereas \code{base::source()}'s default is \code{FALSE}
+(which evaluates into \code{globalenv()}). Scripts that rely on
+\code{source("helper.R")} populating \code{globalenv()} will instead find
+their helpers scoped to the script's evaluation environment.
+Explicitly passing \code{source("helper.R", local = FALSE)} still
+works.
+}
+

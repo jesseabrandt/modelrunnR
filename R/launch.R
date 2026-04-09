@@ -6,14 +6,23 @@
 #' writes a run record to `_mr_runs` whether the script succeeds
 #' or errors.
 #'
-#' Slice 1 of v0.1: basic source + timing + run record. Later slices
-#' add helper-file hashing, `code_hash`, `external_inputs`, `pin`,
-#' and `data` arguments, and staleness diagnostics.
-#'
 #' The script is sourced in a fresh environment whose parent is
 #' `globalenv()`. `grab` and `stow` are injected directly into the
 #' script's environment so scripts can call them bare without a
 #' preceding `library(modelrunnR)`.
+#'
+#' @section Shadowed `source()`:
+#' During a tracked launch, `source()` inside the script (and inside
+#' any transitively-sourced helper) is shadowed with a wrapper that
+#' records each sourced file's path + byte hash on the run row.
+#'
+#' The wrapper's default for `local` is `TRUE` (resolving to the
+#' caller's frame), whereas `base::source()`'s default is `FALSE`
+#' (which evaluates into `globalenv()`). Scripts that rely on
+#' `source("helper.R")` populating `globalenv()` will instead find
+#' their helpers scoped to the script's evaluation environment.
+#' Explicitly passing `source("helper.R", local = FALSE)` still
+#' works.
 #'
 #' @param script_path Path to the R script to run.
 #' @param pin Optional named list mapping logical names to content
