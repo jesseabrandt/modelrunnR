@@ -86,15 +86,28 @@ This section is specific enough to guide implementation but intentionally leaves
 
 ### User-facing API (v0.1)
 
-Two primary functions, plus one entry point:
+All function names below are placeholders; final naming to be revisited before the first user-visible release.
 
-- **`read_table(name)`** — read a DuckDB table by name. If a table by that name does not exist but a flat file (CSV, parquet, etc.) with a conventional name/location does, the function may auto-ingest it into DuckDB as a first-run side effect. Exact auto-ingestion behavior is an open question. Outside a tracked run, behaves as a plain read.
+**Primary functions**:
 
-- **`write_table(name, data)`** — write an R data frame to a DuckDB table. Outside a tracked run, behaves as a plain write. Inside a tracked run, also records the write in the current run's output list.
+- **`read_table(name, source = NULL)`** — read a DuckDB table by name. If `source` is given and the table does not exist, `ingest()` is called under the hood. If the table exists but the recorded source hash differs from the current file at `source`, modelrunnR errors rather than silently re-ingesting (see Data mutation policy under Open questions). Outside a tracked run, behaves as a plain read.
 
-- **`run(script_path)`** — entry point for tracked execution. Sources `script_path` in an instrumented context that records `read_table()` / `write_table()` calls, measures wall-clock time, and writes a run record to the metadata table on completion. Equivalent to `source(script_path)` except that modelrunnR observes the side effects.
+- **`write_table(name, data)`** — write an R data frame to a DuckDB table. Inside a tracked run, the write is recorded as an output. Outside a tracked run (e.g., from the REPL), the write is recorded under a synthetic interactive step identifier; see Interactive I/O below.
 
-Function names are placeholders. `read_table` / `write_table` are likely not the final names — they don't clearly distinguish from `DBI::dbReadTable` or `dplyr::tbl`. Naming to be revisited before the first user-visible release.
+- **`ingest(name, source)`** — read a flat file (CSV, parquet, etc.) and load it into DuckDB as the named table, recording the source file path and content hash in metadata. Callable explicitly or implicitly via `read_table(name, source = ...)`.
+
+- **`save_artifact(name, object)`** / **`load_artifact(name)`** — persist and retrieve non-table outputs; see Non-table outputs below.
+
+- **`run(script_path)`** — entry point for tracked execution. Sources `script_path` in an instrumented context, records observed I/O, measures wall-clock time, and writes a run record to the metadata table on completion.
+
+- **`db_path()`** — inspector; returns the currently-active DuckDB file path.
+
+**Configuration** is managed via R `options()`, not setter functions:
+
+- `options(modelrunnR.db = "path/to/custom.duckdb")` overrides the default DuckDB location.
+- `options(modelrunnR.blob_threshold = n_bytes)` sets the artifact BLOB-vs-filesystem threshold (default 10 MB).
+
+There is no `connect()` function — the name would collide with `DBI::dbConnect()` idioms, and options-based configuration keeps the API surface smaller.
 
 ### Execution flow
 
@@ -127,6 +140,37 @@ A metadata table lives inside the same DuckDB file as the artifacts. Exact schem
 
 The exact shape of `inputs` / `outputs` / `external_inputs` (JSON column vs. separate rows, how nested structure is stored) is TBD. Schema should use only portable SQL types so it can migrate to other analytical backends without a rewrite.
 
+### Connection and project layout
+
+modelrunnR auto-opens a DuckDB connection on first call to any table-facing function. The user never invokes an explicit connection function.
+
+The default DuckDB file path is determined by walking up the filesystem from the current working directory looking for project markers, in order: `DESCRIPTION`, `.Rproj`, `.git/`, `renv.lock`, `.here`. If a project root is found, the default path is `<project_root>/modelrunnR.duckdb`. If no root is found, the default is `<cwd>/modelrunnR.duckdb` and modelrunnR emits a warning suggesting the user add a project marker so the DB location becomes stable across subdirectories.
+
+The user overrides the default via `options(modelrunnR.db = "path")` at any time before the first table-facing call — typically at the top of a script or in `.Rprofile`.
+
+Connection lifecycle: lazy-opened on first use, reused for the rest of the R session, closed via a finalizer on session exit. `db_path()` surfaces the current path for inspection.
+
+The project-root walker should be implemented internally (~20 lines) rather than depending on `here` or `rprojroot`, to keep Imports lean.
+
+### Non-table outputs (artifacts)
+
+Step outputs that are not naturally tables — fitted model objects, serialized objects from other languages, images, etc. — are persisted via `save_artifact()` / `load_artifact()`.
+
+- **Serialization**: `qs::qsave()` (fast, compact; adds `qs` to Imports). Chosen over base `serialize()` / `saveRDS()` because it handles R model objects substantially better.
+- **Storage dispatch**: objects whose serialized size is below `getOption("modelrunnR.blob_threshold")` (default 10 MB) are stored as a BLOB row in the metadata table inside the DuckDB file. Objects above the threshold are written to `./modelrunnR_artifacts/<name>.qs` on the filesystem, with the path recorded in metadata. Small artifacts preserve the "one DuckDB file = entire artifact store" property; large artifacts escape to the filesystem rather than bloating the DB file.
+- **Namespace**: artifacts and tables share a single unified namespace. A name cannot refer to both. `save_artifact("features", ...)` errors if `features` already exists as a table, and vice versa. Checked at write time.
+- **Tracking**: artifacts appear in a step's `outputs` alongside tables and participate in staleness detection identically.
+
+### Interactive I/O
+
+`read_table()` and `write_table()` can be called outside a `run()` boundary — from the REPL, from a plain `source()`, or from any untracked R code. Behavior:
+
+- **Interactive writes** are recorded with a synthetic step identifier of the form `<interactive:YYYY-MM-DD HH:MM:SS>`. This captures the fact that a table was mutated outside any reproducible script.
+- **Interactive reads** are *not* recorded. Reads don't change state, and recording every REPL exploration would clutter the metadata without benefit.
+- **Reproducibility warnings**: when a scripted run's recorded inputs include a table whose most recent write came from an interactive session, modelrunnR warns the user at run time: *"step `X` reads `Y`, which was last written interactively on [timestamp]. This step is not fully reproducible from source."*
+
+This catches the "I manually patched a table in the REPL and then a script started depending on it" failure mode, which is exactly the kind of non-reproducibility land mine the framework should surface.
+
 ## Staleness model
 
 A step is **stale** if any of the following hold:
@@ -139,20 +183,20 @@ A step is **fresh** only if none of the above hold.
 
 The precise definition of "an input has changed" when the input is a DuckDB table (does the table itself have a hash? is it enough that the upstream step ran again?) is an open question. The likely answer is: track the `run_id` of the upstream step that produced each input, and consider an input changed if a newer upstream run exists.
 
+**Helper files.** When a tracked script `source()`s a helper file, the helper's content contributes to the step's code hash. The instrumentation wraps `source()` during a tracked run to record each loaded file's path and content hash, recursively (with cycle detection). The effective code hash is `hash(script_contents + sorted_helper_hashes)`. Installed packages, base R, and `.Rprofile` are explicitly *not* hashed — use renv/pak for package reproducibility; declare environment variables or external files as external inputs if they matter for your step.
+
+**Branchy scripts.** If a script reads different tables on different runs due to branching logic, the instrumentation records only what actually executed. Staleness for the next run is evaluated against the most recent run's recorded inputs. If a different branch executes on a rerun, the new run gets a new record and staleness proceeds against the new inputs. No branch prediction, no coverage analysis — the metadata is a faithful log of what actually happened.
+
 "Stale" and "fresh" are advisory by default. The framework's job is to *tell* the user which steps are stale, not to silently skip reruns or silently auto-run. The user decides whether to act on staleness information. (This default may be revisited once real usage reveals whether silent skip-if-fresh is desired.)
 
 ## Open questions
 
 Decisions deferred to later conversations or to implementation time. Each has a brief status note.
 
-- **Function naming.** `read_table` / `write_table` are placeholders; final names TBD. Should distinguish from DBI and dplyr idioms.
-- **CSV auto-ingestion by `read_table()`.** Does `read_table("raw")` look for `raw.csv` in a conventional location and auto-ingest on first access? Or does the user call a separate `ingest()` function? TBD.
-- **Connection management.** Does modelrunnR auto-open a connection to a default DuckDB file (`./modelrunnR.duckdb`?) on first call? Or does the user call `connect()` explicitly? TBD.
-- **Non-table outputs (model objects, etc.).** Serialize to a BLOB column in DuckDB? Write to the filesystem with a tracked path? Treat as ephemeral and re-fit when needed? Likely a mix depending on object size. TBD.
-- **Helper file hashing.** If a tracked script `source()`s a helper file, should the helper's contents contribute to the code hash? Leaning yes (hash all `source()`d files inside a step), but TBD.
-- **Interactive vs scripted runs.** Should `read_table()` / `write_table()` calls from the REPL be tracked? Leaning no — only `run(script)` boundaries are tracked; interactive use is untracked but functional.
-- **Branchy scripts.** If a script reads different tables on different runs depending on branching logic, how does staleness handle it? Leaning: record what actually happened this run; accept fuzziness.
-- **Parameter sweeps.** One script, multiple runs with different hyperparameters — how are they distinguished? Leaning: in v0.1, use separate script files. A parameter-aware variant can come later if needed.
+- **Function naming.** `read_table`, `write_table`, `ingest`, `save_artifact`, etc. are all placeholders. Final names should distinguish from DBI and dplyr idioms. TBD.
+- **Data mutation policy.** When a write would change existing table contents (most concretely, when `read_table(name, source = path)` detects that the source file's hash has changed since the recorded ingest), modelrunnR errors and requires explicit user resolution. But the *shape* of resolution — replace in place, create a new named version (e.g., `raw_v2`), keep a snapshot of the old version for diff/comparison, something more git-like — is not yet designed. More broadly: should writes that change existing table contents be non-destructive by default, with old versions preserved for inspection? This extends beyond ingestion to step outputs and is a significant design question parked until real usage reveals its shape. Interim behavior: error rather than silently overwrite.
+- **Project/DB location management.** v0.1 auto-detects a project root and uses `<root>/modelrunnR.duckdb`, overridable via `options()`. But workflows involving multiple DBs per project, swapping between artifact stores, or archiving old runs are not addressed. Parked for later.
+- **Parameter sweeps.** One script, multiple runs with different hyperparameters — how are they distinguished? (User has design thoughts; to be discussed next.)
 - **Rerun semantics.** When the user asks to rerun one step, what happens to downstream steps? Just that step? Downstream-that's-stale? Upstream-that's-stale plus that step plus downstream? TBD.
 - **Multi-script workflows.** How does the user run multiple scripts as a pipeline? Is there a `run_all()` that discovers stale scripts and runs them in dependency order? TBD.
 - **"Manage runs" API.** Shape of the introspection/control API — `run_status()`, `run_history()`, `forget_step()`, `drop_artifact()`, etc. TBD.
