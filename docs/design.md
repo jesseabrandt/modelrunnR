@@ -98,7 +98,7 @@ All function names below are placeholders; final naming to be revisited before t
 
 - **`save_artifact(name, object)`** / **`load_artifact(name)`** — persist and retrieve non-table outputs; see Non-table outputs below.
 
-- **`run(script_path)`** — entry point for tracked execution. Sources `script_path` in an instrumented context, records observed I/O, measures wall-clock time, and writes a run record to the metadata table on completion.
+- **`run(script_path, pin = NULL, data = NULL, external_inputs = NULL)`** — entry point for tracked execution. Sources `script_path` in an instrumented context, records observed I/O, measures wall-clock time, and writes a run record to the metadata table on completion. The `pin` argument accepts a named list mapping logical table names to specific content hashes (or run IDs), forcing reads of those tables inside the script to return the pinned versions rather than the latest. The `data` argument accepts a named list of R data frames; each is written to DuckDB under its name (getting a content hash) and then pinned for the duration of the run. Together, `pin` and `data` are the primary mechanism for parameter sweeps — see Parameter passing and sweeps below. `external_inputs` allows declaring file paths or env vars that should be tracked as inputs for staleness.
 
 - **`db_path()`** — inspector; returns the currently-active DuckDB file path.
 
@@ -238,6 +238,51 @@ Step outputs that are not naturally tables — fitted model objects, serialized 
 
 This catches the "I manually patched a table in the REPL and then a script started depending on it" failure mode, which is exactly the kind of non-reproducibility land mine the framework should surface.
 
+### Parameter passing and sweeps
+
+modelrunnR has no special concept of "parameters." Parameters are just versioned tables, and sweeps are just loops around `run()` that pin different versions of the parameter table(s). This pattern falls out of the versioning system without any framework-level support for sweeps as a first-class concept.
+
+The typical pattern (inline data variant):
+
+```r
+configs <- list(
+  list(nrounds = 100, eta = 0.10),
+  list(nrounds = 200, eta = 0.05),
+  list(nrounds = 500, eta = 0.01)
+)
+
+for (cfg in configs) {
+  run("fit_xgb.R",
+      data = list(params_xgb = as.data.frame(cfg)))
+}
+```
+
+Inside `fit_xgb.R`:
+
+```r
+params   <- read_table("params_xgb")
+features <- read_table("features")
+model    <- xgboost::xgb.train(features,
+                               nrounds = params$nrounds,
+                               eta     = params$eta)
+write_table("predictions", predict_fn(model, features))
+```
+
+Because each iteration writes a different `params_xgb`, each run's input hashes differ, so each run produces distinct output versions under the hybrid versioning system. The three runs' `predictions` outputs coexist automatically and are addressable via `from_run` or `version` in subsequent reads.
+
+For reusing parameter tables already written to DuckDB, `pin` is the alternative:
+
+```r
+hashes <- versions("params_xgb")$content_hash
+for (h in hashes) {
+  run("fit_xgb.R", pin = list(params_xgb = h))
+}
+```
+
+If neither `pin` nor `data` is passed, `read_table()` calls inside the script resolve to the current latest version — the natural default for non-sweep runs.
+
+**Status**: tentative pending implementation. The concrete shapes of `pin` and `data` may change once the `run()` execution context is built and the user experience of running sweeps is observable.
+
 ## Staleness model
 
 A step is **stale** if any of the following hold:
@@ -262,7 +307,7 @@ Decisions deferred to later conversations or to implementation time. Each has a 
 
 - **Function naming.** `read_table`, `write_table`, `ingest`, `save_artifact`, etc. are all placeholders. Final names should distinguish from DBI and dplyr idioms. TBD.
 - **Project/DB location management.** v0.1 auto-detects a project root and uses `<root>/modelrunnR.duckdb`, overridable via `options()`. But workflows involving multiple DBs per project, swapping between artifact stores, or archiving old runs are not addressed. Parked for later.
-- **Parameter sweeps.** One script, multiple runs with different hyperparameters — how are they distinguished? (User has design thoughts; to be discussed next.)
+- **Parameter sweeps (validation pending).** Current direction is documented in *Parameter passing and sweeps* above: parameters as versioned tables, `run(..., pin = ...)` or `run(..., data = ...)` as the switching mechanism. Marked tentative because the ergonomics of `pin`/`data` need implementation experience to validate.
 - **Rerun semantics.** When the user asks to rerun one step, what happens to downstream steps? Just that step? Downstream-that's-stale? Upstream-that's-stale plus that step plus downstream? TBD.
 - **Multi-script workflows.** How does the user run multiple scripts as a pipeline? Is there a `run_all()` that discovers stale scripts and runs them in dependency order? TBD.
 - **"Manage runs" API.** Shape of the introspection/control API — `run_status()`, `run_history()`, `forget_step()`, `drop_artifact()`, etc. TBD.
