@@ -37,6 +37,8 @@
     )
   "
   .mr_execute(con, sql)
+  # Slice 7 addition: content hash of the script + its helpers.
+  .mr_add_column_if_missing(con, "_mr_runs", "code_hash", "TEXT")
 }
 
 .mr_migrate_versions <- function(con) {

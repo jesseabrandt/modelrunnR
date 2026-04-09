@@ -39,10 +39,11 @@ launch <- function(script_path) {
   .mr_get_connection()
 
   .mr_start_recording()
+  .mr_start_helper_tracking()
   on.exit(
     {
-      # If the caller Ctrl-C'd, we still want recording state cleaned up.
       if (.mr_is_recording()) .mr_stop_recording()
+      if (!is.null(.mr_state$helpers)) .mr_stop_helper_tracking()
     },
     add = TRUE
   )
@@ -57,8 +58,11 @@ launch <- function(script_path) {
     }
   )
 
-  rec <- .mr_stop_recording()
+  rec     <- .mr_stop_recording()
+  helpers <- .mr_stop_helper_tracking()
   duration_ms <- as.integer(round((as.numeric(Sys.time()) - start_secs) * 1000))
+
+  code_hash <- .mr_code_hash(step, helpers)
 
   # Surface inputs that trace back to interactive writes — design's
   # "patched a table from the REPL and then a script depended on it"
@@ -73,7 +77,8 @@ launch <- function(script_path) {
     outputs     = rec$outputs,
     started_at  = started_at,
     duration_ms = duration_ms,
-    status      = status
+    status      = status,
+    code_hash   = code_hash
   )
 
   .mr_print_timing_summary(step, duration_ms, status)
@@ -95,15 +100,19 @@ launch <- function(script_path) {
 
 .mr_source_script <- function(path) {
   envir <- new.env(parent = globalenv())
-  # Inject grab/stow so scripts can call them without library(modelrunnR).
-  envir$grab <- grab
-  envir$stow <- stow
-  source(path, local = envir, echo = FALSE, keep.source = FALSE)
+  # Inject grab/stow so scripts can call them without library(modelrunnR),
+  # and shadow `source` with the helper-tracking wrapper so every helper
+  # the script (or a transitively-sourced helper) loads is recorded.
+  envir$grab   <- grab
+  envir$stow   <- stow
+  envir$source <- .mr_make_source_wrapper()
+  base::source(path, local = envir, echo = FALSE, keep.source = FALSE)
   invisible(NULL)
 }
 
 .mr_write_run_row <- function(step, run_id, inputs, outputs,
-                              started_at, duration_ms, status) {
+                              started_at, duration_ms, status,
+                              code_hash = NA_character_) {
   con <- .mr_get_connection()
   row <- data.frame(
     step        = step,
@@ -113,6 +122,7 @@ launch <- function(script_path) {
     started_at  = started_at,
     duration_ms = duration_ms,
     status      = status,
+    code_hash   = code_hash,
     stringsAsFactors = FALSE
   )
   DBI::dbAppendTable(con, "_mr_runs", row)
