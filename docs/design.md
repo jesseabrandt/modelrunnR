@@ -135,7 +135,7 @@ The approach is a **hybrid**: content-addressed physical storage combined with a
 
 When `stow("features", df)` is called:
 
-1. Compute a stable, order-independent content hash of `df` (exact algorithm TBD; likely a streaming aggregate hash over sorted rows using DuckDB's built-in `hash()` function).
+1. Compute a stable, row- and column-order-independent content hash of `df`. v0.1 uses `MD5(STRING_AGG(CAST(HASH(sorted_cols) AS VARCHAR), '|' ORDER BY HASH(sorted_cols)))` on a transient DuckDB temp table. The algorithm is type-sensitive (integer vs double of the same values hash differently) and materializes the STRING_AGG in memory; a streaming alternative and a total-order tiebreaker for 100M+ row frames are tracked in `docs/followups.md`.
 2. Check whether a physical table `features__<hash>` already exists.
 3. **If it exists**: no new physical table is created. This is automatic dedup — running the same script twice with identical output costs nothing in storage. Metadata is updated to record that the current run also produced this hash.
 4. **If it doesn't exist**: create `features__<hash>` with the content and insert a metadata row linking the logical name `features`, the hash, the physical table, and the producing run.
@@ -204,7 +204,7 @@ Versioning is non-destructive by design, so disk grows over time. Two mechanisms
 
 #### Cost model
 
-Content hashing adds per-write overhead. For small tables this is negligible; for very large tables (tens of millions of rows) hashing costs non-trivial time and should use a fast streaming aggregate rather than materializing the full serialization in memory. Exact hash algorithm is TBD pending a survey of DuckDB's aggregate-hash capabilities, but the target is: stable across row/column order (so "the same data" always produces the same hash), fast (can handle ~100M rows in seconds), and deterministic (no salt).
+Content hashing adds per-write overhead. For small tables this is negligible; for very large tables (tens of millions of rows) hashing costs non-trivial time. v0.1 ships the materialized `STRING_AGG + MD5` aggregate described above — at ~100M rows the intermediate string is on the order of 2 GB, which is a post-v0.1 optimization target (true streaming aggregate or a commutative chunked accumulator). The shipped algorithm satisfies the load-bearing requirements: stable across row/column order, deterministic, and multiplicity-preserving.
 
 ### Connection and project layout
 

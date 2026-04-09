@@ -37,8 +37,6 @@ Inside a tracked \code{\link[=launch]{launch()}}, the read is recorded as an inp
 \verb{\{name, hash\}} pair on the run row. Outside a launch, the read
 is not logged.
 
-Slice 4 of v0.1: tables only. Artifact support arrives in Slice 5.
-
 When \code{source} is supplied, \code{grab()} behaves as an idempotent
 read-or-ingest: if \code{name} does not exist yet, \code{\link[=ingest]{ingest()}} is called
 under the hood. If \code{name} exists and the file's current content

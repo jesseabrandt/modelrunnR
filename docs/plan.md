@@ -429,6 +429,12 @@ surfaced on the next launch.
 **Deferred.** Hashing files loaded via `devtools::load_all()`,
 `sys.source()`, or `box::use()` — not v0.1 targets.
 
+**Shipped deviation.** The `helpers` column on `_mr_runs` was deferred to
+Slice 10, where it is actually needed (the staleness check re-hashes
+recorded helper paths without re-sourcing the script). Slice 7 still
+computes and stores `code_hash`; it just doesn't serialize the helper
+set until Slice 10.
+
 **Ship check.** Edit a helper → next launch's run row has a new `code_hash`.
 
 ---
@@ -528,9 +534,9 @@ Advisory only, as the design explicitly requires.
 - `R/launch.R` — just before running, compute staleness for the target step
   and emit an informational `message()` summarizing state. Does **not** skip
   — running is always the default.
-- Exported `stale_steps()` (optional, include if small): returns a data frame
-  of stale steps across all known step paths in `_mr_runs`. If this balloons,
-  split to a follow-up slice.
+- ~~Exported `stale_steps()` (optional, include if small)~~. **Deferred to
+  post-v0.1.** Scope creep risk vs. the advisory-only staleness surface that
+  actually shipped; tracked in `docs/followups.md`.
 
 **Tests** (`test-staleness.R`):
 

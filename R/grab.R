@@ -9,8 +9,6 @@
 #' `{name, hash}` pair on the run row. Outside a launch, the read
 #' is not logged.
 #'
-#' Slice 4 of v0.1: tables only. Artifact support arrives in Slice 5.
-#'
 #' When `source` is supplied, `grab()` behaves as an idempotent
 #' read-or-ingest: if `name` does not exist yet, [ingest()] is called
 #' under the hood. If `name` exists and the file's current content
