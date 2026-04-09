@@ -223,8 +223,7 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
 
 # Read a stored value by (logical_name, content_hash). Fetches the
 # _mr_versions row and delegates to .mr_read_value().
-.mr_read_by_hash <- function(name, hash) {
-  con <- .mr_get_connection()
+.mr_read_by_hash <- function(con, name, hash) {
   row <- DBI::dbGetQuery(
     con,
     "SELECT * FROM _mr_versions WHERE logical_name = ? AND content_hash = ?",
@@ -244,7 +243,7 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
     stop(sprintf("grab(): no variant named '%s' has produced '%s'.",
                  variant, name), call. = FALSE)
   }
-  .mr_read_by_hash(name, hash)
+  .mr_read_by_hash(con, name, hash)
 }
 
 .mr_latest_hash_for_variant <- function(con, name, variant) {
@@ -259,10 +258,15 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
   )
   if (nrow(rows) == 0L) return(NULL)
   for (j in seq_len(nrow(rows))) {
-    pairs <- tryCatch(
-      jsonlite::fromJSON(rows$outputs[j], simplifyVector = FALSE),
-      error = function(e) list()
-    )
+    raw <- rows$outputs[j]
+    pairs <- if (is.na(raw) || !nzchar(raw)) {
+      list()
+    } else {
+      tryCatch(
+        jsonlite::fromJSON(raw, simplifyVector = FALSE),
+        error = function(e) list()
+      )
+    }
     for (p in pairs) {
       if (identical(p$name, name)) return(p$hash)
     }
