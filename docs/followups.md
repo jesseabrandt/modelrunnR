@@ -15,8 +15,22 @@ code, and the audit reviewer that flagged it.
 - **Same pattern in `.mr_last_producer_step()`** — `R/interactive.R:41-61`.
   Called on every `launch()`; grows unboundedly with run history. `[code, pipeline]`
 
-- **Same pattern in `.mr_protected_version_hashes()`** — `R/prune_versions.R:122-147`.
-  Now returns `(name, hash)` pairs (slice-1 fix) but still iterates all runs.
+- **Same pattern in `.mr_protected_version_hashes()`** — `R/prune_versions.R`.
+  Now returns `(name, hash)` pairs (slice-1 fix) but still iterates all runs,
+  and after the swappability work has TWO loops: one over recent-runs and one
+  over labeled-variant rows. The second loop (`label_rows`) was added by
+  Slice E and follows the same per-row JSON parse pattern. Both loops should
+  collapse into the planned DuckDB push-down. `[code]`
+
+- **Same pattern in `.mr_latest_hash_for_variant()`** — `R/grab.R`.
+  Called by `grab(name, variant = "x")` and by
+  `launch(rebind = list(x = mr_variant("y")))`. Walks all labeled runs in
+  reverse chronological order, parsing each `outputs` JSON, until it finds
+  a matching `(name, hash)` pair. Same O(runs × outputs) profile. `[code]`
+
+- **Same pattern in `.mr_variants_produced()`** — `R/variants.R`.
+  Called by `variants(name = "x")` once per `(script, label)` row in the
+  filter result. Aggregate cost is O(variants × labeled_runs × outputs).
   `[code]`
 
 - **Grow-in-loop vectors in JSON aggregation** — `R/prune_versions.R:131-143`,
@@ -68,6 +82,17 @@ code, and the audit reviewer that flagged it.
   `.mr_build_run_row()` helper that fills unspecified columns with defaults.
   `[code]`
 
+- **DuckDB-dialect `ARG_MAX` in `variants.R`** — `R/variants.R`.
+  The `variants()` query uses `ARG_MAX(run_id, started_at) AS latest_run_id`,
+  which is DuckDB-specific. The design doc commits to keeping
+  dialect-specific SQL inside `R/backend_duckdb.R`; this is the only
+  swappability-era violation outside that file. Either replace with the
+  portable correlated subquery (`(SELECT run_id FROM _mr_runs r2 WHERE
+  r2.step = _mr_runs.step AND r2.variant_label = _mr_runs.variant_label
+  ORDER BY r2.started_at DESC LIMIT 1)`) or move the query into
+  `R/backend_duckdb.R` behind a backend helper. Low urgency until a second
+  backend lands. `[code]`
+
 - **`paste()`-based dedup key collision risk in `variants_unexplored()`** —
   `R/variants_unexplored.R` around line 81. `paste()` with default space
   separator could collide when a label or name contains an internal space
@@ -110,12 +135,6 @@ code, and the audit reviewer that flagged it.
   `storage_location` is blob/file for artifacts only) but there's no one-paragraph
   legend in the code. Add a comment block at the top of `R/schema.R` spelling out
   the vocabulary. `[readability]`
-
-- **`R/pin.R` filename vs convention** — CLAUDE.md says "one function per file
-  in `R/` where practical; name the file after the function." `R/pin.R` defines
-  `.mr_resolve_pins`, `.mr_start_pinning`, etc., not a `pin()` function. Either
-  rename to `R/pinning.R` (aspect-file pattern) or document the convention
-  exception. `[readability]`
 
 - **`CLAUDE.md` inspiration section references `panelmodeler` functions not
   borrowed** — the listed files (`runner.R`, `harness_*.R`, `model.R`,

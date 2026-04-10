@@ -4,10 +4,14 @@
 \alias{.mr_is_stale}
 \title{Check whether a step is stale relative to its most recent run}
 \usage{
-.mr_is_stale(step)
+.mr_is_stale(step, variant_label = NA_character_)
 }
 \arguments{
 \item{step}{Normalized path to the step's script file.}
+
+\item{variant_label}{When non-NA, restrict the "most recent run" lookup to
+runs with this exact label. When NA (the default), the lookup considers
+any run for this step, regardless of label.}
 }
 \value{
 A list with fields \code{stale} and \code{reasons}.

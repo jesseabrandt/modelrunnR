@@ -1,6 +1,6 @@
 # modelrunnR Design
 
-**Status**: Initial design, pre-implementation. Subject to revision as implementation surfaces new questions.
+**Status**: v0.1 implementation complete (including the swappability layer). Open questions remain in the *Open questions* section; further revisions documented in `NEWS.md` and `docs/followups.md`.
 
 **Last updated**: 2026-04-09
 
@@ -116,7 +116,7 @@ Ten user-facing functions plus four reference constructors used inside `rebind =
 
 - **`prune_versions(name = NULL, keep = NULL, keep_latest = FALSE, older_than = NULL, force = FALSE)`** — explicit, user-invoked garbage collection. Policy arguments include `keep = N` (most recent N), `keep_latest = TRUE` (only the current), `older_than = "30d"` (time-based). Versions referenced by recent run records are protected from pruning unless `force = TRUE`. Versions whose producing run has a non-null `variant_label` are **unconditionally protected** — labels are the user's explicit "keep this" signal, and the normal `keep` / `older_than` policies do not apply to them. Only `force = TRUE` can delete labeled-variant versions. Called without `name`, applies to all stored names.
 
-- **`variants(script = NULL, name = NULL)`** — inspection. Returns a data frame listing labeled variants. Called with neither argument, lists every distinct label in the system. With `script =`, lists variants of that script. With `name =`, lists variants that have produced outputs under that logical name. Columns: `script`, `label`, `first_seen`, `last_seen`, `n_runs`, `latest_run_id`.
+- **`variants(script = NULL, name = NULL)`** — inspection. Returns a data frame listing labeled variants, one row per `(script, label)` pair (so the same label applied to two different scripts produces two rows). Called with neither argument, lists every labeled variant in the system. With `script =`, lists variants of that script. With `name =`, lists variants that have produced outputs under that logical name. Columns: `script`, `label`, `first_seen`, `last_seen`, `n_runs`, `latest_run_id`.
 
 - **`variants_unexplored(script)`** — discoverability. For each grab the script has historically made, returns which labeled upstreams exist and which have been exercised by this script. Columns: `logical_name`, `upstream_label`, `upstream_hash`, `last_seen`, `used_by_this_script`. A user scanning this table sees at a glance which experimental combinations they haven't run downstream yet.
 
@@ -192,12 +192,13 @@ Two tables in the DuckDB file alongside the user's data:
 
 | column | type | meaning |
 |---|---|---|
-| `step` | TEXT | script path, relative to project root |
+| `step` | TEXT | absolute, normalized script path (from `normalizePath()`) |
 | `run_id` | TEXT or BIGINT | unique identifier for this run |
 | `code_hash` | TEXT | hash of script + helper files at run time |
 | `inputs` | TEXT (JSON) | list of `{name, hash}` pairs for tables read |
 | `outputs` | TEXT (JSON) | list of `{name, hash}` pairs for tables and artifacts written |
 | `external_inputs` | TEXT (JSON) | declared external inputs (files, env vars) and their hashes |
+| `helpers` | TEXT (JSON) | list of `{path, hash}` pairs for files transitively `source()`d by the script |
 | `variant_label` | TEXT (nullable) | user-provided or auto-propagated label; NULL for plain runs |
 | `started_at` | TIMESTAMP | run start time |
 | `duration_ms` | BIGINT | wall-clock duration |

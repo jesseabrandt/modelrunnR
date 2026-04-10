@@ -78,8 +78,7 @@ stow("predictions", predict(fit, train))
 - **External inputs.** Declare files and env vars that affect reproducibility
   via `launch(..., external_inputs = list(files = ..., env = ...))` and their
   hashes land on the run row.
-- **Parameter sweeps.** `launch(..., pin = ..., data = ...)` runs the same
-  script against different inputs, each recorded as a distinct run.
+- **Swappability — `rebind` and labeled variants.** `launch(..., rebind = list(features = my_df), label = "fast")` reruns the same script against different inputs and marks the run as a tracked variant. The `rebind` argument accepts bare R values (stowed inline) or reference constructors — `mr_hash()`, `mr_run()`, `mr_variant()`, `mr_as_of()` — that resolve to existing versions without round-tripping through R memory. Downstream scripts that grab a labeled variant's outputs auto-inherit the label. See [`docs/design.md`](docs/design.md) *Variants and swappability*.
 - **Garbage collection.** `prune_versions()` removes versions by age, count,
   or "keep latest", with run-history protection.
 
