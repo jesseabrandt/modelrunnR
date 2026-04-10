@@ -74,3 +74,25 @@ test_that("rebind = list(x = mr_variant('slow')) resolves to the labeled variant
   launch(consumer, rebind = list(features = mr_variant("slow")))
   expect_equal(grab("n")$n, 4L)
 })
+
+test_that("grab(variant = 'x') inside launch() records the read on the run row", {
+  new_test_db()
+
+  prod <- write_script('stow("features", data.frame(v = 1:3))')
+  launch(prod, label = "slow")
+
+  cons <- write_script(c(
+    'f <- grab("features", variant = "slow")',
+    'stow("n", data.frame(n = nrow(f)))'
+  ))
+  run <- launch(cons)
+
+  con <- .mr_get_connection()
+  row <- DBI::dbGetQuery(
+    con, "SELECT inputs FROM _mr_runs WHERE run_id = ?",
+    params = list(run$run_id)
+  )
+  pairs <- jsonlite::fromJSON(row$inputs[1], simplifyVector = FALSE)
+  input_names <- vapply(pairs, function(p) p$name, character(1))
+  expect_true("features" %in% input_names)
+})

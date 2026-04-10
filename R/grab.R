@@ -243,6 +243,7 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
     stop(sprintf("grab(): no variant named '%s' has produced '%s'.",
                  variant, name), call. = FALSE)
   }
+  .mr_record_read(name, hash)
   .mr_read_by_hash(con, name, hash)
 }
 
