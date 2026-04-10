@@ -8,7 +8,7 @@
 .onLoad <- function(libname, pkgname) {
   .mr_state$connection  <- NULL
   .mr_state$db_path     <- NULL
-  .mr_state$recording   <- NULL  # list(inputs = chr(), outputs = chr()) while active
+  .mr_state$recording   <- NULL  # list(inputs, outputs, n_grabs, n_stows) while active
 }
 
 .onUnload <- function(libpath) {

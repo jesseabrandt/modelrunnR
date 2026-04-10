@@ -6,8 +6,8 @@ test_that("launch summary always includes (grabs, stows) counts", {
     'stow("b", data.frame(x = 2))'
   ))
   out <- capture.output(launch(s), type = "message") |> paste(collapse = "\n")
-  expect_match(out, "0 grabs")
-  expect_match(out, "2 stows")
+  expect_match(out, "\\(0 grabs")
+  expect_match(out, "2 stows\\)")
 })
 
 test_that("launch summary appends a variant line when labeled explicitly", {
