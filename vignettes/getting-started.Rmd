@@ -70,15 +70,25 @@ Once you have something worth reproducing, wrap the modeling code in
 - a staleness line prints before the run so you know whether inputs
   or code have shifted since the last time you ran the same block.
 
-```{r launch}
-run <- launch({
-  training <- grab("training")
-  model    <- lm(y ~ x1 + x2, data = training)
+**Give the pipeline a name.** As soon as you have something worth
+iterating on, pass a `label`. A label is just a name for this
+pipeline — *not* for this particular run. Every `launch()` with the
+same label is a new *version* of that pipeline: same identity,
+possibly different code. It's the unit modelrunnR uses to track
+history, compare variants, and garbage-collect old versions later.
 
-  stow(model, "model")
-  stow(data.frame(y = training$y, pred = predict(model, training)),
-       "predictions")
-})
+```{r launch}
+run <- launch(
+  {
+    training <- grab("training")
+    model    <- lm(y ~ x1 + x2, data = training)
+
+    stow(model, "model")
+    stow(data.frame(y = training$y, pred = predict(model, training)),
+         "predictions")
+  },
+  label = "baseline"
+)
 ```
 
 `launch()` returns the run row invisibly.
@@ -86,6 +96,7 @@ run <- launch({
 ```{r run-row}
 run$status
 run$run_id
+run$variant_label
 run$inputs
 run$outputs
 ```
@@ -101,25 +112,59 @@ fresh — the expression bytes and the input hash haven't moved, so no
 new version is written.
 
 ```{r rerun}
-launch({
-  training <- grab("training")
-  model    <- lm(y ~ x1 + x2, data = training)
+launch(
+  {
+    training <- grab("training")
+    model    <- lm(y ~ x1 + x2, data = training)
 
-  stow(model, "model")
-  stow(data.frame(y = training$y, pred = predict(model, training)),
-       "predictions")
-})
+    stow(model, "model")
+    stow(data.frame(y = training$y, pred = predict(model, training)),
+         "predictions")
+  },
+  label = "baseline"
+)
 ```
+
+## Iterating on the same pipeline
+
+Now edit the modeling code — say, swap to a more flexible formula —
+and re-run under the *same* label. modelrunnR records a new version
+tied to that pipeline identity.
+
+```{r iterate}
+launch(
+  {
+    training <- grab("training")
+    model    <- lm(y ~ x1 * x2, data = training)   # interaction added
+
+    stow(model, "model")
+    stow(data.frame(y = training$y, pred = predict(model, training)),
+         "predictions")
+  },
+  label = "baseline"
+)
+```
+
+`variants()` gives you the pipeline's history at a glance — one row
+per labeled pipeline, with a run count and timestamps.
+
+```{r variants}
+variants(name = "predictions")
+```
+
+Two runs of `"baseline"`, both tied to the same label. When you're
+confident an older iteration isn't worth keeping, `prune_variants()`
+and `prune_versions()` can clear the history.
 
 ## From block to script
 
 `launch()` also accepts a path to a `.R` file. Once a block settles
 into something you want in version control, move it to `fit.R` and
-point `launch()` at the file instead — everything else (inputs,
-outputs, staleness, rebind, labels) works the same way.
+point `launch()` at the file instead — the label, inputs, outputs,
+and staleness all work the same way.
 
 ```r
-launch("fit.R")
+launch("fit.R", label = "baseline")
 ```
 
 ```{r cleanup, include = FALSE}
