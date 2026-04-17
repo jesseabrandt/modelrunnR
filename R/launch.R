@@ -203,7 +203,8 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     code_hash       = code_hash,
     external_inputs = resolved_ext,
     helpers         = helpers,
-    variant_label   = label
+    variant_label   = label,
+    inline_code     = if (inline_mode) deparsed else NA_character_
   )
 
   .mr_print_timing_summary(
@@ -257,7 +258,8 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
                               code_hash = NA_character_,
                               external_inputs = list(files = list(), env = list()),
                               helpers = list(),
-                              variant_label = NA_character_) {
+                              variant_label = NA_character_,
+                              inline_code = NA_character_) {
   con <- .mr_get_connection()
   row <- data.frame(
     step            = step,
@@ -271,6 +273,7 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     external_inputs = .mr_external_inputs_to_json(external_inputs),
     helpers         = .mr_helpers_to_json(helpers),
     variant_label   = variant_label,
+    inline_code     = inline_code,
     stringsAsFactors = FALSE
   )
   DBI::dbAppendTable(con, "_mr_runs", row)

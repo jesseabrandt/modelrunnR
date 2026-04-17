@@ -3,6 +3,8 @@
 ## New features
 
 * **Inline `launch({ ... })`.** `launch()` now dispatches on its first argument: a literal braced expression runs as tracked code with no script file on disk, while a character path continues to behave as before. Step identity is derived from the deparsed expression's hash (`"<inline:<short>>"`), so editing the block creates a new step instead of silently comparing against a prior expression's history. All existing features (rebind, label, external_inputs, staleness, interactive-input warnings) work identically in both modes.
+* **`launch_code(run_id)`.** Retrieves the code that produced a run. For inline runs, returns the deparsed expression body stored on the run row; for script runs, returns the file's current contents (or errors if the file has been removed). Closes the "where did my inline code go" gap so an inline `launch({ ... })` is fully recoverable after the session ends.
+* **`_mr_runs.inline_code`** column added via the existing idempotent migration path. Pre-existing databases get the column added on next connect with no manual migration. NULL for script-mode and interactive-write rows.
 * **Getting-started vignette.** New `vignettes/getting-started.Rmd` walks through the REPL workflow (stow, grab, versions) and the inline `launch({ ... })` flow end-to-end on a small simulated dataset.
 
 ## Breaking changes

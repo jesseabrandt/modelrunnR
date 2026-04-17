@@ -47,6 +47,10 @@
   .mr_add_column_if_missing(con, "_mr_runs", "helpers", "TEXT")
   # Swappability (Slice A): nullable label for tracked variants.
   .mr_add_column_if_missing(con, "_mr_runs", "variant_label", "TEXT")
+  # Inline launch: deparsed expression body for runs launched via
+  # launch({ ... }). NULL for script-path runs (the script file on
+  # disk is the recovery path).
+  .mr_add_column_if_missing(con, "_mr_runs", "inline_code", "TEXT")
 }
 
 .mr_migrate_versions <- function(con) {
