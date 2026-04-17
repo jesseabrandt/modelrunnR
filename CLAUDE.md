@@ -65,3 +65,10 @@ devtools::check()        # full R CMD check
   for. This package starts minimal.
 - If a task requires running R, use `Rscript -e '...'` from `Bash`. Prefer
   `devtools::load_all()` over installing the package for iterative work.
+
+## Cross-project notes
+
+- `notes/AU-Catalog-findings.md` — API friction log from real use in the
+  sibling [AU-Catalog](../../AU-Catalog/) project. Do not treat as this
+  package's backlog; the AU-Catalog work appends to it and the maintainer
+  triages separately from `TODO.md`.
