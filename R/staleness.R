@@ -69,6 +69,14 @@
 }
 
 .mr_check_code_hash <- function(step, prior) {
+  # Inline-mode steps ("<inline:<hash>>") have no file on disk; their
+  # identity already encodes the expression hash, so if we found a prior
+  # run with this exact step, the expression bytes match by construction.
+  # Helpers are covered by the recorded-helpers arm below (via
+  # .mr_code_hash_inline) if any were source()d.
+  if (startsWith(step, "<inline:")) {
+    return(.mr_check_code_hash_inline(step, prior))
+  }
   if (!file.exists(step)) return("code")
 
   helpers_json <- prior$helpers[1]
@@ -100,6 +108,48 @@
     return("code")
   }
   code_reason
+}
+
+.mr_check_code_hash_inline <- function(step, prior) {
+  helpers_json <- prior$helpers[1]
+  helpers <- if (is.na(helpers_json) || !nzchar(helpers_json)) {
+    list()
+  } else {
+    jsonlite::fromJSON(helpers_json, simplifyVector = FALSE)
+  }
+  current_helpers <- list()
+  for (h in helpers) {
+    if (!file.exists(h$path)) return("code")
+    current_helpers[[h$path]] <- .mr_hash_bytes(.mr_read_code_bytes(h$path))
+  }
+  # Recover the expression hash from the step identifier (first 12 hex
+  # chars of the deparsed-expression md5) to rebuild the combined code
+  # hash using the helpers' *current* bytes.
+  expr_short <- sub("^<inline:(.*)>$", "\\1", step)
+  helper_hashes <- if (length(current_helpers) > 0L) {
+    sort(unlist(current_helpers, use.names = FALSE))
+  } else character()
+  current_code_hash <- .mr_hash_bytes(charToRaw(paste(
+    c(expr_short, helper_hashes), collapse = "\n"
+  )))
+  prior_code_hash <- prior$code_hash[1]
+  if (is.na(prior_code_hash)) return("code_unknown")
+  # We hash expr_short here, but at write time we hashed the full
+  # expression hash. So direct comparison would always differ -- instead,
+  # compare just the helpers arm: if no helpers, the prior code_hash's
+  # helper portion is empty and will match regardless. If helpers exist,
+  # recompute using the full expression hash inferred from the step.
+  # Simpler: since step IS the expr hash, the expression side can't have
+  # changed without step changing. So only the helpers side can drift.
+  # Recompute prior-helpers hash and compare to current-helpers hash.
+  prior_helpers <- if (length(helpers) > 0L) {
+    sort(vapply(helpers, `[[`, character(1), "hash"))
+  } else character()
+  current_helper_hashes <- if (length(current_helpers) > 0L) {
+    sort(unlist(current_helpers, use.names = FALSE))
+  } else character()
+  if (!identical(prior_helpers, current_helper_hashes)) return("code")
+  character()
 }
 
 .mr_check_inputs <- function(con, inputs_json) {

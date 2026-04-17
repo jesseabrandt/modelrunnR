@@ -1,0 +1,128 @@
+---
+title: "Getting started with modelrunnR"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with modelrunnR}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>"
+)
+# Isolate the DuckDB store to a tempdir so building this vignette
+# doesn't leave a modelrunnR.duckdb file next to the package source.
+.vignette_db <- tempfile(fileext = ".duckdb")
+options(modelrunnR.db = .vignette_db)
+```
+
+```{r setup}
+# install.packages("pak")
+# pak::pak("jesseabrandt/modelrunnR")
+
+library(modelrunnR)
+```
+
+## A tiny simulated dataset
+
+We'll generate a toy regression problem — a linear signal plus noise —
+so the rest of the vignette has something to model without shipping a
+dataset.
+
+```{r sim-data}
+set.seed(42)
+n  <- 200
+df <- data.frame(x1 = rnorm(n), x2 = rnorm(n))
+df$y <- 1 + df$x1 + 2 * df$x2 + rnorm(n, sd = 0.5)
+
+head(df)
+```
+
+## Stowing and grabbing at the REPL
+
+`stow()` parks a value in the modelrunnR store under a logical name.
+It's content-addressed: writing the same frame twice creates one
+version row, not two. `grab()` is the other half — retrieve the latest
+version (or a specific one) by name.
+
+Even when called at the REPL, `stow()` records a row in `_mr_runs`
+tagged as an interactive write so later tracked runs can flag inputs
+that trace back to ad-hoc keyboard activity.
+
+```{r stow-grab}
+stow(df, "training")
+
+training <- grab("training")
+identical(training, df)
+```
+
+## A tracked run with `launch({ ... })`
+
+Once you have something worth reproducing, wrap the modeling code in
+`launch({ ... })`. The block runs inside an instrumented context:
+
+- every `grab()` is recorded as an input,
+- every `stow()` is recorded as an output,
+- the expression's bytes, any declared external inputs, and
+  wall-clock duration all land on a row in `_mr_runs`,
+- a staleness line prints before the run so you know whether inputs
+  or code have shifted since the last time you ran the same block.
+
+```{r launch}
+run <- launch({
+  training <- grab("training")
+  model    <- lm(y ~ x1 + x2, data = training)
+
+  stow(model, "model")
+  stow(data.frame(y = training$y, pred = predict(model, training)),
+       "predictions")
+})
+```
+
+`launch()` returns the run row invisibly.
+
+```{r run-row}
+run$status
+run$run_id
+run$inputs
+run$outputs
+```
+
+## Inspecting versions
+
+```{r versions}
+versions("predictions")
+```
+
+Run the same block a second time and modelrunnR will report it as
+fresh — the expression bytes and the input hash haven't moved, so no
+new version is written.
+
+```{r rerun}
+launch({
+  training <- grab("training")
+  model    <- lm(y ~ x1 + x2, data = training)
+
+  stow(model, "model")
+  stow(data.frame(y = training$y, pred = predict(model, training)),
+       "predictions")
+})
+```
+
+## From block to script
+
+`launch()` also accepts a path to a `.R` file. Once a block settles
+into something you want in version control, move it to `fit.R` and
+point `launch()` at the file instead — everything else (inputs,
+outputs, staleness, rebind, labels) works the same way.
+
+```r
+launch("fit.R")
+```
+
+```{r cleanup, include = FALSE}
+modelrunnR:::.mr_reset_connection()
+if (file.exists(.vignette_db)) file.remove(.vignette_db)
+```

@@ -2,12 +2,15 @@
 % Please edit documentation in R/launch.R
 \name{launch}
 \alias{launch}
-\title{Launch an R script as a tracked modelrunnR step}
+\title{Launch a tracked modelrunnR step}
 \usage{
 launch(script_path, rebind = NULL, label = NULL, external_inputs = NULL, ...)
 }
 \arguments{
-\item{script_path}{Path to the R script to run.}
+\item{script_path}{Either a path to an R script (script mode) or a
+braced expression block \code{{ ... }} (inline mode). Dispatch is by
+syntax: a literal \code{{ ... }} in the call triggers inline mode;
+anything else is resolved as a path.}
 
 \item{rebind}{Optional named list that overrides what each
 \code{grab()} inside the script resolves to. List values may be bare
@@ -34,21 +37,35 @@ removed \code{pin}/\code{data} arguments with a clear error message.}
 The run record (one row of \verb{_mr_runs}), invisibly.
 }
 \description{
-\code{launch()} is the tracked-execution entry point. It sources
-\code{script_path} inside an instrumented context that watches for
-\code{grab()} and \code{stow()} calls, measures wall-clock duration, and
-writes a run record to \verb{_mr_runs} whether the script succeeds
-or errors.
+\code{launch()} is the tracked-execution entry point. It runs user code
+inside an instrumented context that watches for \code{grab()} and
+\code{stow()} calls, measures wall-clock duration, and writes a run
+record to \verb{_mr_runs} whether the code succeeds or errors.
 }
 \details{
-The script is sourced in a fresh environment whose parent is
-\code{globalenv()}. \code{grab} and \code{stow} are injected directly into the
-script's environment so scripts can call them bare without a
-preceding \code{library(modelrunnR)}.
+The code runs in a fresh environment whose parent is \code{globalenv()}.
+\code{grab} and \code{stow} are injected directly into that environment so
+the tracked code can call them bare without a preceding
+\code{library(modelrunnR)}.
 }
+\section{Script vs. inline mode}{
+
+\code{launch()} dispatches on the first argument:
+\itemize{
+\item \strong{Script mode} -- \code{launch("fit.R")} sources a file.
+\item \strong{Inline mode} -- \code{launch({ ... })} evaluates a braced block as
+tracked code, with no script file on disk. Useful for vignettes,
+quick experiments, and one-off tracked runs. The step identifier
+is derived from the deparsed expression's hash
+(\code{"<inline:<short-hash>>"}), so editing the expression produces a
+new tracked step rather than silently comparing against a prior
+run's history.
+}
+}
+
 \section{Shadowed \code{source()}}{
 
-During a tracked launch, \code{source()} inside the script (and inside
+During a tracked launch, \code{source()} inside the code (and inside
 any transitively-sourced helper) is shadowed with a wrapper that
 records each sourced file's path + byte hash on the run row.
 
@@ -56,8 +73,7 @@ The wrapper's default for \code{local} is \code{TRUE} (resolving to the
 caller's frame), whereas \code{base::source()}'s default is \code{FALSE}
 (which evaluates into \code{globalenv()}). Scripts that rely on
 \code{source("helper.R")} populating \code{globalenv()} will instead find
-their helpers scoped to the script's evaluation environment.
-Explicitly passing \code{source("helper.R", local = FALSE)} still
-works.
+their helpers scoped to the tracked environment. Explicitly
+passing \code{source("helper.R", local = FALSE)} still works.
 }
 

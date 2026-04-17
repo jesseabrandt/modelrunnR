@@ -1,5 +1,10 @@
 # modelrunnR 0.0.0.9000
 
+## New features
+
+* **Inline `launch({ ... })`.** `launch()` now dispatches on its first argument: a literal braced expression runs as tracked code with no script file on disk, while a character path continues to behave as before. Step identity is derived from the deparsed expression's hash (`"<inline:<short>>"`), so editing the block creates a new step instead of silently comparing against a prior expression's history. All existing features (rebind, label, external_inputs, staleness, interactive-input warnings) work identically in both modes.
+* **Getting-started vignette.** New `vignettes/getting-started.Rmd` walks through the REPL workflow (stow, grab, versions) and the inline `launch({ ... })` flow end-to-end on a small simulated dataset.
+
 ## Breaking changes
 
 * **`stow()` is now value-first.** The signature is `stow(value, name)` (was `stow(name, value)`), so the primary object — the value being stowed — can flow through a pipe: `df |> stow("predictions")`. Passing a single character argument is detected and errors with a migration hint. All internal call sites, tests, docs, and the vignette have been updated.

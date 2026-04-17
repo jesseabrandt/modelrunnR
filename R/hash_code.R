@@ -13,3 +13,15 @@
   combined <- paste(c(script_hash, helper_hashes), collapse = "\n")
   .mr_hash_bytes(charToRaw(combined))
 }
+
+# Inline-mode counterpart. The "script bytes" input is the deparsed
+# expression supplied by the caller (already computed once in launch()
+# for step identity). Helpers contribute the same way as in script mode,
+# so a launch({...}) that source()s a helper still reacts to edits in
+# that helper.
+.mr_code_hash_inline <- function(deparsed_expr, helpers) {
+  expr_hash <- .mr_hash_bytes(charToRaw(deparsed_expr))
+  helper_hashes <- if (length(helpers) > 0L) sort(unlist(helpers, use.names = FALSE)) else character()
+  combined <- paste(c(expr_hash, helper_hashes), collapse = "\n")
+  .mr_hash_bytes(charToRaw(combined))
+}

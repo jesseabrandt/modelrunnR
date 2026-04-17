@@ -1,18 +1,28 @@
-#' Launch an R script as a tracked modelrunnR step
+#' Launch a tracked modelrunnR step
 #'
-#' `launch()` is the tracked-execution entry point. It sources
-#' `script_path` inside an instrumented context that watches for
-#' `grab()` and `stow()` calls, measures wall-clock duration, and
-#' writes a run record to `_mr_runs` whether the script succeeds
-#' or errors.
+#' `launch()` is the tracked-execution entry point. It runs user code
+#' inside an instrumented context that watches for `grab()` and
+#' `stow()` calls, measures wall-clock duration, and writes a run
+#' record to `_mr_runs` whether the code succeeds or errors.
 #'
-#' The script is sourced in a fresh environment whose parent is
-#' `globalenv()`. `grab` and `stow` are injected directly into the
-#' script's environment so scripts can call them bare without a
-#' preceding `library(modelrunnR)`.
+#' The code runs in a fresh environment whose parent is `globalenv()`.
+#' `grab` and `stow` are injected directly into that environment so
+#' the tracked code can call them bare without a preceding
+#' `library(modelrunnR)`.
+#'
+#' @section Script vs. inline mode:
+#' `launch()` dispatches on the first argument:
+#' - **Script mode** -- `launch("fit.R")` sources a file.
+#' - **Inline mode** -- `launch({ ... })` evaluates a braced block as
+#'   tracked code, with no script file on disk. Useful for vignettes,
+#'   quick experiments, and one-off tracked runs. The step identifier
+#'   is derived from the deparsed expression's hash
+#'   (`"<inline:<short-hash>>"`), so editing the expression produces a
+#'   new tracked step rather than silently comparing against a prior
+#'   run's history.
 #'
 #' @section Shadowed `source()`:
-#' During a tracked launch, `source()` inside the script (and inside
+#' During a tracked launch, `source()` inside the code (and inside
 #' any transitively-sourced helper) is shadowed with a wrapper that
 #' records each sourced file's path + byte hash on the run row.
 #'
@@ -20,11 +30,13 @@
 #' caller's frame), whereas `base::source()`'s default is `FALSE`
 #' (which evaluates into `globalenv()`). Scripts that rely on
 #' `source("helper.R")` populating `globalenv()` will instead find
-#' their helpers scoped to the script's evaluation environment.
-#' Explicitly passing `source("helper.R", local = FALSE)` still
-#' works.
+#' their helpers scoped to the tracked environment. Explicitly
+#' passing `source("helper.R", local = FALSE)` still works.
 #'
-#' @param script_path Path to the R script to run.
+#' @param script_path Either a path to an R script (script mode) or a
+#'   braced expression block `{ ... }` (inline mode). Dispatch is by
+#'   syntax: a literal `{ ... }` in the call triggers inline mode;
+#'   anything else is resolved as a path.
 #' @param rebind Optional named list that overrides what each
 #'   `grab()` inside the script resolves to. List values may be bare
 #'   R objects (stowed inline through the normal versioning path) or
@@ -62,17 +74,33 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
          call. = FALSE)
   }
   label <- .mr_validate_label(label)
-  stopifnot(
-    is.character(script_path),
-    length(script_path) == 1L,
-    nzchar(script_path)
-  )
-  if (!file.exists(script_path)) {
-    stop(sprintf("launch(): script not found: %s", script_path), call. = FALSE)
+
+  # Dispatch: a literal `{ ... }` block triggers inline mode. Capturing
+  # with substitute() before `script_path` is ever touched is load-bearing
+  # -- forcing the promise would evaluate user code outside our tracking.
+  script_expr <- substitute(script_path)
+  inline_mode <- is.call(script_expr) && identical(script_expr[[1]], as.name("{"))
+
+  if (inline_mode) {
+    deparsed  <- paste(deparse(script_expr, width.cutoff = 500L), collapse = "\n")
+    expr_hash <- .mr_hash_bytes(charToRaw(deparsed))
+    # Step identifier is derived from the expression hash so editing the
+    # block yields a new logical step rather than a false "stale" report
+    # against an older expression's history.
+    step <- sprintf("<inline:%s>", substr(expr_hash, 1L, 12L))
+  } else {
+    stopifnot(
+      is.character(script_path),
+      length(script_path) == 1L,
+      nzchar(script_path)
+    )
+    if (!file.exists(script_path)) {
+      stop(sprintf("launch(): script not found: %s", script_path), call. = FALSE)
+    }
+    # Normalize path so the `step` column is stable relative to resolution.
+    step <- normalizePath(script_path, mustWork = TRUE)
   }
 
-  # Normalize path so the `step` column is stable relative to resolution.
-  step <- normalizePath(script_path, mustWork = TRUE)
   run_id     <- .mr_new_run_id()
   started_at <- Sys.time()
   start_secs <- as.numeric(started_at)
@@ -118,7 +146,7 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   status  <- "success"
   err_obj <- NULL
   tryCatch(
-    .mr_source_script(step),
+    if (inline_mode) .mr_eval_inline(script_expr) else .mr_source_script(step),
     error = function(e) {
       status  <<- "error"
       err_obj <<- e
@@ -129,7 +157,11 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   helpers <- .mr_stop_helper_tracking()
   duration_ms <- as.integer(round((as.numeric(Sys.time()) - start_secs) * 1000))
 
-  code_hash <- .mr_code_hash(step, helpers)
+  code_hash <- if (inline_mode) {
+    .mr_code_hash_inline(deparsed, helpers)
+  } else {
+    .mr_code_hash(step, helpers)
+  }
 
   # Surface inputs that trace back to interactive writes -- design's
   # "patched a table from the REPL and then a script depended on it"
@@ -208,6 +240,15 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   envir$stow   <- stow
   envir$source <- .mr_make_source_wrapper()
   base::source(path, local = envir, echo = FALSE, keep.source = FALSE)
+  invisible(NULL)
+}
+
+.mr_eval_inline <- function(expr) {
+  envir <- new.env(parent = globalenv())
+  envir$grab   <- grab
+  envir$stow   <- stow
+  envir$source <- .mr_make_source_wrapper()
+  base::eval(expr, envir = envir)
   invisible(NULL)
 }
 
