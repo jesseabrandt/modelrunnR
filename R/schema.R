@@ -47,10 +47,24 @@
   .mr_add_column_if_missing(con, "_mr_runs", "helpers", "TEXT")
   # Swappability (Slice A): nullable label for tracked variants.
   .mr_add_column_if_missing(con, "_mr_runs", "variant_label", "TEXT")
-  # Inline launch: deparsed expression body for runs launched via
-  # launch({ ... }). NULL for script-path runs (the script file on
-  # disk is the recovery path).
-  .mr_add_column_if_missing(con, "_mr_runs", "inline_code", "TEXT")
+  # Code body: the source executed by this run. Deparsed expression
+  # for launch({ ... }) runs, captured file bytes for launch("f.R")
+  # runs. Populated for every tracked run so a row is recoverable
+  # even if its source file was later deleted.
+  .mr_add_column_if_missing(con, "_mr_runs", "code_body", "TEXT")
+  # Earlier draft named this column `inline_code` and only populated
+  # it for inline launches. Carry the data forward and drop the old
+  # column so `code_body` stays single-source-of-truth.
+  info <- DBI::dbGetQuery(con, "PRAGMA table_info(_mr_runs)")
+  if ("inline_code" %in% info$name) {
+    DBI::dbExecute(
+      con,
+      "UPDATE _mr_runs
+          SET code_body = inline_code
+        WHERE code_body IS NULL AND inline_code IS NOT NULL"
+    )
+    .mr_execute(con, "ALTER TABLE _mr_runs DROP COLUMN inline_code")
+  }
 }
 
 .mr_migrate_versions <- function(con) {

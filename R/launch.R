@@ -82,8 +82,8 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   inline_mode <- is.call(script_expr) && identical(script_expr[[1]], as.name("{"))
 
   if (inline_mode) {
-    deparsed  <- paste(deparse(script_expr, width.cutoff = 500L), collapse = "\n")
-    expr_hash <- .mr_hash_bytes(charToRaw(deparsed))
+    code_body <- paste(deparse(script_expr, width.cutoff = 500L), collapse = "\n")
+    expr_hash <- .mr_hash_bytes(charToRaw(code_body))
     # Step identifier is derived from the expression hash so editing the
     # block yields a new logical step rather than a false "stale" report
     # against an older expression's history.
@@ -99,6 +99,9 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     }
     # Normalize path so the `step` column is stable relative to resolution.
     step <- normalizePath(script_path, mustWork = TRUE)
+    # Capture the file bytes as the run's recovery snapshot. Later the
+    # file may be edited or deleted; this keeps the run row self-contained.
+    code_body <- paste(readLines(step, warn = FALSE), collapse = "\n")
   }
 
   run_id     <- .mr_new_run_id()
@@ -158,7 +161,7 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   duration_ms <- as.integer(round((as.numeric(Sys.time()) - start_secs) * 1000))
 
   code_hash <- if (inline_mode) {
-    .mr_code_hash_inline(deparsed, helpers)
+    .mr_code_hash_inline(code_body, helpers)
   } else {
     .mr_code_hash(step, helpers)
   }
@@ -204,7 +207,7 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     external_inputs = resolved_ext,
     helpers         = helpers,
     variant_label   = label,
-    inline_code     = if (inline_mode) deparsed else NA_character_
+    code_body       = code_body
   )
 
   .mr_print_timing_summary(
@@ -259,7 +262,7 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
                               external_inputs = list(files = list(), env = list()),
                               helpers = list(),
                               variant_label = NA_character_,
-                              inline_code = NA_character_) {
+                              code_body = NA_character_) {
   con <- .mr_get_connection()
   row <- data.frame(
     step            = step,
@@ -273,7 +276,7 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     external_inputs = .mr_external_inputs_to_json(external_inputs),
     helpers         = .mr_helpers_to_json(helpers),
     variant_label   = variant_label,
-    inline_code     = inline_code,
+    code_body       = code_body,
     stringsAsFactors = FALSE
   )
   DBI::dbAppendTable(con, "_mr_runs", row)
