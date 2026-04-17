@@ -69,7 +69,7 @@ chain.
 ## Slice 1 — Core loop: `launch` + naive `grab`/`stow` + `_mr_runs`
 
 **Goal.** Smallest thing that exercises the core loop. A user can
-`launch("script.R")` where the script calls `stow("out", df)` and a later
+`launch("script.R")` where the script calls `stow(df, "out")` and a later
 launch reads it via `grab("out")`. Overwriting semantics. Tables only. One
 row per run in a simplified `_mr_runs`. No versioning, no hashing, no
 artifacts, no helper tracking.
@@ -121,7 +121,7 @@ artifacts, no helper tracking.
   what the script grabbed/stowed; success status recorded.
 - `test-failed-run.R` — a deliberate `stop()` in the script still produces a
   `_mr_runs` row with `status = "error"` and a sensible non-NA `duration_ms`.
-- `test-stow-bad-type.R` — `stow("x", list())` errors with a message pointing
+- `test-stow-bad-type.R` — `stow(list(), "x")` errors with a message pointing
   at the non-data-frame cause.
 - `test-plain-io.R` — `grab`/`stow` called outside `launch()` work as plain
   read/write with no recording side effects.
@@ -298,14 +298,14 @@ source recorded. Design's "if `source` is given and `name` does not exist,
 are v0.1 targets.
 
 **Ship check.** The demo flow `raw <- grab("raw", source = "data.csv")` then
-`stow("features", transform(raw))` runs once to ingest + build, a second
+`stow(transform(raw), "features")` runs once to ingest + build, a second
 time with the same CSV to reuse both versions.
 
 ---
 
 ## Slice 5 — Artifacts (non-table `stow`)
 
-**Goal.** `stow("model", fit)` stores non-data-frame R objects under the same
+**Goal.** `stow(fit, "model")` stores non-data-frame R objects under the same
 logical namespace as tables. `grab("model")` returns the original object.
 
 **Files built.**
@@ -338,12 +338,12 @@ logical namespace as tables. `grab("model")` returns the original object.
 
 **Tests** (`test-artifacts.R`):
 
-- `stow("fit", lm(mpg ~ wt, mtcars))` round-trips: `grab("fit")` returns an
+- `stow(lm(mpg ~ wt, mtcars), "fit")` round-trips: `grab("fit")` returns an
   `lm` whose `coef()` matches.
 - Small artifacts land in `_mr_artifacts`; artifacts over the threshold land
   on disk.
 - `options(modelrunnR.blob_threshold = n)` is honored.
-- `stow("x", df)` then `stow("x", model)` errors on the second call
+- `stow(df, "x")` then `stow(model, "x")` errors on the second call
   (namespace collision).
 - An artifact appears in `_mr_runs.outputs` and is reachable via
   `grab("fit", from_run = rid)`.
@@ -381,7 +381,7 @@ producer was an interactive session.
 
 **Tests** (`test-interactive.R`):
 
-- `stow("x", df)` at the REPL creates a `_mr_runs` row whose `step` starts
+- `stow(df, "x")` at the REPL creates a `_mr_runs` row whose `step` starts
   with `<interactive:`.
 - `grab("x")` at the REPL produces no new `_mr_runs` row.
 - Launching a script that `grab("x")`s after an interactive stow emits the
@@ -509,7 +509,7 @@ and sweeps* work.
   collisions (document this choice in the function roxygen).
 
 **Open question surfaced.** What if a script passed `data = list(p = df)`
-*also* calls `stow("p", …)`? Is that (a) an error, (b) a new version
+*also* calls `stow(…, "p")`? Is that (a) an error, (b) a new version
 recorded normally, or (c) a silent overwrite of the pinned value for later
 grabs within the same launch? Plan direction: (b), recorded normally.
 Flagged in design.md for revisit after the first real sweep.
@@ -623,7 +623,7 @@ The following were not in the design doc and are being appended to
 `docs/design.md` §*Open questions*:
 
 1. **`data`/`pin` + script `stow()` collisions.** If `data = list(p = df)`
-   and the script also calls `stow("p", …)`, what semantics apply? Plan
+   and the script also calls `stow(…, "p")`, what semantics apply? Plan
    direction: record a new version normally. Surfaced in Slice 9.
 2. **Scope of "recent run records" protecting versions from GC.** Currently
    all non-pruned runs; alternatives include last N, younger-than-T, or an

@@ -4,13 +4,13 @@
 \alias{stow}
 \title{Persist a value to the modelrunnR artifact store}
 \usage{
-stow(name, value)
+stow(value, name)
 }
 \arguments{
+\item{value}{Any R value. First, so \code{df |> stow("name")} works.}
+
 \item{name}{A length-one character vector. Logical name for the
 value.}
-
-\item{value}{Any R value.}
 }
 \value{
 \code{value}, invisibly.

@@ -84,7 +84,7 @@ test_that("_mr_runs has a nullable variant_label column", {
   expect_true("variant_label" %in% info$name)
 
   # New runs still write NULL until later slices opt in.
-  script <- write_script('stow("out", data.frame(a = 1))')
+  script <- write_script('stow(data.frame(a = 1), "out")')
   launch(script)
   row <- DBI::dbGetQuery(con, "SELECT variant_label FROM _mr_runs")
   expect_true(all(is.na(row$variant_label)))
@@ -186,7 +186,7 @@ test_that("launch(rebind = list(name = df)) stows bare values", {
 
   script <- write_script(c(
     'p <- grab("params")',
-    'stow("out", data.frame(echo = p$x))'
+    'stow(data.frame(echo = p$x), "out")'
   ))
 
   launch(script, rebind = list(params = data.frame(x = 42L)))
@@ -197,12 +197,12 @@ test_that("launch(rebind = list(name = df)) stows bare values", {
 test_that("launch(rebind) with mr_hash resolves to an existing version", {
   new_test_db()
 
-  stow("features", data.frame(v = 1:3))
+  stow(data.frame(v = 1:3), "features")
   h <- versions("features")$content_hash[1]
 
   script <- write_script(c(
     'f <- grab("features")',
-    'stow("out", data.frame(n = nrow(f)))'
+    'stow(data.frame(n = nrow(f)), "out")'
   ))
   launch(script, rebind = list(features = mr_hash(h)))
   expect_equal(grab("out")$n, 3L)
@@ -211,12 +211,12 @@ test_that("launch(rebind) with mr_hash resolves to an existing version", {
 test_that("launch(rebind) with mr_run resolves via run outputs", {
   new_test_db()
 
-  producer <- write_script('stow("features", data.frame(v = 1:5))')
+  producer <- write_script('stow(data.frame(v = 1:5), "features")')
   run <- launch(producer)
 
   consumer <- write_script(c(
     'f <- grab("features")',
-    'stow("out", data.frame(n = nrow(f)))'
+    'stow(data.frame(n = nrow(f)), "out")'
   ))
   launch(consumer, rebind = list(features = mr_run(run$run_id)))
   expect_equal(grab("out")$n, 5L)
@@ -225,14 +225,14 @@ test_that("launch(rebind) with mr_run resolves via run outputs", {
 test_that("launch(rebind) with mr_as_of resolves to latest-as-of-time", {
   new_test_db()
 
-  stow("features", data.frame(v = 1L))
+  stow(data.frame(v = 1L), "features")
   t0 <- Sys.time()
   Sys.sleep(0.05)
-  stow("features", data.frame(v = 2L))
+  stow(data.frame(v = 2L), "features")
 
   script <- write_script(c(
     'f <- grab("features")',
-    'stow("out", data.frame(v = f$v))'
+    'stow(data.frame(v = f$v), "out")'
   ))
   launch(script, rebind = list(features = mr_as_of(t0)))
   expect_equal(grab("out")$v, 1L)
@@ -257,7 +257,7 @@ test_that("launch(data = ...) is a hard error with a migration message", {
 test_that("mr_variant constructor exists but errors at resolution time", {
   new_test_db()
 
-  script <- write_script('stow("out", data.frame(a = 1))')
+  script <- write_script('stow(data.frame(a = 1), "out")')
   expect_error(
     launch(script, rebind = list(features = mr_variant("foo"))),
     regexp = "mr_variant.*not yet",
@@ -589,7 +589,7 @@ Create `tests/testthat/test-label.R`:
 test_that("launch(label = 'x') writes variant_label on the run row", {
   new_test_db()
 
-  script <- write_script('stow("out", data.frame(a = 1))')
+  script <- write_script('stow(data.frame(a = 1), "out")')
   launch(script, label = "eta_0.01")
 
   con <- .mr_get_connection()
@@ -606,7 +606,7 @@ test_that("launch(label = '') and whitespace-only labels error", {
 test_that("launch(label = ' trimmed ') strips whitespace", {
   new_test_db()
 
-  script <- write_script('stow("out", data.frame(a = 1))')
+  script <- write_script('stow(data.frame(a = 1), "out")')
   launch(script, label = "  eta_0.01  ")
 
   con <- .mr_get_connection()
@@ -617,10 +617,10 @@ test_that("launch(label = ' trimmed ') strips whitespace", {
 test_that("grab(name, variant = 'x') resolves to latest hash produced under that label", {
   new_test_db()
 
-  fit <- write_script('stow("features", data.frame(v = 1:3))')
+  fit <- write_script('stow(data.frame(v = 1:3), "features")')
   launch(fit, label = "slow")
 
-  fit2 <- write_script('stow("features", data.frame(v = 1:9))')
+  fit2 <- write_script('stow(data.frame(v = 1:9), "features")')
   launch(fit2, label = "fast")
 
   expect_equal(nrow(grab("features", variant = "slow")), 3L)
@@ -630,7 +630,7 @@ test_that("grab(name, variant = 'x') resolves to latest hash produced under that
 test_that("grab(variant = 'nonexistent') errors cleanly", {
   new_test_db()
 
-  stow("features", data.frame(v = 1))
+  stow(data.frame(v = 1), "features")
   expect_error(
     grab("features", variant = "nothing"),
     regexp = "no variant.*nothing",
@@ -641,7 +641,7 @@ test_that("grab(variant = 'nonexistent') errors cleanly", {
 test_that("grab() errors on multiple selectors including variant", {
   new_test_db()
 
-  stow("features", data.frame(v = 1))
+  stow(data.frame(v = 1), "features")
   expect_error(
     grab("features", variant = "x", version = "abc"),
     regexp = "more than one selector",
@@ -652,12 +652,12 @@ test_that("grab() errors on multiple selectors including variant", {
 test_that("rebind = list(x = mr_variant('slow')) resolves to the labeled variant", {
   new_test_db()
 
-  producer <- write_script('stow("features", data.frame(v = 1:4))')
+  producer <- write_script('stow(data.frame(v = 1:4), "features")')
   launch(producer, label = "slow")
 
   consumer <- write_script(c(
     'f <- grab("features")',
-    'stow("n",  data.frame(n = nrow(f)))'
+    'stow(data.frame(n = nrow(f)),  "n")'
   ))
   launch(consumer, rebind = list(features = mr_variant("slow")))
   expect_equal(grab("n")$n, 4L)
@@ -845,9 +845,9 @@ Remove the "mr_variant constructor exists but errors at resolution time" test fr
 ```r
 test_that("mr_variant() in rebind errors when no run has produced the name under that label", {
   new_test_db()
-  stow("features", data.frame(v = 1))
+  stow(data.frame(v = 1), "features")
 
-  script <- write_script('stow("out", data.frame(a = 1))')
+  script <- write_script('stow(data.frame(a = 1), "out")')
   expect_error(
     launch(script, rebind = list(features = mr_variant("nobody"))),
     regexp = "mr_variant.*nobody",
@@ -907,7 +907,7 @@ Create `tests/testthat/test-variants.R`:
 test_that("variants() with no args lists all labels in the system", {
   new_test_db()
 
-  s <- write_script('stow("out", data.frame(a = 1))')
+  s <- write_script('stow(data.frame(a = 1), "out")')
   launch(s, label = "one")
   launch(s, label = "two")
   launch(s)  # plain run, should not appear
@@ -921,8 +921,8 @@ test_that("variants() with no args lists all labels in the system", {
 test_that("variants(script = ...) filters to one script", {
   new_test_db()
 
-  s1 <- write_script('stow("a", data.frame(x = 1))')
-  s2 <- write_script('stow("b", data.frame(x = 1))')
+  s1 <- write_script('stow(data.frame(x = 1), "a")')
+  s2 <- write_script('stow(data.frame(x = 1), "b")')
   launch(s1, label = "alpha")
   launch(s2, label = "beta")
 
@@ -933,8 +933,8 @@ test_that("variants(script = ...) filters to one script", {
 test_that("variants(name = ...) filters to labels that produced that name", {
   new_test_db()
 
-  s1 <- write_script('stow("features", data.frame(v = 1))')
-  s2 <- write_script('stow("other",    data.frame(v = 1))')
+  s1 <- write_script('stow(data.frame(v = 1), "features")')
+  s2 <- write_script('stow(data.frame(v = 1),    "other")')
   launch(s1, label = "slow")
   launch(s2, label = "beta")
 
@@ -945,7 +945,7 @@ test_that("variants(name = ...) filters to labels that produced that name", {
 test_that("variants() aggregates multiple runs of the same label", {
   new_test_db()
 
-  s <- write_script('stow("out", data.frame(a = 1))')
+  s <- write_script('stow(data.frame(a = 1), "out")')
   launch(s, label = "one")
   launch(s, label = "one")
 
@@ -956,14 +956,14 @@ test_that("variants() aggregates multiple runs of the same label", {
 test_that("variants_unexplored(script) lists labeled upstreams not consumed by the script", {
   new_test_db()
 
-  prod <- write_script('stow("features", data.frame(v = 1:3))')
+  prod <- write_script('stow(data.frame(v = 1:3), "features")')
   launch(prod, label = "slow")
   launch(prod, label = "fast")
   launch(prod, label = "huge")
 
   cons <- write_script(c(
     'f <- grab("features")',
-    'stow("n", data.frame(n = nrow(f)))'
+    'stow(data.frame(n = nrow(f)), "n")'
   ))
   launch(cons, rebind = list(features = mr_variant("slow")))
 
@@ -1203,14 +1203,14 @@ Append to `tests/testthat/test-prune.R`:
 test_that("prune_versions() unconditionally protects labeled-variant versions", {
   new_test_db()
 
-  s <- write_script('stow("features", data.frame(v = 1:3))')
+  s <- write_script('stow(data.frame(v = 1:3), "features")')
   launch(s, label = "slow")
 
   # Write many more plain versions to push the labeled one out of any
   # `keep = N` window.
   for (k in 2:12) {
     s2 <- write_script(sprintf(
-      'stow("features", data.frame(v = 1:%d))', k
+      'stow(data.frame(v = 1:%d), "features")', k
     ))
     launch(s2)
   }
@@ -1233,7 +1233,7 @@ test_that("prune_versions() unconditionally protects labeled-variant versions", 
 test_that("prune_versions(force = TRUE) can delete labeled-variant versions", {
   new_test_db()
 
-  s <- write_script('stow("features", data.frame(v = 1:3))')
+  s <- write_script('stow(data.frame(v = 1:3), "features")')
   launch(s, label = "slow")
 
   prune_versions("features", keep_latest = TRUE, force = TRUE)
@@ -1250,7 +1250,7 @@ Create `tests/testthat/test-prune-variants.R`:
 test_that("prune_variants(script, label) deletes matching _mr_runs rows", {
   new_test_db()
 
-  s <- write_script('stow("features", data.frame(v = 1))')
+  s <- write_script('stow(data.frame(v = 1), "features")')
   launch(s, label = "slow")
   launch(s, label = "slow")
   launch(s, label = "fast")
@@ -1267,7 +1267,7 @@ test_that("prune_variants(script, label) deletes matching _mr_runs rows", {
 test_that("prune_variants(dry_run = TRUE) does not delete", {
   new_test_db()
 
-  s <- write_script('stow("out", data.frame(a = 1))')
+  s <- write_script('stow(data.frame(a = 1), "out")')
   launch(s, label = "keepme")
 
   prune_variants(normalizePath(s), "keepme", dry_run = TRUE)
@@ -1286,12 +1286,12 @@ test_that("prune_variants requires both script and label", {
 test_that("prune_variants leaves downstream labeled variants alone", {
   new_test_db()
 
-  prod <- write_script('stow("features", data.frame(v = 1:4))')
+  prod <- write_script('stow(data.frame(v = 1:4), "features")')
   launch(prod, label = "slow")
 
   cons <- write_script(c(
     'f <- grab("features")',
-    'stow("n", data.frame(n = nrow(f)))'
+    'stow(data.frame(n = nrow(f)), "n")'
   ))
   launch(cons, rebind = list(features = mr_variant("slow")), label = "down")
 
@@ -1463,12 +1463,12 @@ Create `tests/testthat/test-propagation.R`:
 test_that("downstream inherits a single agreeing upstream label", {
   new_test_db()
 
-  prod <- write_script('stow("model", data.frame(coef = 0.1))')
+  prod <- write_script('stow(data.frame(coef = 0.1), "model")')
   launch(prod, label = "eta_0.01")
 
   cons <- write_script(c(
     'm <- grab("model")',
-    'stow("preds", data.frame(p = m$coef))'
+    'stow(data.frame(p = m$coef), "preds")'
   ))
   launch(cons)  # no explicit label
 
@@ -1483,14 +1483,14 @@ test_that("downstream inherits a single agreeing upstream label", {
 test_that("downstream stays plain when upstreams disagree and warns", {
   new_test_db()
 
-  prod_m <- write_script('stow("model",    data.frame(a = 1))')
-  prod_f <- write_script('stow("features", data.frame(v = 1))')
+  prod_m <- write_script('stow(data.frame(a = 1),    "model")')
+  prod_f <- write_script('stow(data.frame(v = 1), "features")')
   launch(prod_m, label = "eta_0.01")
   launch(prod_f, label = "fast_features")
 
   cons <- write_script(c(
     'grab("model"); grab("features")',
-    'stow("out", data.frame(a = 1))'
+    'stow(data.frame(a = 1), "out")'
   ))
   expect_warning(launch(cons), regexp = "ambiguous upstream variants")
 
@@ -1505,12 +1505,12 @@ test_that("downstream stays plain when upstreams disagree and warns", {
 test_that("explicit label wins over propagation without warning", {
   new_test_db()
 
-  prod <- write_script('stow("model", data.frame(a = 1))')
+  prod <- write_script('stow(data.frame(a = 1), "model")')
   launch(prod, label = "eta_0.01")
 
   cons <- write_script(c(
     'grab("model")',
-    'stow("out", data.frame(a = 1))'
+    'stow(data.frame(a = 1), "out")'
   ))
   expect_silent({
     launch(cons, label = "explicit_override")
@@ -1527,12 +1527,12 @@ test_that("explicit label wins over propagation without warning", {
 test_that("no labeled upstreams -> plain run, no warning", {
   new_test_db()
 
-  prod <- write_script('stow("model", data.frame(a = 1))')
+  prod <- write_script('stow(data.frame(a = 1), "model")')
   launch(prod)  # plain
 
   cons <- write_script(c(
     'grab("model")',
-    'stow("out", data.frame(a = 1))'
+    'stow(data.frame(a = 1), "out")'
   ))
   expect_silent(launch(cons))
 
@@ -1705,7 +1705,7 @@ Append to `tests/testthat/test-staleness.R`:
 test_that("per-variant staleness: two labels get independent histories", {
   new_test_db()
 
-  s <- write_script('stow("out", data.frame(a = 1))')
+  s <- write_script('stow(data.frame(a = 1), "out")')
   launch(s, label = "alpha")
   launch(s, label = "beta")
 
@@ -1723,10 +1723,10 @@ test_that("per-variant staleness: two labels get independent histories", {
 test_that("editing the script invalidates all variants via code_hash", {
   new_test_db()
 
-  s <- write_script('stow("out", data.frame(a = 1))')
+  s <- write_script('stow(data.frame(a = 1), "out")')
   launch(s, label = "alpha")
 
-  writeLines(c('x <- 1', 'stow("out", data.frame(a = 1))'), s)
+  writeLines(c('x <- 1', 'stow(data.frame(a = 1), "out")'), s)
 
   out <- capture.output(launch(s, label = "alpha"), type = "message") |>
          paste(collapse = "\n")
@@ -1744,8 +1744,8 @@ test_that("launch summary always includes (grabs, stows) counts", {
   new_test_db()
 
   s <- write_script(c(
-    'stow("a", data.frame(x = 1))',
-    'stow("b", data.frame(x = 2))'
+    'stow(data.frame(x = 1), "a")',
+    'stow(data.frame(x = 2), "b")'
   ))
   out <- capture.output(launch(s), type = "message") |> paste(collapse = "\n")
   expect_match(out, "0 grabs")
@@ -1755,7 +1755,7 @@ test_that("launch summary always includes (grabs, stows) counts", {
 test_that("launch summary appends a variant line when labeled explicitly", {
   new_test_db()
 
-  s <- write_script('stow("out", data.frame(a = 1))')
+  s <- write_script('stow(data.frame(a = 1), "out")')
   out <- capture.output(launch(s, label = "eta_0.01"), type = "message") |>
          paste(collapse = "\n")
   expect_match(out, "variant: eta_0.01")
@@ -1764,12 +1764,12 @@ test_that("launch summary appends a variant line when labeled explicitly", {
 test_that("launch summary notes inherited variant source", {
   new_test_db()
 
-  prod <- write_script('stow("model", data.frame(a = 1))')
+  prod <- write_script('stow(data.frame(a = 1), "model")')
   launch(prod, label = "eta_0.01")
 
   cons <- write_script(c(
     'grab("model")',
-    'stow("out", data.frame(a = 1))'
+    'stow(data.frame(a = 1), "out")'
   ))
   out <- capture.output(launch(cons), type = "message") |> paste(collapse = "\n")
   expect_match(out, "variant: eta_0.01")

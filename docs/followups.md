@@ -201,7 +201,10 @@ code, and the audit reviewer that flagged it.
   A commutative O(1)-state accumulator (e.g., homomorphic hash + addition
   modulo a large prime) or a chunked fold over the sorted stream would
   eliminate the intermediate. Blocked on a benchmarking pass to confirm
-  real-world need. `[math, design]`
+  real-world need. A Rust implementation via `extendr` is a natural fit here:
+  stream rows from DuckDB and hash incrementally in constant memory without
+  materializing the full string — see "Rust / extendr exploration" below.
+  `[math, design]`
 
 ## Deferred v0.1 features
 
@@ -242,6 +245,16 @@ code, and the audit reviewer that flagged it.
   is rejected: two unrelated near-empty scripts can share a `code_hash`
   in principle, and silent re-parenting on a false positive is a bad
   failure mode. `[design]`
+
+- **Rust / extendr exploration** — evaluate rewriting the streaming content
+  hash (see Hashing section) in Rust via `extendr`. This is the strongest
+  Rust candidate in the package: stream DuckDB result rows and hash
+  incrementally in constant memory, replacing the current `STRING_AGG + MD5`
+  SQL that materializes a multi-GB intermediate for large frames. Secondary
+  candidates (JSON metadata scanning, artifact serialize-and-hash) are lower
+  priority — the rest of the package is lightweight R glue over DuckDB/qs2
+  and wouldn't benefit. Also a learning opportunity for Rust + R
+  integration. `[design, performance]`
 
 - **Label validators** — v0.1 labels are free-text. Typo drift
   (`"eta_0.01"` vs `"eta_.01"`) is a real risk users can self-police in

@@ -1,6 +1,6 @@
 test_that("stow() outside launch writes a run row with a synthetic interactive step id", {
   new_test_db()
-  stow("x", data.frame(n = 1:3))
+  stow(data.frame(n = 1:3), "x")
 
   con <- .mr_get_connection()
   runs <- DBI::dbGetQuery(con, "SELECT step, status, outputs FROM _mr_runs")
@@ -15,7 +15,7 @@ test_that("stow() outside launch writes a run row with a synthetic interactive s
 
 test_that("grab() outside launch does not write a _mr_runs row", {
   new_test_db()
-  stow("x", data.frame(n = 1:3))
+  stow(data.frame(n = 1:3), "x")
   before <- DBI::dbGetQuery(.mr_get_connection(), "SELECT COUNT(*) AS c FROM _mr_runs")$c
   invisible(grab("x"))
   after <- DBI::dbGetQuery(.mr_get_connection(), "SELECT COUNT(*) AS c FROM _mr_runs")$c
@@ -25,11 +25,11 @@ test_that("grab() outside launch does not write a _mr_runs row", {
 test_that("launch emits a reproducibility warning when an input was last stowed interactively", {
   new_test_db()
   # Interactive write of 'x'.
-  stow("x", data.frame(n = 1:3))
+  stow(data.frame(n = 1:3), "x")
   # Script that grabs 'x'.
   s <- write_script(c(
     "v <- grab('x')",
-    "stow('y', data.frame(n = nrow(v)))"
+    "stow(data.frame(n = nrow(v)), 'y')"
   ))
   expect_warning(
     launch(s),
@@ -40,12 +40,12 @@ test_that("launch emits a reproducibility warning when an input was last stowed 
 test_that("launch does NOT warn when all inputs were produced by tracked runs", {
   new_test_db()
   # Write 'x' inside a tracked launch so its producer is a real script step.
-  writer <- write_script("stow('x', data.frame(n = 1:3))")
+  writer <- write_script("stow(data.frame(n = 1:3), 'x')")
   launch(writer)
 
   reader <- write_script(c(
     "v <- grab('x')",
-    "stow('y', data.frame(n = nrow(v)))"
+    "stow(data.frame(n = nrow(v)), 'y')"
   ))
   expect_no_warning(launch(reader))
 })

@@ -2,7 +2,7 @@ test_that("a script that errors still writes a run row with status = 'error'", {
   new_test_db()
 
   bad <- write_script(c(
-    "stow('partial', data.frame(x = 1))",
+    "stow(data.frame(x = 1), 'partial')",
     "stop('intentional')"
   ))
 

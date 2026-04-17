@@ -33,13 +33,20 @@
 #' infers types) can therefore produce a new version even when the
 #' values are numerically identical. Row names are not persisted.
 #'
+#' @param value Any R value. First, so `df |> stow("name")` works.
 #' @param name A length-one character vector. Logical name for the
 #'   value.
-#' @param value Any R value.
 #'
 #' @return `value`, invisibly.
 #' @export
-stow <- function(name, value) {
+stow <- function(value, name) {
+  if (missing(name) && is.character(value) && length(value) == 1L) {
+    stop(
+      "stow() is value-first as of this version: stow(value, name). ",
+      "Did you mean `stow(<value>, \"", value, "\")` ?",
+      call. = FALSE
+    )
+  }
   .mr_validate_name(name, context = "stow")
 
   if (is.data.frame(value)) {

@@ -1,7 +1,7 @@
 test_that("prune_variants(script, label) deletes matching _mr_runs rows", {
   new_test_db()
 
-  s <- write_script('stow("features", data.frame(v = 1))')
+  s <- write_script('stow(data.frame(v = 1), "features")')
   launch(s, label = "slow")
   launch(s, label = "slow")
   launch(s, label = "fast")
@@ -18,7 +18,7 @@ test_that("prune_variants(script, label) deletes matching _mr_runs rows", {
 test_that("prune_variants(dry_run = TRUE) does not delete", {
   new_test_db()
 
-  s <- write_script('stow("out", data.frame(a = 1))')
+  s <- write_script('stow(data.frame(a = 1), "out")')
   launch(s, label = "keepme")
 
   prune_variants(normalizePath(s), "keepme", dry_run = TRUE)
@@ -37,12 +37,12 @@ test_that("prune_variants requires both script and label", {
 test_that("prune_variants leaves downstream labeled variants alone", {
   new_test_db()
 
-  prod <- write_script('stow("features", data.frame(v = 1:4))')
+  prod <- write_script('stow(data.frame(v = 1:4), "features")')
   launch(prod, label = "slow")
 
   cons <- write_script(c(
     'f <- grab("features")',
-    'stow("n", data.frame(n = nrow(f)))'
+    'stow(data.frame(n = nrow(f)), "n")'
   ))
   launch(cons, rebind = list(features = mr_variant("slow")), label = "down")
 

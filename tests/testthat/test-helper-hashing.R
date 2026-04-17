@@ -20,7 +20,7 @@ get_code_hash <- function(run_id) {
 
 test_that("a script with no helpers records a non-NA code_hash", {
   new_test_db()
-  s <- write_script("stow('x', data.frame(n = 1))")
+  s <- write_script("stow(data.frame(n = 1), 'x')")
   run <- launch(s)
   expect_true(nzchar(get_code_hash(run$run_id)))
 })
@@ -29,11 +29,11 @@ test_that("editing the script changes code_hash", {
   new_test_db()
   dir <- withr::local_tempdir()
   s <- file.path(dir, "step.R")
-  writeLines("stow('x', data.frame(n = 1))", s)
+  writeLines("stow(data.frame(n = 1), 'x')", s)
   r1 <- launch(s)
 
   writeLines(c(
-    "stow('x', data.frame(n = 2))",
+    "stow(data.frame(n = 2), 'x')",
     "# an added comment also changes bytes"
   ), s)
   r2 <- launch(s)
@@ -48,7 +48,7 @@ test_that("editing a sourced helper changes code_hash", {
     "step.R"   = ""
   ))
   step_code <- sprintf(
-    "source('%s'); stow('out', mkdf())", b$helper.R
+    "source('%s'); stow(mkdf(), 'out')", b$helper.R
   )
   writeLines(step_code, b$step.R)
   r1 <- launch(b$step.R)
@@ -70,7 +70,7 @@ test_that("transitive helpers contribute to code_hash", {
   writeLines(sprintf("source('%s')", b$b.R), b$a.R)
   writeLines("x <- 1",          b$b.R)
   writeLines(sprintf(
-    "source('%s'); stow('out', data.frame(x = x))", b$a.R
+    "source('%s'); stow(data.frame(x = x), 'out')", b$a.R
   ), b$step.R)
 
   r1 <- launch(b$step.R)
@@ -89,7 +89,7 @@ test_that("CRLF vs LF line endings produce the same code_hash", {
   s_crlf <- file.path(dir, "step_crlf.R")
 
   # Write the same logical content with different EOL conventions.
-  body <- c("stow('x', data.frame(n = 1))", "")
+  body <- c("stow(data.frame(n = 1), 'x')", "")
   writeBin(charToRaw(paste(body, collapse = "\n")),   s_lf)
   writeBin(charToRaw(paste(body, collapse = "\r\n")), s_crlf)
 
@@ -108,7 +108,7 @@ test_that("cyclic sourcing does not infinite-loop and still records code_hash", 
   # a.R sources itself. Without cycle detection this would recurse forever.
   writeLines(sprintf("source('%s')", b$a.R), b$a.R)
   writeLines(sprintf(
-    "source('%s'); stow('out', data.frame(n = 1))", b$a.R
+    "source('%s'); stow(data.frame(n = 1), 'out')", b$a.R
   ), b$step.R)
 
   expect_no_error(run <- launch(b$step.R))

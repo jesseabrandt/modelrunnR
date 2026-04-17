@@ -2,7 +2,7 @@ test_that("stow() accepts a fitted model and grab() round-trips it", {
   new_test_db()
   fit <- lm(mpg ~ wt, mtcars)
 
-  stow("fit", fit)
+  stow(fit, "fit")
   got <- grab("fit")
 
   expect_s3_class(got, "lm")
@@ -11,7 +11,7 @@ test_that("stow() accepts a fitted model and grab() round-trips it", {
 
 test_that("small artifacts land in _mr_artifacts (BLOB storage)", {
   new_test_db()
-  stow("a", list(k = 1, v = letters[1:3]))
+  stow(list(k = 1, v = letters[1:3]), "a")
 
   con <- .mr_get_connection()
   v <- DBI::dbGetQuery(con, "SELECT * FROM _mr_versions WHERE logical_name = 'a'")
@@ -28,7 +28,7 @@ test_that("large artifacts land on disk when they exceed blob_threshold", {
   withr::local_options(list(modelrunnR.blob_threshold = 16L))
 
   big <- runif(50)
-  stow("big", big)
+  stow(big, "big")
 
   con <- .mr_get_connection()
   v <- DBI::dbGetQuery(con, "SELECT * FROM _mr_versions WHERE logical_name = 'big'")
@@ -43,7 +43,7 @@ test_that("blob_threshold option controls the storage choice", {
   new_test_db()
   # Very high threshold: everything BLOB.
   withr::local_options(list(modelrunnR.blob_threshold = 100L * 1024L * 1024L))
-  stow("small", list(1, 2, 3))
+  stow(list(1, 2, 3), "small")
 
   con <- .mr_get_connection()
   v <- DBI::dbGetQuery(con, "SELECT storage_location FROM _mr_versions WHERE logical_name = 'small'")
@@ -52,19 +52,19 @@ test_that("blob_threshold option controls the storage choice", {
 
 test_that("namespace collision between a table and an artifact errors cleanly", {
   new_test_db()
-  stow("x", data.frame(n = 1:3))
-  expect_error(stow("x", list(a = 1)), regexp = "already exists.*table|different kind")
+  stow(data.frame(n = 1:3), "x")
+  expect_error(stow(list(a = 1), "x"), regexp = "already exists.*table|different kind")
 
   new_test_db()
-  stow("y", list(a = 1))
-  expect_error(stow("y", data.frame(n = 1:3)), regexp = "already exists.*artifact|different kind")
+  stow(list(a = 1), "y")
+  expect_error(stow(data.frame(n = 1:3), "y"), regexp = "already exists.*artifact|different kind")
 })
 
 test_that("artifacts are recorded in run outputs and addressable via from_run", {
   new_test_db()
   s <- write_script(c(
-    "stow('tbl', data.frame(n = 1:3))",
-    "stow('fit', lm(n ~ 1, data.frame(n = 1:3)))"
+    "stow(data.frame(n = 1:3), 'tbl')",
+    "stow(lm(n ~ 1, data.frame(n = 1:3)), 'fit')"
   ))
   run <- launch(s)
 

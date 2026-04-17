@@ -2,6 +2,8 @@
 
 ## Breaking changes
 
+* **`stow()` is now value-first.** The signature is `stow(value, name)` (was `stow(name, value)`), so the primary object — the value being stowed — can flow through a pipe: `df |> stow("predictions")`. Passing a single character argument is detected and errors with a migration hint. All internal call sites, tests, docs, and the vignette have been updated.
+
 * `launch(pin = ..., data = ...)` is now a hard error. The two arguments were unified into a single polymorphic `rebind` argument: bare R values replace `data`, and the new reference constructors `mr_hash()` / `mr_run()` / `mr_variant()` / `mr_as_of()` replace `pin`. The error message points at `docs/design.md` § *Variants and swappability* for the migration. There is no compat shim — modelrunnR has no production users at the time of this change.
 
 ## New features

@@ -3,7 +3,7 @@ test_that("launch(rebind = list(name = df)) stows bare values", {
 
   script <- write_script(c(
     'p <- grab("params")',
-    'stow("out", data.frame(echo = p$x))'
+    'stow(data.frame(echo = p$x), "out")'
   ))
 
   launch(script, rebind = list(params = data.frame(x = 42L)))
@@ -14,12 +14,12 @@ test_that("launch(rebind = list(name = df)) stows bare values", {
 test_that("launch(rebind) with mr_hash resolves to an existing version", {
   new_test_db()
 
-  stow("features", data.frame(v = 1:3))
+  stow(data.frame(v = 1:3), "features")
   h <- versions("features")$content_hash[1]
 
   script <- write_script(c(
     'f <- grab("features")',
-    'stow("out", data.frame(n = nrow(f)))'
+    'stow(data.frame(n = nrow(f)), "out")'
   ))
   launch(script, rebind = list(features = mr_hash(h)))
   expect_equal(grab("out")$n, 3L)
@@ -28,12 +28,12 @@ test_that("launch(rebind) with mr_hash resolves to an existing version", {
 test_that("launch(rebind) with mr_run resolves via run outputs", {
   new_test_db()
 
-  producer <- write_script('stow("features", data.frame(v = 1:5))')
+  producer <- write_script('stow(data.frame(v = 1:5), "features")')
   run <- launch(producer)
 
   consumer <- write_script(c(
     'f <- grab("features")',
-    'stow("out", data.frame(n = nrow(f)))'
+    'stow(data.frame(n = nrow(f)), "out")'
   ))
   launch(consumer, rebind = list(features = mr_run(run$run_id)))
   expect_equal(grab("out")$n, 5L)
@@ -42,14 +42,14 @@ test_that("launch(rebind) with mr_run resolves via run outputs", {
 test_that("launch(rebind) with mr_as_of resolves to latest-as-of-time", {
   new_test_db()
 
-  stow("features", data.frame(v = 1L))
+  stow(data.frame(v = 1L), "features")
   t0 <- Sys.time()
   Sys.sleep(0.05)
-  stow("features", data.frame(v = 2L))
+  stow(data.frame(v = 2L), "features")
 
   script <- write_script(c(
     'f <- grab("features")',
-    'stow("out", data.frame(v = f$v))'
+    'stow(data.frame(v = f$v), "out")'
   ))
   launch(script, rebind = list(features = mr_as_of(t0)))
   expect_equal(grab("out")$v, 1L)
@@ -73,9 +73,9 @@ test_that("launch(data = ...) is a hard error with a migration message", {
 
 test_that("mr_variant() in rebind errors when no run has produced the name under that label", {
   new_test_db()
-  stow("features", data.frame(v = 1))
+  stow(data.frame(v = 1), "features")
 
-  script <- write_script('stow("out", data.frame(a = 1))')
+  script <- write_script('stow(data.frame(a = 1), "out")')
   expect_error(
     launch(script, rebind = list(features = mr_variant("nobody"))),
     regexp = "mr_variant.*nobody",

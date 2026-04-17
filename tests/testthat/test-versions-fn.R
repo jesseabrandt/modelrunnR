@@ -1,7 +1,7 @@
 test_that("versions(name) returns documented columns", {
   new_test_db()
-  stow("t", data.frame(x = 1))
-  stow("t", data.frame(x = 1:2))
+  stow(data.frame(x = 1), "t")
+  stow(data.frame(x = 1:2), "t")
 
   v <- versions("t")
   expect_s3_class(v, "data.frame")
@@ -15,7 +15,7 @@ test_that("versions(name) ties hashes to their producing runs", {
 
   s <- write_script(c(
     "v <- get0('v', envir = globalenv(), ifnotfound = 1L)",
-    "stow('w', data.frame(x = seq_len(v)))"
+    "stow(data.frame(x = seq_len(v)), 'w')"
   ))
   on.exit(if (exists("v", envir = globalenv())) rm("v", envir = globalenv()), add = TRUE)
 

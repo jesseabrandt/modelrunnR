@@ -11,7 +11,7 @@ read_external_inputs <- function(run_id) {
 test_that("declared env vars are hashed and stored on the run row", {
   new_test_db()
   withr::local_envvar(list(MR_TEST_TOKEN = "first"))
-  s <- write_script("stow('x', data.frame(n = 1))")
+  s <- write_script("stow(data.frame(n = 1), 'x')")
 
   r1 <- launch(s, external_inputs = list(env = "MR_TEST_TOKEN"))
   ext1 <- read_external_inputs(r1$run_id)
@@ -32,7 +32,7 @@ test_that("declared files are hashed and stored", {
   data_path <- file.path(dir, "config.json")
   writeLines('{"a": 1}', data_path)
 
-  s <- write_script("stow('x', data.frame(n = 1))")
+  s <- write_script("stow(data.frame(n = 1), 'x')")
   r <- launch(s, external_inputs = list(files = data_path))
 
   ext <- read_external_inputs(r$run_id)
@@ -43,7 +43,7 @@ test_that("declared files are hashed and stored", {
 
 test_that("a missing declared file errors before the run is written", {
   new_test_db()
-  s <- write_script("stow('x', data.frame(n = 1))")
+  s <- write_script("stow(data.frame(n = 1), 'x')")
 
   before <- DBI::dbGetQuery(.mr_get_connection(), "SELECT COUNT(*) AS c FROM _mr_runs")$c
   expect_error(

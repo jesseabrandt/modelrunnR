@@ -60,8 +60,8 @@ A `script.R` looks like this:
 # Inside model.R -- no library() needed; grab/stow are injected.
 train <- grab("train_data")
 fit   <- lm(y ~ x, data = train)
-stow("model",       fit)        # serialized via qs2
-stow("predictions", predict(fit, train))
+stow(fit,       "model")        # serialized via qs2
+stow(predict(fit, train), "predictions")
 ```
 
 ## Key features

@@ -10,14 +10,14 @@ test_that("run record captures observed inputs/outputs and success status", {
   new_test_db()
 
   writer <- write_script(c(
-    "stow('a', data.frame(x = 1))",
-    "stow('b', data.frame(y = 2))"
+    "stow(data.frame(x = 1), 'a')",
+    "stow(data.frame(y = 2), 'b')"
   ))
   launch(writer)
 
   rw <- write_script(c(
     "a <- grab('a')",
-    "stow('c', data.frame(z = nrow(a)))"
+    "stow(data.frame(z = nrow(a)), 'c')"
   ))
   launch(rw)
 
@@ -36,7 +36,7 @@ test_that("run record captures observed inputs/outputs and success status", {
 
 test_that("run record stores a positive duration and a valid timestamp", {
   new_test_db()
-  s <- write_script(c("stow('x', data.frame(n = 1))"))
+  s <- write_script(c("stow(data.frame(n = 1), 'x')"))
   launch(s)
 
   con <- .mr_get_connection()
@@ -55,7 +55,7 @@ test_that("_mr_runs has a nullable variant_label column", {
   expect_true("variant_label" %in% info$name)
 
   # New runs still write NULL until later slices opt in.
-  script <- write_script('stow("out", data.frame(a = 1))')
+  script <- write_script('stow(data.frame(a = 1), "out")')
   launch(script)
   row <- DBI::dbGetQuery(con, "SELECT variant_label FROM _mr_runs")
   expect_true(all(is.na(row$variant_label)))

@@ -1,6 +1,6 @@
 test_that("a never-run step is stale with reason 'never_run'", {
   new_test_db()
-  s <- write_script("stow('x', data.frame(n = 1))")
+  s <- write_script("stow(data.frame(n = 1), 'x')")
   result <- .mr_is_stale(normalizePath(s))
   expect_true(result$stale)
   expect_equal(result$reasons, "never_run")
@@ -8,12 +8,12 @@ test_that("a never-run step is stale with reason 'never_run'", {
 
 test_that("re-running an unchanged step with unchanged inputs is fresh", {
   new_test_db()
-  writer <- write_script("stow('x', data.frame(n = 1))")
+  writer <- write_script("stow(data.frame(n = 1), 'x')")
   launch(writer)
 
   reader <- write_script(c(
     "x <- grab('x')",
-    "stow('y', x)"
+    "stow(x, 'y')"
   ))
   launch(reader)
 
@@ -26,10 +26,10 @@ test_that("editing the script marks it stale with reason 'code'", {
   new_test_db()
   dir <- withr::local_tempdir()
   s <- file.path(dir, "step.R")
-  writeLines("stow('x', data.frame(n = 1))", s)
+  writeLines("stow(data.frame(n = 1), 'x')", s)
   launch(s)
 
-  writeLines(c("# touched", "stow('x', data.frame(n = 1))"), s)
+  writeLines(c("# touched", "stow(data.frame(n = 1), 'x')"), s)
   result <- .mr_is_stale(normalizePath(s))
   expect_true(result$stale)
   expect_true("code" %in% result$reasons)
@@ -41,7 +41,7 @@ test_that("touching a helper marks the step stale with reason 'code'", {
   helper <- file.path(dir, "helper.R")
   step   <- file.path(dir, "step.R")
   writeLines("mk <- function() data.frame(n = 1)", helper)
-  writeLines(sprintf("source('%s'); stow('x', mk())", helper), step)
+  writeLines(sprintf("source('%s'); stow(mk(), 'x')", helper), step)
   launch(step)
 
   writeLines("mk <- function() data.frame(n = 99)", helper)
@@ -52,17 +52,17 @@ test_that("touching a helper marks the step stale with reason 'code'", {
 
 test_that("a changed input produces 'input:<name>' staleness downstream", {
   new_test_db()
-  writer <- write_script("stow('x', data.frame(n = 1))")
+  writer <- write_script("stow(data.frame(n = 1), 'x')")
   launch(writer)
 
   reader <- write_script(c(
     "x <- grab('x')",
-    "stow('y', x)"
+    "stow(x, 'y')"
   ))
   launch(reader)
 
   # Re-run the writer with different content → new hash for x.
-  writer2 <- write_script("stow('x', data.frame(n = 999))")
+  writer2 <- write_script("stow(data.frame(n = 999), 'x')")
   launch(writer2)
 
   # reader is now stale because its recorded input x has a newer hash.
@@ -75,7 +75,7 @@ test_that("a declared env var that stays set is fresh on re-check", {
   new_test_db()
   withr::local_envvar(MR_TEST_VAR = "hello")
 
-  s <- write_script("stow('x', data.frame(n = 1))")
+  s <- write_script("stow(data.frame(n = 1), 'x')")
   launch(s, external_inputs = list(env = "MR_TEST_VAR"))
 
   # Unchanged env var: second check must NOT report stale
@@ -89,7 +89,7 @@ test_that("a declared env var that was and remains unset is fresh on re-check", 
   new_test_db()
   Sys.unsetenv("MR_TEST_VAR_UNSET")
 
-  s <- write_script("stow('x', data.frame(n = 1))")
+  s <- write_script("stow(data.frame(n = 1), 'x')")
   launch(s, external_inputs = list(env = "MR_TEST_VAR_UNSET"))
 
   result <- .mr_is_stale(normalizePath(s))
@@ -100,7 +100,7 @@ test_that("a declared env var whose value changes is stale", {
   new_test_db()
   withr::local_envvar(MR_TEST_VAR = "before")
 
-  s <- write_script("stow('x', data.frame(n = 1))")
+  s <- write_script("stow(data.frame(n = 1), 'x')")
   launch(s, external_inputs = list(env = "MR_TEST_VAR"))
 
   Sys.setenv(MR_TEST_VAR = "after")
@@ -114,7 +114,7 @@ test_that("touching a declared external file produces 'external:...' staleness",
   cfg <- file.path(dir, "cfg.txt")
   writeLines("v1", cfg)
 
-  s <- write_script("stow('x', data.frame(n = 1))")
+  s <- write_script("stow(data.frame(n = 1), 'x')")
   launch(s, external_inputs = list(files = cfg))
 
   result1 <- .mr_is_stale(normalizePath(s))
@@ -129,7 +129,7 @@ test_that("touching a declared external file produces 'external:...' staleness",
 test_that("per-variant staleness: two labels get independent histories", {
   new_test_db()
 
-  s <- write_script('stow("out", data.frame(a = 1))')
+  s <- write_script('stow(data.frame(a = 1), "out")')
   launch(s, label = "alpha")
   launch(s, label = "beta")
 
@@ -147,10 +147,10 @@ test_that("per-variant staleness: two labels get independent histories", {
 test_that("editing the script invalidates all variants via code_hash", {
   new_test_db()
 
-  s <- write_script('stow("out", data.frame(a = 1))')
+  s <- write_script('stow(data.frame(a = 1), "out")')
   launch(s, label = "alpha")
 
-  writeLines(c('x <- 1', 'stow("out", data.frame(a = 1))'), s)
+  writeLines(c('x <- 1', 'stow(data.frame(a = 1), "out")'), s)
 
   out <- capture.output(launch(s, label = "alpha"), type = "message") |>
          paste(collapse = "\n")

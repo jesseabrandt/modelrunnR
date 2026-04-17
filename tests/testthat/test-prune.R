@@ -3,7 +3,7 @@
 stow_n_versions <- function(name, n) {
   for (i in seq_len(n)) {
     w <- write_script(sprintf(
-      "stow('%s', data.frame(i = %dL))", name, i
+      "stow(data.frame(i = %dL), '%s')", i, name
     ))
     launch(w)
   }
@@ -19,7 +19,7 @@ test_that("version-count threshold emits a warning after writing", {
 
   # The 4th write must warn.
   expect_warning(
-    launch(write_script("stow('t', data.frame(i = 99L))")),
+    launch(write_script("stow(data.frame(i = 99L), 't')")),
     regexp = "prune_versions|versions"
   )
 })
@@ -56,8 +56,8 @@ test_that("versions referenced by runs are protected unless force = TRUE", {
 
 test_that("grab(from_run = ...) errors clearly after the pinned version is pruned", {
   new_test_db()
-  r1 <- launch(write_script("stow('t', data.frame(n = 1))"))
-  r2 <- launch(write_script("stow('t', data.frame(n = 2))"))
+  r1 <- launch(write_script("stow(data.frame(n = 1), 't')"))
+  r2 <- launch(write_script("stow(data.frame(n = 2), 't')"))
 
   prune_versions("t", keep = 1, force = TRUE)
   expect_error(grab("t", from_run = r1$run_id), regexp = "not found|pruned")
@@ -104,8 +104,8 @@ test_that("protection is keyed on (name, hash) pairs, not hash alone", {
   # Both get the same content hash. Then record a run that only uses
   # 'a'. Pruning 'b' must not be blocked by 'a's protection.
   df <- data.frame(z = 1:3)
-  launch(write_script(sprintf("stow('a', %s)", "data.frame(z = 1:3)")))
-  stow("b", df)  # interactive write -- not tied to a run row
+  launch(write_script(sprintf("stow(%s, 'a')", "data.frame(z = 1:3)")))
+  stow(df, "b")  # interactive write -- not tied to a run row
 
   # Assert the same content hash under both names (otherwise the test
   # doesn't exercise the bug).
@@ -121,7 +121,7 @@ test_that("protection is keyed on (name, hash) pairs, not hash alone", {
   # interactive run row and remains protected. Instead, stow a newer
   # version of 'b' and prune back to keep = 1 -- the older 'b' must be
   # pruneable because no run references 'b' at the original hash.
-  stow("b", data.frame(z = 99:101))
+  stow(data.frame(z = 99:101), "b")
   before <- nrow(versions("b"))
   expect_equal(before, 2L)
   prune_versions("b", keep = 1, force = TRUE)
@@ -144,7 +144,7 @@ test_that("prune_versions() errors when both keep_latest and keep are set", {
 
 test_that("older_than prunes by first_seen age", {
   new_test_db()
-  launch(write_script("stow('t', data.frame(n = 1))"))
+  launch(write_script("stow(data.frame(n = 1), 't')"))
 
   # Force the existing row's first_seen into the past so it's older
   # than the threshold.
@@ -155,7 +155,7 @@ test_that("older_than prunes by first_seen age", {
       WHERE logical_name = 't'"
   )
 
-  launch(write_script("stow('t', data.frame(n = 2))"))
+  launch(write_script("stow(data.frame(n = 2), 't')"))
   expect_equal(nrow(versions("t")), 2L)
 
   prune_versions("t", older_than = "5d", force = TRUE)
@@ -180,8 +180,8 @@ test_that("prune removes filesystem artifact files when storage = 'file'", {
   withr::local_options(list(modelrunnR.blob_threshold = 16L))
 
   # Two disk-resident artifacts.
-  stow("a", runif(50))
-  stow("a", runif(60))  # different hash
+  stow(runif(50), "a")
+  stow(runif(60), "a")  # different hash
 
   con <- .mr_get_connection()
   v <- DBI::dbGetQuery(con, "SELECT physical_name FROM _mr_versions WHERE logical_name = 'a'")
@@ -203,7 +203,7 @@ test_that("empty modelrunnR_artifacts/ dir is removed after a full-prune", {
   withr::local_options(list(modelrunnR.blob_threshold = 16L))
 
   # Stow one disk-resident artifact so the dir gets created.
-  stow("a", runif(50))
+  stow(runif(50), "a")
   artifact_dir <- file.path(dirname(db_path()), "modelrunnR_artifacts")
   expect_true(dir.exists(artifact_dir))
 
@@ -218,14 +218,14 @@ test_that("prune_versions() unconditionally protects labeled-variant versions", 
   # Use v = 1:100 to ensure a hash distinct from all plain-loop versions
   # (k in 2:12 below), avoiding false-positive protection via
   # "latest plain" logic rather than the label-protection path.
-  s <- write_script('stow("features", data.frame(v = 1:100))')
+  s <- write_script('stow(data.frame(v = 1:100), "features")')
   launch(s, label = "slow")
 
   # Write many more plain versions to push the labeled one out of any
   # `keep = N` window.
   for (k in 2:12) {
     s2 <- write_script(sprintf(
-      'stow("features", data.frame(v = 1:%d))', k
+      'stow(data.frame(v = 1:%d), "features")', k
     ))
     launch(s2)
   }
@@ -259,7 +259,7 @@ test_that("prune_versions() unconditionally protects labeled-variant versions", 
 test_that("prune_versions(force = TRUE) can delete labeled-variant versions", {
   new_test_db()
 
-  s <- write_script('stow("features", data.frame(v = 1:3))')
+  s <- write_script('stow(data.frame(v = 1:3), "features")')
   launch(s, label = "slow")
 
   prune_versions("features", keep_latest = TRUE, force = TRUE)

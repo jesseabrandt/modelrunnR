@@ -3,7 +3,7 @@ test_that("launch + stow round-trips a data frame to the next launch's grab", {
 
   writer <- write_script(c(
     "df <- data.frame(x = 1:3, y = letters[1:3], stringsAsFactors = FALSE)",
-    "stow('out', df)"
+    "stow(df, 'out')"
   ))
   reader_path <- tempfile(fileext = ".rds")
   reader <- write_script(c(
@@ -25,7 +25,7 @@ test_that("stow outside launch writes, grab outside launch reads (no recording)"
   new_test_db()
 
   df <- data.frame(a = c(1, 2, 3))
-  stow("direct", df)
+  stow(df, "direct")
 
   got <- grab("direct")
   expect_equal(got$a, c(1, 2, 3))
@@ -34,7 +34,7 @@ test_that("stow outside launch writes, grab outside launch reads (no recording)"
 test_that("nested launch() errors instead of clobbering outer state", {
   new_test_db()
 
-  inner <- write_script("stow('inner', data.frame(a = 1))")
+  inner <- write_script("stow(data.frame(a = 1), 'inner')")
   outer <- write_script(c(
     sprintf("launch(%s)", deparse(inner))
   ))

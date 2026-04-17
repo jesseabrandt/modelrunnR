@@ -34,8 +34,8 @@ test_that(".mr_validate_name accepts normal names", {
 
 test_that("stow() rejects names with path traversal", {
   new_test_db()
-  expect_error(stow("../evil", data.frame(x = 1)), "path separators")
-  expect_error(stow("a/b", data.frame(x = 1)), "path separators")
+  expect_error(stow(data.frame(x = 1), "../evil"), "path separators")
+  expect_error(stow(data.frame(x = 1), "a/b"), "path separators")
 })
 
 test_that("grab() rejects names with path traversal", {
