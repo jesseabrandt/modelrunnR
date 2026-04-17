@@ -10,7 +10,7 @@
 #' the tracked code can call them bare without a preceding
 #' `library(modelrunnR)`.
 #'
-#' @section Script vs. inline mode:
+#' @section Script, inline, and relaunch modes:
 #' `launch()` dispatches on the first argument:
 #' - **Script mode** -- `launch("fit.R")` sources a file.
 #' - **Inline mode** -- `launch({ ... })` evaluates a braced block as
@@ -20,6 +20,13 @@
 #'   (`"<inline:<short-hash>>"`), so editing the expression produces a
 #'   new tracked step rather than silently comparing against a prior
 #'   run's history.
+#' - **Relaunch mode** -- `launch(mr_label("baseline"))` looks up the
+#'   most recent run tagged with that label and re-executes its code.
+#'   For inline pipelines the stored snapshot on the run row is used
+#'   directly. For file pipelines the script file is re-sourced from
+#'   disk; if the file is gone, the stored snapshot is used and an
+#'   informational message is emitted. The label is auto-inherited
+#'   onto the new run unless the caller passes an explicit `label`.
 #'
 #' @section Shadowed `source()`:
 #' During a tracked launch, `source()` inside the code (and inside
@@ -81,6 +88,19 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   script_expr <- substitute(script_path)
   inline_mode <- is.call(script_expr) && identical(script_expr[[1]], as.name("{"))
 
+  relaunch_mode <- FALSE
+  relaunch_expr <- NULL  # parsed code body for relaunch execution
+
+  if (!inline_mode && .mr_is_ref(script_path)) {
+    if (!identical(script_path$kind, "label")) {
+      stop(sprintf(
+        "launch(): only mr_label() is accepted as a first argument reference; got mr_%s().",
+        script_path$kind
+      ), call. = FALSE)
+    }
+    relaunch_mode <- TRUE
+  }
+
   if (inline_mode) {
     code_body <- paste(deparse(script_expr, width.cutoff = 500L), collapse = "\n")
     expr_hash <- .mr_hash_bytes(charToRaw(code_body))
@@ -88,6 +108,13 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     # block yields a new logical step rather than a false "stale" report
     # against an older expression's history.
     step <- sprintf("<inline:%s>", substr(expr_hash, 1L, 12L))
+  } else if (relaunch_mode) {
+    resolved <- .mr_resolve_relaunch(script_path$value)
+    step          <- resolved$step
+    code_body     <- resolved$code_body
+    relaunch_expr <- resolved$expr
+    # Auto-inherit the label unless the user passed one explicitly.
+    if (is.na(label)) label <- script_path$value
   } else {
     stopifnot(
       is.character(script_path),
@@ -149,7 +176,13 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   status  <- "success"
   err_obj <- NULL
   tryCatch(
-    if (inline_mode) .mr_eval_inline(script_expr) else .mr_source_script(step),
+    if (inline_mode) {
+      .mr_eval_inline(script_expr)
+    } else if (relaunch_mode && !is.null(relaunch_expr)) {
+      .mr_eval_inline(relaunch_expr)
+    } else {
+      .mr_source_script(step)
+    },
     error = function(e) {
       status  <<- "error"
       err_obj <<- e
@@ -160,7 +193,9 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   helpers <- .mr_stop_helper_tracking()
   duration_ms <- as.integer(round((as.numeric(Sys.time()) - start_secs) * 1000))
 
-  code_hash <- if (inline_mode) {
+  code_hash <- if (inline_mode || (relaunch_mode && !is.null(relaunch_expr))) {
+    # Inline execution (by construction: either a braced block or a
+    # relaunch that falls back to the stored snapshot).
     .mr_code_hash_inline(code_body, helpers)
   } else {
     .mr_code_hash(step, helpers)
@@ -245,6 +280,65 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   envir$source <- .mr_make_source_wrapper()
   base::source(path, local = envir, echo = FALSE, keep.source = FALSE)
   invisible(NULL)
+}
+
+# Resolve a relaunch-by-label reference to (step, code_body, expr).
+#
+# - step: the original pipeline's step (file path or <inline:...>).
+# - code_body: the source to attribute to the new run row.
+# - expr: a parsed expression when we want to eval a stored snapshot,
+#   NULL when the caller should source step from disk.
+#
+# Rules: inline-step pipelines always execute the stored snapshot.
+# File-step pipelines re-source the file when it exists; when the
+# file is gone we fall back to the stored snapshot and emit an
+# informational message, matching launch_code()'s behavior.
+.mr_resolve_relaunch <- function(label) {
+  con <- .mr_get_connection()
+  prior <- DBI::dbGetQuery(
+    con,
+    "SELECT step, code_body FROM _mr_runs
+      WHERE variant_label = ?
+      ORDER BY started_at DESC LIMIT 1",
+    params = list(label)
+  )
+  if (nrow(prior) == 0L) {
+    stop(sprintf(
+      "launch(): no run with label '%s'. Label a pipeline first via launch(..., label = \"%s\").",
+      label, label
+    ), call. = FALSE)
+  }
+  step        <- prior$step[1]
+  stored_body <- prior$code_body[1]
+
+  if (startsWith(step, "<inline:")) {
+    if (is.na(stored_body) || !nzchar(stored_body)) {
+      stop(sprintf(
+        "launch(): label '%s' resolves to an inline run with no stored code body.",
+        label
+      ), call. = FALSE)
+    }
+    return(list(step = step, code_body = stored_body,
+                expr = parse(text = stored_body)))
+  }
+
+  # File-step pipeline.
+  if (file.exists(step)) {
+    file_body <- paste(readLines(step, warn = FALSE), collapse = "\n")
+    return(list(step = step, code_body = file_body, expr = NULL))
+  }
+  if (!is.na(stored_body) && nzchar(stored_body)) {
+    message(sprintf(
+      "launch(): script '%s' is gone from disk; running the stored snapshot from label '%s'.",
+      step, label
+    ))
+    return(list(step = step, code_body = stored_body,
+                expr = parse(text = stored_body)))
+  }
+  stop(sprintf(
+    "launch(): script '%s' is gone and no snapshot is stored for label '%s'.",
+    step, label
+  ), call. = FALSE)
 }
 
 .mr_eval_inline <- function(expr) {

@@ -156,6 +156,22 @@ Two runs of `"baseline"`, both tied to the same label. When you're
 confident an older iteration isn't worth keeping, `prune_variants()`
 and `prune_versions()` can clear the history.
 
+## Re-running a pipeline by label
+
+Once a pipeline has a label, you don't have to re-type its code to
+run it again. `launch(mr_label("baseline"))` looks up the most
+recent run under that label and re-executes its code. For inline
+pipelines the stored snapshot runs directly; for file pipelines the
+file is re-sourced from disk (or the snapshot is used if the file
+has been removed).
+
+```{r relaunch}
+launch(mr_label("baseline"))
+```
+
+The label auto-inherits, so the re-run stays in the same pipeline's
+history.
+
 ## From block to script
 
 `launch()` also accepts a path to a `.R` file. Once a block settles

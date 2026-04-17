@@ -1,9 +1,14 @@
-#' Reference constructors for `launch(rebind = list(...))`
+#' Reference constructors for addressing stored modelrunnR entities
 #'
 #' Small, structured wrappers for addressing existing modelrunnR
-#' versions by identity instead of inlining R values in
-#' `launch(rebind = list(...))`. Each returns a tagged list that
-#' `launch()` resolves to a content hash before recording starts.
+#' versions or runs by identity. Each returns a tagged list that
+#' `launch()` interprets depending on where it appears:
+#'
+#' - Inside `launch(rebind = list(<name> = <ref>))`, a reference
+#'   resolves to a content hash that overrides the named `grab()`
+#'   inside the script.
+#' - As `launch()`'s first argument, `mr_label()` (only) addresses
+#'   a labeled pipeline's most recent run and re-executes its code.
 #'
 #' Use a bare R value in `rebind` when you want the value stowed
 #' inline; use one of these constructors when you want to address
@@ -37,6 +42,13 @@ mr_run <- function(run_id) {
 mr_variant <- function(label) {
   stopifnot(is.character(label), length(label) == 1L, nzchar(label))
   structure(list(kind = "variant", value = label), class = "mr_ref")
+}
+
+#' @rdname references
+#' @export
+mr_label <- function(label) {
+  stopifnot(is.character(label), length(label) == 1L, nzchar(label))
+  structure(list(kind = "label", value = label), class = "mr_ref")
 }
 
 #' @rdname references

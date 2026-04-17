@@ -4,25 +4,34 @@
 \alias{launch_code}
 \title{Retrieve the code body for a previously-launched run}
 \usage{
-launch_code(run_id)
+launch_code(run_id, from_db = FALSE)
 }
 \arguments{
-\item{run_id}{A run id as returned (invisibly) by \code{\link[=launch]{launch()}} or
-as found on a \verb{_mr_runs} row.}
+\item{run_id}{A run id as returned (invisibly) by \code{\link[=launch]{launch()}} or as
+found on a \verb{_mr_runs} row.}
+
+\item{from_db}{If \code{TRUE}, return the code body stored on the run
+row at launch time, even for script-mode runs whose source file
+is still on disk. Defaults to \code{FALSE}.}
 }
 \value{
 A length-one character vector containing the R code.
 }
 \description{
-Returns the code that produced \code{run_id}. For inline runs
-(\code{launch({ ... })}), returns the deparsed expression body stored
-on the run row. For script runs (\code{launch("fit.R")}), returns the
-current contents of the script file, or errors if the file is no
-longer on disk.
+Returns the code that produced \code{run_id}.
 }
 \details{
-The intent is: after a session ends, you can still recover the
-code that produced any historical run -- either to re-execute it,
-to inspect what an old variant actually did, or to diff two runs'
-code bodies.
+For inline runs (\code{launch({ ... })}), the code body was deparsed and
+stored on the run row at launch time, so there is only one source
+to read from.
+
+For script runs (\code{launch("fit.R")}), there are two possible
+sources: the script file as it currently sits on disk, and the
+snapshot of the file bytes recorded on the run row at launch time.
+By default, \code{launch_code()} reads the file on disk -- the current
+file \emph{is} the pipeline -- and falls back to the stored snapshot
+(with a message) when the file has been removed. Pass
+\code{from_db = TRUE} to force reading the stored snapshot even when
+the file is still present: useful for auditing what a historical
+run actually executed, independent of any later edits.
 }

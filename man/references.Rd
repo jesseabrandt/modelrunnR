@@ -5,14 +5,17 @@
 \alias{mr_hash}
 \alias{mr_run}
 \alias{mr_variant}
+\alias{mr_label}
 \alias{mr_as_of}
-\title{Reference constructors for \code{launch(rebind = list(...))}}
+\title{Reference constructors for addressing stored modelrunnR entities}
 \usage{
 mr_hash(hash)
 
 mr_run(run_id)
 
 mr_variant(label)
+
+mr_label(label)
 
 mr_as_of(time)
 }
@@ -31,11 +34,18 @@ A tagged list for \code{launch()} to resolve.
 }
 \description{
 Small, structured wrappers for addressing existing modelrunnR
-versions by identity instead of inlining R values in
-\code{launch(rebind = list(...))}. Each returns a tagged list that
-\code{launch()} resolves to a content hash before recording starts.
+versions or runs by identity. Each returns a tagged list that
+\code{launch()} interprets depending on where it appears:
 }
 \details{
+\itemize{
+\item Inside \verb{launch(rebind = list(<name> = <ref>))}, a reference
+resolves to a content hash that overrides the named \code{grab()}
+inside the script.
+\item As \code{launch()}'s first argument, \code{mr_label()} (only) addresses
+a labeled pipeline's most recent run and re-executes its code.
+}
+
 Use a bare R value in \code{rebind} when you want the value stowed
 inline; use one of these constructors when you want to address
 something already stored.

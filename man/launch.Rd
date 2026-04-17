@@ -48,7 +48,7 @@ The code runs in a fresh environment whose parent is \code{globalenv()}.
 the tracked code can call them bare without a preceding
 \code{library(modelrunnR)}.
 }
-\section{Script vs. inline mode}{
+\section{Script, inline, and relaunch modes}{
 
 \code{launch()} dispatches on the first argument:
 \itemize{
@@ -60,6 +60,13 @@ is derived from the deparsed expression's hash
 (\code{"<inline:<short-hash>>"}), so editing the expression produces a
 new tracked step rather than silently comparing against a prior
 run's history.
+\item \strong{Relaunch mode} -- \code{launch(mr_label("baseline"))} looks up the
+most recent run tagged with that label and re-executes its code.
+For inline pipelines the stored snapshot on the run row is used
+directly. For file pipelines the script file is re-sourced from
+disk; if the file is gone, the stored snapshot is used and an
+informational message is emitted. The label is auto-inherited
+onto the new run unless the caller passes an explicit \code{label}.
 }
 }
 
