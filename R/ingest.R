@@ -70,7 +70,6 @@ ingest <- function(name, source) {
           .mr_quote_ident(staging), .mr_quote_ident(physical_name)
         )
       )
-      staging_alive <- FALSE  # renamed away; no drop on exit
       DBI::dbExecute(
         con,
         "INSERT INTO _mr_versions
@@ -92,6 +91,7 @@ ingest <- function(name, source) {
       )
     }
     DBI::dbCommit(con)
+    staging_alive <<- FALSE  # renamed away; no drop on exit
   }, error = function(e) {
     DBI::dbRollback(con)
     stop(e)
