@@ -49,7 +49,10 @@ stow <- function(value, name) {
   }
   .mr_validate_name(name, context = "stow")
 
-  if (is.data.frame(value)) {
+  if (inherits(value, "tbl_lazy")) {
+    .mr_guard_namespace(name, "table")
+    .mr_stow_lazy(name, value)
+  } else if (is.data.frame(value)) {
     .mr_guard_namespace(name, "table")
     .mr_stow_table(name, value)
   } else {
