@@ -4,7 +4,15 @@
 \alias{launch}
 \title{Launch a tracked modelrunnR step}
 \usage{
-launch(script_path, rebind = NULL, label = NULL, external_inputs = NULL, ...)
+launch(
+  script_path,
+  rebind = NULL,
+  label = NULL,
+  external_inputs = NULL,
+  force = FALSE,
+  duckdb_seed = NULL,
+  ...
+)
 }
 \arguments{
 \item{script_path}{Either a path to an R script (script mode) or a
@@ -29,6 +37,18 @@ character vector of paths) and/or \code{env} (a character vector of
 environment variable names). Each declared input is hashed and
 recorded on the run row so later staleness checks can detect
 changes. Missing files error \emph{before} the script is sourced.}
+
+\item{force}{Logical, default \code{FALSE}. Reserved for skip-on-fresh control
+in a future release; currently accepted and silently ignored.}
+
+\item{duckdb_seed}{Optional numeric seed in \verb{[-1, 1]}. When set,
+modelrunnR calls \verb{SELECT setseed(duckdb_seed)} on the DuckDB
+connection immediately before evaluating the block, so lazy-tbl
+samplers (\code{dplyr::slice_sample()}, \code{RANDOM()}, \verb{USING SAMPLE})
+produce reproducible output across runs with the same seed. The
+value is stored on the run row. Note: this is DuckDB's RNG, not
+R's -- \code{set.seed()} does not reach DuckDB. The RNG state is not
+restored after the block.}
 
 \item{...}{Reserved for future arguments and for catching the
 removed \code{pin}/\code{data} arguments with a clear error message.}
