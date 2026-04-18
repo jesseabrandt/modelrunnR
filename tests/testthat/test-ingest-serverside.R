@@ -23,11 +23,7 @@ test_that("ingest() does not route the frame through R", {
   expect_false(called, info = "ingest() must not call .mr_read_file")
   expect_true(inherits(result, "tbl_lazy"))
 
-  # Round-trip via grab (still materialized until Task 6; adjust then).
-  got <- grab("csv_test")
-  # After Task 6, got will be a tbl_lazy. For now it's still a
-  # data.frame; collect() works on both so the assertion is forward-compatible.
-  got_df <- if (inherits(got, "tbl_lazy")) dplyr::collect(got) else got
+  got_df <- dplyr::collect(grab("csv_test"))
   expect_equal(nrow(got_df), 100)
   expect_setequal(names(got_df), c("x", "y"))
 })

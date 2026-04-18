@@ -100,3 +100,37 @@ test_that("grab(name, version = hash) on a table returns lazy tbl", {
   expect_true(inherits(got, "tbl_lazy"))
   expect_equal(nrow(dplyr::collect(got)), 3L)
 })
+
+test_that("grab(name, from_run = id) on a table returns lazy tbl", {
+  new_test_db()
+  df <- data.frame(x = 1:4)
+  run <- launch({
+    stow(data.frame(x = 1:4), "t")
+  }, label = "from_run_test")
+
+  got <- grab("t", from_run = run$run_id)
+  expect_true(inherits(got, "tbl_lazy"))
+  expect_equal(nrow(dplyr::collect(got)), 4L)
+})
+
+test_that("grab(name, as_of = timestamp) on a table returns lazy tbl", {
+  new_test_db()
+  stow(data.frame(x = 1:3), "t")
+  Sys.sleep(0.05)
+  cutoff <- Sys.time()
+  Sys.sleep(0.05)
+  stow(data.frame(x = 1:7), "t")
+
+  got <- grab("t", as_of = cutoff)
+  expect_true(inherits(got, "tbl_lazy"))
+  expect_equal(nrow(dplyr::collect(got)), 3L)
+})
+
+test_that("grab(name, variant = label) on a table returns lazy tbl", {
+  new_test_db()
+  launch({ stow(data.frame(x = 1:5), "t") }, label = "variant_a")
+
+  got <- grab("t", variant = "variant_a")
+  expect_true(inherits(got, "tbl_lazy"))
+  expect_equal(nrow(dplyr::collect(got)), 5L)
+})

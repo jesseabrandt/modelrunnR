@@ -16,7 +16,7 @@ test_that("run record captures observed inputs/outputs and success status", {
   launch(writer)
 
   rw <- write_script(c(
-    "a <- grab('a')",
+    "a <- grab('a') |> dplyr::collect()",
     "stow(data.frame(z = nrow(a)), 'c')"
   ))
   launch(rw)

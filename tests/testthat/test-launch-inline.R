@@ -21,7 +21,7 @@ test_that("launch({...}) sees grab()s recorded as inputs", {
   stow(data.frame(a = 1:2), "src")
 
   run <- launch({
-    df <- grab("src")
+    df <- grab("src") |> dplyr::collect()
     stow(df, "dst")
   })
 
