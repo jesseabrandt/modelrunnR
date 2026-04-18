@@ -7,7 +7,7 @@ test_that("launch + stow round-trips a data frame to the next launch's grab", {
   ))
   reader_path <- tempfile(fileext = ".rds")
   reader <- write_script(c(
-    sprintf("got <- grab('out')"),
+    sprintf("got <- dplyr::collect(grab('out'))"),
     sprintf("saveRDS(got, %s)", deparse(reader_path))
   ))
 
@@ -27,7 +27,7 @@ test_that("stow outside launch writes, grab outside launch reads (no recording)"
   df <- data.frame(a = c(1, 2, 3))
   stow(df, "direct")
 
-  got <- grab("direct")
+  got <- grab("direct") |> dplyr::collect()
   expect_equal(got$a, c(1, 2, 3))
 })
 

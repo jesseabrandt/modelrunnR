@@ -34,7 +34,7 @@ test_that("stowing a modified frame yields a second physical table and version r
   expect_equal(length(grep("^t__", pt)), 2L)
 
   # Default grab returns the most recent version (by first_seen).
-  latest <- grab("t")
+  latest <- grab("t") |> dplyr::collect()
   expect_equal(latest$x, c(1L, 2L, 9L))
 })
 
@@ -62,9 +62,9 @@ test_that("grab(version = h) returns exactly that hash's frame", {
   older <- vrows$content_hash[1]
   newer <- vrows$content_hash[2]
 
-  expect_equal(grab("t", version = older)$x, 1:2)
-  expect_equal(grab("t", version = newer)$x, c(10L, 20L))
-  expect_equal(grab("t")$x, c(10L, 20L))
+  expect_equal(dplyr::collect(grab("t", version = older))$x, 1:2)
+  expect_equal(dplyr::collect(grab("t", version = newer))$x, c(10L, 20L))
+  expect_equal(dplyr::collect(grab("t"))$x, c(10L, 20L))
 })
 
 test_that("grab(from_run = rid) returns what that run produced", {
@@ -81,9 +81,9 @@ test_that("grab(from_run = rid) returns what that run produced", {
 
   on.exit(rm("v", envir = globalenv()), add = TRUE)
 
-  expect_equal(grab("seq", from_run = r1$run_id)$x, 1L)
-  expect_equal(grab("seq", from_run = r2$run_id)$x, 1:2)
-  expect_equal(grab("seq", from_run = r3$run_id)$x, 1:3)
+  expect_equal(dplyr::collect(grab("seq", from_run = r1$run_id))$x, 1L)
+  expect_equal(dplyr::collect(grab("seq", from_run = r2$run_id))$x, 1:2)
+  expect_equal(dplyr::collect(grab("seq", from_run = r3$run_id))$x, 1:3)
 })
 
 test_that("grab(as_of = ts) returns the version latest at that time", {
@@ -96,9 +96,9 @@ test_that("grab(as_of = ts) returns the version latest at that time", {
   t2 <- Sys.time()
   stow(data.frame(x = 3L), "t")
 
-  expect_equal(grab("t", as_of = t1)$x, 1L)
-  expect_equal(grab("t", as_of = t2)$x, 2L)
-  expect_equal(grab("t")$x, 3L)
+  expect_equal(dplyr::collect(grab("t", as_of = t1))$x, 1L)
+  expect_equal(dplyr::collect(grab("t", as_of = t2))$x, 2L)
+  expect_equal(dplyr::collect(grab("t"))$x, 3L)
 })
 
 test_that("grab() errors cleanly when a name has never been stowed", {
@@ -134,10 +134,10 @@ test_that("grab(as_of = 'string') is reproducible across session TZ", {
 
   # Both invocations must resolve identically to the UTC-parsed timestamp.
   withr::with_envvar(c(TZ = "UTC"), {
-    r_utc <- grab("t", as_of = "3000-01-01 00:00:00")
+    r_utc <- dplyr::collect(grab("t", as_of = "3000-01-01 00:00:00"))
   })
   withr::with_envvar(c(TZ = "US/Eastern"), {
-    r_est <- grab("t", as_of = "3000-01-01 00:00:00")
+    r_est <- dplyr::collect(grab("t", as_of = "3000-01-01 00:00:00"))
   })
   expect_equal(r_utc$x, r_est$x)
 })

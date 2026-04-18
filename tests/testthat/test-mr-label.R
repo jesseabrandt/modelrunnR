@@ -44,7 +44,7 @@ test_that("launch(mr_label(...)) picks up the most recent iteration", {
   launch(mr_label("baseline"))
   # Whatever iteration we ran, the latest "obj" must match the most
   # recent pipeline (a = 99).
-  expect_equal(grab("obj")$a, 99L)
+  expect_equal(dplyr::collect(grab("obj"))$a, 99L)
 })
 
 test_that("launch(mr_label(...)) re-sources a file pipeline when the file still exists", {
@@ -70,7 +70,7 @@ test_that("launch(mr_label(...)) falls back to the snapshot when the file is gon
     "gone from disk"
   )
   expect_equal(run$status, "success")
-  expect_equal(grab("gone_pipe")$a, 1)
+  expect_equal(dplyr::collect(grab("gone_pipe"))$a, 1)
 })
 
 test_that("launch(mr_label(...)) errors when the label has no runs", {

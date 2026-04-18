@@ -35,8 +35,8 @@ test_that("grab(name, variant = 'x') resolves to latest hash produced under that
   fit2 <- write_script('stow(data.frame(v = 1:9), "features")')
   launch(fit2, label = "fast")
 
-  expect_equal(nrow(grab("features", variant = "slow")), 3L)
-  expect_equal(nrow(grab("features", variant = "fast")), 9L)
+  expect_equal(nrow(dplyr::collect(grab("features", variant = "slow"))), 3L)
+  expect_equal(nrow(dplyr::collect(grab("features", variant = "fast"))), 9L)
 })
 
 test_that("grab(variant = 'nonexistent') errors cleanly", {
@@ -68,11 +68,11 @@ test_that("rebind = list(x = mr_variant('slow')) resolves to the labeled variant
   launch(producer, label = "slow")
 
   consumer <- write_script(c(
-    'f <- grab("features")',
+    'f <- dplyr::collect(grab("features"))',
     'stow(data.frame(n = nrow(f)),  "n")'
   ))
   launch(consumer, rebind = list(features = mr_variant("slow")))
-  expect_equal(grab("n")$n, 4L)
+  expect_equal(dplyr::collect(grab("n"))$n, 4L)
 })
 
 test_that("grab(variant = 'x') inside launch() records the read on the run row", {

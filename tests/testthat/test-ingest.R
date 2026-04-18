@@ -19,7 +19,7 @@ test_that("ingest() loads a CSV, versions metadata carries source_uri and source
   expect_true(nzchar(row$source_hash[1]))
 
   # Grabbing the name returns the ingested data.
-  got <- grab("d")
+  got <- grab("d") |> dplyr::collect()
   expect_equal(got$x, 1:3)
   expect_equal(as.character(got$y), letters[1:3])
 })
@@ -28,7 +28,7 @@ test_that("grab(source = csv) ingests when the name does not exist", {
   new_test_db()
   csv <- write_test_csv(data.frame(n = 1:4))
 
-  got <- grab("d", source = csv)
+  got <- grab("d", source = csv) |> dplyr::collect()
   expect_equal(got$n, 1:4)
 
   con <- .mr_get_connection()
@@ -55,7 +55,7 @@ test_that("grab(source = csv) ingests a new version when the file changes", {
   grab("d", source = csv)
 
   write.csv(data.frame(n = c(9L, 8L, 7L)), csv, row.names = FALSE)
-  got <- grab("d", source = csv)
+  got <- grab("d", source = csv) |> dplyr::collect()
   expect_equal(got$n, c(9L, 8L, 7L))
   expect_equal(nrow(versions("d")), 2L)
 })
@@ -68,7 +68,7 @@ test_that("ingest() works for parquet files", {
   arrow::write_parquet(data.frame(x = 1:5), pq)
 
   ingest("d", pq)
-  expect_equal(grab("d")$x, 1:5)
+  expect_equal(dplyr::collect(grab("d"))$x, 1:5)
 })
 
 test_that("ingest() errors cleanly on missing file and unsupported extension", {
