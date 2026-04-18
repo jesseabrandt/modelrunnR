@@ -3,3 +3,7 @@
 ^\.claude$
 ^LICENSE\.md$
 ^docs$
+^notes$
+.*\.duckdb$
+.*\.duckdb\.wal$
+^modelrunnR_artifacts$
