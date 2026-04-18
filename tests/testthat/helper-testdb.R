@@ -24,3 +24,18 @@ write_script <- function(code, envir = parent.frame()) {
   writeLines(code, path)
   path
 }
+
+# Query all _mr_versions rows (or rows for a specific logical name).
+# Used across multiple test files to introspect versioning metadata.
+mr_versions_rows <- function(name = NULL) {
+  con <- .mr_get_connection()
+  if (is.null(name)) {
+    DBI::dbGetQuery(con, "SELECT * FROM _mr_versions ORDER BY first_seen")
+  } else {
+    DBI::dbGetQuery(
+      con,
+      "SELECT * FROM _mr_versions WHERE logical_name = ? ORDER BY first_seen",
+      params = list(name)
+    )
+  }
+}

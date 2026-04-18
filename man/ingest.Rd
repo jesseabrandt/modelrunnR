@@ -12,10 +12,14 @@ ingest(name, source)
 \item{source}{Path to a \code{.csv}, \code{.tsv}, or \code{.parquet} file.}
 }
 \value{
-The ingested data frame, invisibly.
+A \code{dbplyr} lazy \code{tbl} over the ingested table, invisibly.
+Users typically don't use the return value directly — they call
+\code{\link[=grab]{grab()}} to read the stored data by name.
 }
 \description{
-Reads a CSV or Parquet file via DuckDB and stows it under \code{name},
+Loads a CSV or Parquet file directly into DuckDB using DuckDB's
+native \code{read_csv_auto()} / \code{read_parquet()} — the file bytes never
+pass through R memory. The resulting table is stored under \code{name},
 recording the source file's URI and content hash in
 \verb{_mr_versions} so later \code{\link[=grab]{grab()}} calls with \code{source = path} can
 detect changes and re-ingest when needed.

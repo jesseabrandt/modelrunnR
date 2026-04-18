@@ -97,6 +97,39 @@
   DBI::dbGetQuery(con, sql)
 }
 
+# Server-side CSV/Parquet ingest: CREATE TABLE AS from DuckDB's
+# read_csv_auto / read_parquet. No R-side materialization.
+#
+# Returns the name of the newly-created DuckDB table (`dest_table`
+# as passed in). The caller is responsible for hashing, renaming
+# to the canonical physical_name, registering in _mr_versions,
+# and cleaning up on error.
+.mr_ingest_file_to_table <- function(con, path, dest_table) {
+  if (any(charToRaw(path) == as.raw(0L))) {
+    stop("ingest(): path contains a null byte.", call. = FALSE)
+  }
+  normalized <- normalizePath(path, mustWork = FALSE)
+  if (!file.exists(normalized)) {
+    stop(sprintf("ingest(): file does not exist: %s", path), call. = FALSE)
+  }
+  ext <- tolower(tools::file_ext(normalized))
+  reader <- switch(
+    ext,
+    csv     = "read_csv_auto",
+    tsv     = "read_csv_auto",
+    parquet = "read_parquet",
+    pq      = "read_parquet",
+    stop(sprintf("ingest(): unsupported file extension '%s'", ext), call. = FALSE)
+  )
+  escaped <- gsub("'", "''", normalized, fixed = TRUE)
+  sql <- sprintf(
+    "CREATE TABLE %s AS SELECT * FROM %s('%s')",
+    .mr_quote_ident(dest_table), reader, escaped
+  )
+  .mr_execute(con, sql)
+  invisible(dest_table)
+}
+
 # Content-hash an existing DuckDB table by name. Row- and column-order
 # independent, type-sensitive.
 #
