@@ -114,3 +114,14 @@ test_that("cyclic sourcing does not infinite-loop and still records code_hash", 
   expect_no_error(run <- launch(b$step.R))
   expect_true(nzchar(get_code_hash(run$run_id)))
 })
+
+test_that(".mr_hash_duckdb_table hashes a named DuckDB table", {
+  new_test_db()
+  con <- .mr_get_connection()
+  df  <- data.frame(x = 1:5, y = letters[1:5], stringsAsFactors = FALSE)
+  DBI::dbWriteTable(con, "hashme", df, overwrite = TRUE)
+
+  h_direct <- .mr_hash_duckdb_table(con, "hashme")
+  h_via_frame <- .mr_hash_frame(con, df)
+  expect_identical(h_direct, h_via_frame)
+})
