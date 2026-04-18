@@ -7,8 +7,43 @@
 * **Relaunch-by-label: `launch(mr_label("baseline"))`.** A new reference constructor `mr_label()` joins the existing `mr_hash()` / `mr_run()` / `mr_variant()` / `mr_as_of()` family. When passed as `launch()`'s first argument, it looks up the most recent run tagged with that label and re-executes its code: for inline pipelines the stored snapshot on the run row is used directly; for file pipelines the script file is re-sourced from disk (or the stored snapshot is used if the file has been removed, with an informational message). The label auto-inherits onto the new run unless the caller passes an explicit `label` override. Composes with `rebind`, `external_inputs`, and every other existing launch argument.
 * **`_mr_runs.code_body`** column added via the existing idempotent migration path. Populated for *every* tracked run: the deparsed expression for `launch({ ... })` and the captured file bytes for `launch("fit.R")`. Run rows are now self-contained — a run is recoverable even after its source file has been deleted. (A short-lived earlier draft called this column `inline_code` and only populated it for inline launches; the migration renames the column and carries forward any existing data.)
 * **Getting-started vignette.** New `vignettes/getting-started.Rmd` walks through the REPL workflow (stow, grab, versions) and the inline `launch({ ... })` flow end-to-end on a small simulated dataset.
+* **`launch(..., duckdb_seed = x)`.** Numeric seed in `[-1, 1]` applied
+  to DuckDB's RNG via `SELECT setseed(x)` before the block runs. Makes
+  lazy-tbl sampling (`dplyr::slice_sample()`, `RANDOM()`, `USING
+  SAMPLE`) reproducible across runs. The seed value is stored on the
+  run row (`_mr_runs.duckdb_seed`). R's `set.seed()` does not reach
+  DuckDB's RNG; this is the hook.
+
+* **`mr_con()` exported.** Returns the live DuckDB connection
+  modelrunnR is using, so callers can drop to raw SQL for workflows
+  `dbplyr` doesn't express cleanly (stratified sampling, custom CV
+  constructions).
 
 ## Breaking changes
+
+* **`grab()` on a stored table now returns a `dbplyr` lazy `tbl`** rather
+  than a materialized `data.frame`. Artifact reads (stowed models,
+  lists, vectors) are unchanged.
+
+  * Pipe through `dplyr::collect()` — or `as.data.frame()` /
+    `tibble::as_tibble()` — to materialize.
+  * Non-`dplyr` consumers that coerce via `as.data.frame()` auto-collect
+    transparently (`lm()`, `ggplot2`, most `stats::*`). Base `$col` and
+    base `[` subsetting don't work on lazy tbls — use `dplyr::pull()`
+    or collect first.
+  * See `vignette("lazy-data")` for the full story.
+
+* **`ingest()` return type changed** from invisible `data.frame` to
+  invisible lazy `tbl_dbi`. The function now reads CSVs and Parquet
+  files server-side via DuckDB's `read_csv_auto` / `read_parquet` and
+  never materializes the frame in R. Most callers ignore the return
+  value; any that did capture it will need `|> dplyr::collect()`.
+
+* **`stow()` now accepts a `dbplyr` lazy tbl** and realizes it
+  server-side via `CREATE TABLE AS`. Previously such a value fell
+  through to the artifact path and errored in `qs2` serialization.
+  Non-breaking in the sense that no correct code depended on the old
+  failure, but worth calling out.
 
 * **`stow()` is now value-first.** The signature is `stow(value, name)` (was `stow(name, value)`), so the primary object — the value being stowed — can flow through a pipe: `df |> stow("predictions")`. Passing a single character argument is detected and errors with a migration hint. All internal call sites, tests, docs, and the vignette have been updated.
 
