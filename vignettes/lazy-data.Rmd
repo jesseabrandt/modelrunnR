@@ -1,0 +1,176 @@
+---
+title: "Lazy data with modelrunnR"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Lazy data with modelrunnR}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
+.vignette_db <- tempfile(fileext = ".duckdb")
+options(modelrunnR.db = .vignette_db)
+```
+
+```{r setup}
+library(modelrunnR)
+library(dplyr)
+```
+
+## `grab()` returns a lazy reference
+
+modelrunnR stores tables in DuckDB. When you `grab()` a tabular value, you
+get a `dbplyr` lazy reference back — nothing is pulled into R memory yet.
+This is what makes the `read_csv()`-replacement story hold up for files
+that don't fit in RAM.
+
+```{r sim}
+# Simulate a moderately-sized dataset on disk as a CSV.
+tmp <- tempfile(fileext = ".csv")
+write.csv(
+  data.frame(
+    region = sample(c("N", "S", "E", "W"), 50000, replace = TRUE),
+    year   = sample(2018:2024, 50000, replace = TRUE),
+    price  = rlnorm(50000, meanlog = 11, sdlog = 0.5),
+    sqft   = round(rnorm(50000, mean = 1800, sd = 400))
+  ),
+  tmp, row.names = FALSE
+)
+
+raw <- grab("sales", source = tmp)
+class(raw)
+```
+
+`grab()` ingested the CSV server-side via DuckDB's `read_csv_auto()` —
+no R-side materialization. Subsequent `grab("sales")` calls return a
+lazy tbl directly.
+
+## Composing `dplyr` verbs stays lazy
+
+```{r verbs}
+raw |>
+  filter(year >= 2020) |>
+  group_by(region) |>
+  summarise(n = n(), avg_price = mean(price), .groups = "drop")
+```
+
+That ran as SQL inside DuckDB. Use `show_query()` to see exactly what
+DuckDB executed:
+
+```{r show-query}
+raw |>
+  filter(year >= 2020) |>
+  group_by(region) |>
+  summarise(avg_price = mean(price), .groups = "drop") |>
+  show_query()
+```
+
+## Materializing
+
+Three idioms — pick whichever reads most naturally:
+
+```{r collect}
+# dplyr::collect()
+sample1 <- raw |> slice_sample(n = 100) |> collect()
+
+# as.data.frame()
+sample2 <- as.data.frame(raw |> slice_sample(n = 100))
+
+# tibble::as_tibble()
+sample3 <- tibble::as_tibble(raw |> slice_sample(n = 100))
+```
+
+Non-`dplyr` consumers that coerce via `as.data.frame()` (most of base
+`stats`, `ggplot2`) auto-collect transparently:
+
+```{r stats}
+fit <- lm(price ~ sqft, data = raw |> slice_sample(n = 1000) |> collect())
+coef(fit)
+```
+
+Two things *don't* auto-collect: `x$col` (base `$` isn't defined on
+`tbl_lazy`) and base `[` subsetting. Use `dplyr::pull(col)` or collect
+first.
+
+## Reproducible sampling with `duckdb_seed`
+
+`dplyr::slice_sample()` against a lazy tbl uses DuckDB's RNG — R's
+`set.seed()` does not reach it. Pass `duckdb_seed` to `launch()`:
+
+```{r seed-run}
+launch(
+  {
+    sample <- grab("sales") |>
+      slice_sample(n = 1000) |>
+      collect()
+    stow(sample, "sales_sample")
+  },
+  label   = "sample_demo",
+  duckdb_seed = 0.42
+)
+```
+
+Every `launch()` under the same `duckdb_seed` produces a byte-identical
+sample. Valid range is `[-1, 1]`; the value is recorded on the run
+row for reproducibility audits.
+
+## Whole-step server-side pipelines
+
+`stow()` accepts a lazy tbl. The entire pipeline step runs as SQL — no
+R-side materialization, even at the end:
+
+```{r lazy-stow}
+launch(
+  {
+    grab("sales") |>
+      filter(year == 2024) |>
+      group_by(region) |>
+      summarise(total = sum(price), .groups = "drop") |>
+      stow("sales_by_region_2024")
+  },
+  label = "regional_rollup"
+)
+
+# Downstream: grab() returns another lazy tbl — composes right back in.
+grab("sales_by_region_2024") |> collect()
+```
+
+The rendered SQL is stored alongside the output on `_mr_versions.source_sql`
+for later inspection.
+
+## Escape hatches
+
+For sampling schemes `dbplyr` doesn't express — stratified, grouped CV,
+custom — two reliable exits:
+
+**Raw SQL via `mr_con()`.** The logical name (`sales`) is a view over
+the latest version, so you can query it directly:
+
+```{r raw-sql}
+DBI::dbGetQuery(
+  mr_con(),
+  "SELECT region, COUNT(*) AS n
+   FROM (SELECT * FROM sales USING SAMPLE 5 PERCENT (reservoir, 42)) s
+   GROUP BY region"
+)
+```
+
+That's DuckDB's reservoir sample (seeded inline) aggregated by region —
+one way to express sampling schemes `dbplyr` doesn't cover.
+
+**Collect then sample in R.** When the sampling logic is cleaner in R
+— grouped CV, rolling windows, stratification — pull the keys you
+need, sample in R, stow the partition:
+
+```{r r-side-index}
+# Pull just the region + year columns (cheap); build folds in R.
+keys <- grab("sales") |>
+  select(region, year) |>
+  collect() |>
+  mutate(rid = row_number())
+# ... R-side sampling / fold construction over `keys` ...
+head(keys)
+```
+
+Use whichever fits the structure you're building.
