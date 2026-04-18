@@ -1,17 +1,3 @@
-## Helpers for introspecting the versioning tables in tests.
-mr_versions_rows <- function(name = NULL) {
-  con <- .mr_get_connection()
-  if (is.null(name)) {
-    DBI::dbGetQuery(con, "SELECT * FROM _mr_versions ORDER BY first_seen")
-  } else {
-    DBI::dbGetQuery(
-      con,
-      "SELECT * FROM _mr_versions WHERE logical_name = ? ORDER BY first_seen",
-      params = list(name)
-    )
-  }
-}
-
 physical_tables <- function(pattern = "__") {
   con <- .mr_get_connection()
   tbls <- .mr_list_tables(con)
