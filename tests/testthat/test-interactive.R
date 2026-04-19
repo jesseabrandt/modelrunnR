@@ -28,7 +28,7 @@ test_that("launch emits a reproducibility warning when an input was last stowed 
   stow(data.frame(n = 1:3), "x")
   # Script that grabs 'x'.
   s <- write_script(c(
-    "v <- grab('x')",
+    "v <- grab('x') |> dplyr::collect()",
     "stow(data.frame(n = nrow(v)), 'y')"
   ))
   expect_warning(
@@ -44,7 +44,7 @@ test_that("launch does NOT warn when all inputs were produced by tracked runs", 
   launch(writer)
 
   reader <- write_script(c(
-    "v <- grab('x')",
+    "v <- grab('x') |> dplyr::collect()",
     "stow(data.frame(n = nrow(v)), 'y')"
   ))
   expect_no_warning(launch(reader))

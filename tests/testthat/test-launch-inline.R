@@ -21,7 +21,7 @@ test_that("launch({...}) sees grab()s recorded as inputs", {
   stow(data.frame(a = 1:2), "src")
 
   run <- launch({
-    df <- grab("src")
+    df <- grab("src") |> dplyr::collect()
     stow(df, "dst")
   })
 
@@ -35,7 +35,7 @@ test_that("launch({...}) accepts rebind and label arguments", {
   stow(data.frame(v = 1), "base")
   run <- launch(
     {
-      df <- grab("base")
+      df <- dplyr::collect(grab("base"))
       stow(df, "tagged")
     },
     rebind = list(base = data.frame(v = 99)),
@@ -45,7 +45,7 @@ test_that("launch({...}) accepts rebind and label arguments", {
   expect_equal(run$variant_label, "alt")
   # The rebound value was stowed once (via the bare-value path) plus the
   # downstream output, so "tagged" should carry v = 99.
-  expect_equal(grab("tagged")$v, 99)
+  expect_equal(dplyr::collect(grab("tagged"))$v, 99)
 })
 
 test_that("launch({...}) re-running the same block is fresh", {

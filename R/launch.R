@@ -67,13 +67,21 @@
 #'   `force = TRUE` runs the block regardless. To globally disable
 #'   skip-on-fresh behavior (restore pre-v0.1 advisory-only staleness),
 #'   set `options(modelrunnR.skip_if_fresh = FALSE)`.
+#' @param duckdb_seed Optional numeric seed in `[-1, 1]`. When set,
+#'   modelrunnR calls `SELECT setseed(duckdb_seed)` on the DuckDB
+#'   connection immediately before evaluating the block, so lazy-tbl
+#'   samplers (`dplyr::slice_sample()`, `RANDOM()`, `USING SAMPLE`)
+#'   produce reproducible output across runs with the same seed. The
+#'   value is stored on the run row. Note: this is DuckDB's RNG, not
+#'   R's -- `set.seed()` does not reach DuckDB. The RNG state is not
+#'   restored after the block.
 #' @param ... Reserved for future arguments and for catching the
 #'   removed `pin`/`data` arguments with a clear error message.
 #'
 #' @return The run record (one row of `_mr_runs`), invisibly.
 #' @export
 launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = NULL,
-                   force = FALSE, ...) {
+                   force = FALSE, duckdb_seed = NULL, ...) {
   dots <- list(...)
   if ("pin" %in% names(dots) || "data" %in% names(dots)) {
     stop(
@@ -90,6 +98,17 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
          call. = FALSE)
   }
   label <- .mr_validate_label(label)
+
+  if (!is.null(duckdb_seed)) {
+    if (!is.numeric(duckdb_seed) || length(duckdb_seed) != 1L || is.na(duckdb_seed)) {
+      stop("launch(): duckdb_seed must be a single numeric value.", call. = FALSE)
+    }
+    if (duckdb_seed < -1 || duckdb_seed > 1) {
+      stop(sprintf(
+        "launch(): duckdb_seed must be in [-1, 1]; got %s.", duckdb_seed
+      ), call. = FALSE)
+    }
+  }
 
   # Dispatch: a literal `{ ... }` block triggers inline mode. Capturing
   # with substitute() before `script_path` is ever touched is load-bearing
@@ -154,6 +173,15 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   # Resolve rebind up-front. Bare R values are stowed (producing fresh
   # hashes); mr_*() references are resolved to existing content_hashes.
   resolved_rebinds <- .mr_resolve_rebinds(rebind)
+
+  # Seed DuckDB's RNG if requested. Must happen before the block
+  # evaluates so any slice_sample / RANDOM() inside uses this seed.
+  # DuckDB's RNG is connection-scoped and we do not restore it after
+  # the block -- documented limitation.
+  if (!is.null(duckdb_seed)) {
+    con_for_seed <- .mr_get_connection()
+    DBI::dbExecute(con_for_seed, "SELECT setseed(?)", params = list(duckdb_seed))
+  }
 
   # Staleness check. Default behavior (v0.2+) is skip-on-fresh:
   # when a step is fresh under the current label, the block is not
@@ -267,7 +295,8 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     external_inputs = resolved_ext,
     helpers         = helpers,
     variant_label   = label,
-    code_body       = code_body
+    code_body       = code_body,
+    duckdb_seed     = if (is.null(duckdb_seed)) NA_real_ else duckdb_seed
   )
 
   .mr_print_timing_summary(
@@ -381,7 +410,8 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
                               external_inputs = list(files = list(), env = list()),
                               helpers = list(),
                               variant_label = NA_character_,
-                              code_body = NA_character_) {
+                              code_body = NA_character_,
+                              duckdb_seed = NA_real_) {
   con <- .mr_get_connection()
   row <- data.frame(
     step            = step,
@@ -396,6 +426,7 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     helpers         = .mr_helpers_to_json(helpers),
     variant_label   = variant_label,
     code_body       = code_body,
+    duckdb_seed     = duckdb_seed,
     stringsAsFactors = FALSE
   )
   DBI::dbAppendTable(con, "_mr_runs", row)

@@ -10,6 +10,7 @@ launch(
   label = NULL,
   external_inputs = NULL,
   force = FALSE,
+  duckdb_seed = NULL,
   ...
 )
 }
@@ -45,6 +46,15 @@ written with \code{status = "skipped_fresh"} to preserve provenance.
 \code{force = TRUE} runs the block regardless. To globally disable
 skip-on-fresh behavior (restore pre-v0.1 advisory-only staleness),
 set \code{options(modelrunnR.skip_if_fresh = FALSE)}.}
+
+\item{duckdb_seed}{Optional numeric seed in \verb{[-1, 1]}. When set,
+modelrunnR calls \verb{SELECT setseed(duckdb_seed)} on the DuckDB
+connection immediately before evaluating the block, so lazy-tbl
+samplers (\code{dplyr::slice_sample()}, \code{RANDOM()}, \verb{USING SAMPLE})
+produce reproducible output across runs with the same seed. The
+value is stored on the run row. Note: this is DuckDB's RNG, not
+R's -- \code{set.seed()} does not reach DuckDB. The RNG state is not
+restored after the block.}
 
 \item{...}{Reserved for future arguments and for catching the
 removed \code{pin}/\code{data} arguments with a clear error message.}

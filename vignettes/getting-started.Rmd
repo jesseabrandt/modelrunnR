@@ -54,8 +54,12 @@ that trace back to ad-hoc keyboard activity.
 ```{r stow-grab}
 stow(df, "training")
 
-training <- grab("training")
-identical(training, df)
+# grab() returns a dbplyr lazy tbl for tabular data.
+grab("training")
+
+# collect() to materialize; DuckDB returns a tibble, so all.equal() checks values.
+training_local <- grab("training") |> dplyr::collect()
+all.equal(as.data.frame(training_local), df)
 ```
 
 ## A tracked run with `launch({ ... })`
@@ -80,7 +84,7 @@ history, compare variants, and garbage-collect old versions later.
 ```{r launch}
 run <- launch(
   {
-    training <- grab("training")
+    training <- grab("training") |> dplyr::collect()
     model    <- lm(y ~ x1 + x2, data = training)
 
     stow(model, "model")
@@ -118,7 +122,7 @@ the block itself is not evaluated — pass `force = TRUE` (or set
 ```{r rerun}
 launch(
   {
-    training <- grab("training")
+    training <- grab("training") |> dplyr::collect()
     model    <- lm(y ~ x1 + x2, data = training)
 
     stow(model, "model")
@@ -138,7 +142,7 @@ tied to that pipeline identity.
 ```{r iterate}
 launch(
   {
-    training <- grab("training")
+    training <- grab("training") |> dplyr::collect()
     model    <- lm(y ~ x1 * x2, data = training)   # interaction added
 
     stow(model, "model")

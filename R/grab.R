@@ -40,7 +40,12 @@
 #' arbitrary-code-execution surface, but it has not been independently
 #' audited. Do not `grab()` from projects you would not `source()`.
 #'
-#' @return A data frame.
+#' @return For tabular stored values (ingested files, stowed data
+#'   frames), a `dbplyr` lazy `tbl` bound to the modelrunnR DuckDB
+#'   connection. Compose `dplyr` verbs against it and call
+#'   [dplyr::collect()] (or [as.data.frame()] / [tibble::as_tibble()])
+#'   to materialize. For non-tabular artifacts, the deserialized R
+#'   object.
 #' @export
 grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
                  source = NULL, variant = NULL) {
@@ -76,12 +81,12 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
 }
 
 # Given a _mr_versions row, return the stored value. Tables go through
-# the DBI read path; artifacts are fetched from `_mr_artifacts` (for
-# BLOB storage) or read from disk (for filesystem storage) and then
-# deserialized via qs2.
+# dplyr::tbl() so callers get a lazy dbplyr reference; artifacts are
+# fetched from `_mr_artifacts` (for BLOB storage) or read from disk
+# (for filesystem storage) and then deserialized via qs2.
 .mr_read_value <- function(con, row) {
   if (identical(row$kind, "table")) {
-    return(.mr_table_read(con, row$physical_name))
+    return(dplyr::tbl(con, row$physical_name))
   }
   # artifact
   if (identical(row$storage_location, "blob")) {

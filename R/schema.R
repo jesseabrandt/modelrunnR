@@ -52,6 +52,9 @@
   # runs. Populated for every tracked run so a row is recoverable
   # even if its source file was later deleted.
   .mr_add_column_if_missing(con, "_mr_runs", "code_body", "TEXT")
+  # DuckDB RNG seed captured when launch(..., duckdb_seed = x) was used.
+  # Null when the caller didn't pass one.
+  .mr_add_column_if_missing(con, "_mr_runs", "duckdb_seed", "DOUBLE")
   # Earlier draft named this column `inline_code` and only populated
   # it for inline launches. Carry the data forward and drop the old
   # column so `code_body` stays single-source-of-truth.
@@ -84,6 +87,10 @@
   # ingested from so grab(source = path) can detect changes.
   .mr_add_column_if_missing(con, "_mr_versions", "source_uri",  "TEXT")
   .mr_add_column_if_missing(con, "_mr_versions", "source_hash", "TEXT")
+  # Lazy-stow provenance: SQL text that produced an output, captured
+  # via dbplyr::sql_render() at stow-time. Null for materialized-frame
+  # stows and artifact stows.
+  .mr_add_column_if_missing(con, "_mr_versions", "source_sql", "TEXT")
   # Belt-and-suspenders: the query-then-insert pattern in .mr_stow_*
   # already prevents duplicates in single-writer operation, but the
   # unique index makes the invariant enforced at the DB level against

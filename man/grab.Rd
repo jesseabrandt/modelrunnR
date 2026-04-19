@@ -36,7 +36,12 @@ by any run launched with \code{label = variant}. Mutually exclusive with
 in docs/design.md for the full semantics.}
 }
 \value{
-A data frame.
+For tabular stored values (ingested files, stowed data
+frames), a \code{dbplyr} lazy \code{tbl} bound to the modelrunnR DuckDB
+connection. Compose \code{dplyr} verbs against it and call
+\code{\link[dplyr:compute]{dplyr::collect()}} (or \code{\link[=as.data.frame]{as.data.frame()}} / \code{\link[tibble:as_tibble]{tibble::as_tibble()}})
+to materialize. For non-tabular artifacts, the deserialized R
+object.
 }
 \description{
 Returns the value stowed under \code{name}. By default returns the

@@ -13,7 +13,9 @@ Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Imports:
     DBI,
+    dbplyr,
     digest,
+    dplyr,
     duckdb,
     jsonlite,
     qs2
@@ -22,6 +24,7 @@ Suggests:
     knitr,
     rmarkdown,
     testthat (>= 3.0.0),
+    tibble,
     withr
 VignetteBuilder: knitr
 Config/testthat/edition: 3

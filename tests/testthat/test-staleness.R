@@ -12,7 +12,7 @@ test_that("re-running an unchanged step with unchanged inputs is fresh", {
   launch(writer)
 
   reader <- write_script(c(
-    "x <- grab('x')",
+    "x <- grab('x') |> dplyr::collect()",
     "stow(x, 'y')"
   ))
   launch(reader)
@@ -56,7 +56,7 @@ test_that("a changed input produces 'input:<name>' staleness downstream", {
   launch(writer)
 
   reader <- write_script(c(
-    "x <- grab('x')",
+    "x <- grab('x') |> dplyr::collect()",
     "stow(x, 'y')"
   ))
   launch(reader)

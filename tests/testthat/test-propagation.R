@@ -5,7 +5,7 @@ test_that("downstream inherits a single agreeing upstream label", {
   launch(prod, label = "eta_0.01")
 
   cons <- write_script(c(
-    'm <- grab("model")',
+    'm <- dplyr::collect(grab("model"))',
     'stow(data.frame(p = m$coef), "preds")'
   ))
   launch(cons)  # no explicit label
