@@ -1,5 +1,36 @@
 # modelrunnR 0.0.0.9000
 
+## Breaking changes
+
+* **`launch()` now skips fresh runs by default.** When a step's code,
+  recorded inputs, and declared external inputs have not changed since
+  the most recent run under the same label, `launch()` does not
+  evaluate the block; it writes a `_mr_runs` row with
+  `status = "skipped_fresh"` and returns. This matches the cache-shaped
+  mental model the API already leans on and fixes the case where a
+  `launch()`-wrapped expensive external command (e.g. a long Python
+  shell-out) would re-run on every call despite reporting "fresh".
+  * `launch(..., force = TRUE)` runs the block regardless.
+  * `options(modelrunnR.skip_if_fresh = FALSE)` restores the prior
+    advisory-only behavior globally.
+  * Side effects inside the block (file writes, `system2()`, etc.) do
+    not fire on a skip. Users who relied on the advisory-only behavior
+    to re-run blocks that change undeclared global state need to either
+    pass `force = TRUE` at the call site or declare the changing state
+    as an `external_inputs` entry so staleness can see it.
+
+## New features
+
+* **`is_stale(mr_label("..."))` / `is_stale(mr_variant("..."))`.**
+  Public wrapper around the internal staleness check, so callers can
+  gate their own logic on whether a re-run would be a no-op without
+  entering `launch()`. Returns a logical scalar with a `reasons`
+  attribute matching the reason codes shown in the advisory message
+  (`"never_run"`, `"code"`, `"input:<name>"`, `"external:<path>"`,
+  `"external:env:<NAME>"`). Only `mr_label()` / `mr_variant()` are
+  accepted — the other reference constructors address stored content,
+  not pipeline identity, and error with a clear message.
+
 ## New features
 
 * **Inline `launch({ ... })`.** `launch()` now dispatches on its first argument: a literal braced expression runs as tracked code with no script file on disk, while a character path continues to behave as before. Step identity is derived from the deparsed expression's hash (`"<inline:<short>>"`), so editing the block creates a new step instead of silently comparing against a prior expression's history. All existing features (rebind, label, external_inputs, staleness, interactive-input warnings) work identically in both modes.

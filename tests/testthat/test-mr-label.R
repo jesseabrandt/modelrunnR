@@ -8,9 +8,10 @@ test_that("launch(mr_label(...)) re-executes an inline labeled pipeline", {
     label = "baseline"
   )
 
-  # Edit nothing; just relaunch by label. Should succeed and
-  # produce a new run row.
-  run <- launch(mr_label("baseline"))
+  # Edit nothing; just relaunch by label. force = TRUE because the
+  # default skip-on-fresh would no-op this relaunch (nothing changed).
+  # The test's intent is to verify re-execution semantics.
+  run <- launch(mr_label("baseline"), force = TRUE)
 
   expect_equal(run$status, "success")
   expect_match(run$outputs, "out")
@@ -53,7 +54,7 @@ test_that("launch(mr_label(...)) re-sources a file pipeline when the file still 
   s <- write_script('stow(data.frame(a = 1), "filepipe")')
   launch(s, label = "file_pipe")
 
-  run <- launch(mr_label("file_pipe"))
+  run <- launch(mr_label("file_pipe"), force = TRUE)
   expect_equal(run$status, "success")
   expect_equal(run$variant_label, "file_pipe")
 })

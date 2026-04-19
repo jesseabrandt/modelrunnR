@@ -59,12 +59,21 @@
 #'   variant (labeled experimental thread). Empty / whitespace-only labels
 #'   are rejected; whitespace is trimmed. See *Variants and swappability*
 #'   in docs/design.md for the full semantics.
+#' @param force Logical, default `FALSE`. When `FALSE` and the step is
+#'   fresh (code + inputs + external inputs unchanged since the last run
+#'   under this label), `launch()` skips execution entirely: the block is
+#'   not evaluated, side effects do not fire, and a `_mr_runs` row is
+#'   written with `status = "skipped_fresh"` to preserve provenance.
+#'   `force = TRUE` runs the block regardless. To globally disable
+#'   skip-on-fresh behavior (restore pre-v0.1 advisory-only staleness),
+#'   set `options(modelrunnR.skip_if_fresh = FALSE)`.
 #' @param ... Reserved for future arguments and for catching the
 #'   removed `pin`/`data` arguments with a clear error message.
 #'
 #' @return The run record (one row of `_mr_runs`), invisibly.
 #' @export
-launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = NULL, ...) {
+launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = NULL,
+                   force = FALSE, ...) {
   dots <- list(...)
   if ("pin" %in% names(dots) || "data" %in% names(dots)) {
     stop(
@@ -146,12 +155,28 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   # hashes); mr_*() references are resolved to existing content_hashes.
   resolved_rebinds <- .mr_resolve_rebinds(rebind)
 
-  # Advisory staleness check -- report only, never auto-skip.
-  # Pass the explicit label only (auto-propagation hasn't run yet, so
-  # inherited labels aren't known here; passing label= ensures per-variant
-  # history is consulted when the user supplied an explicit label).
+  # Staleness check. Default behavior (v0.2+) is skip-on-fresh:
+  # when a step is fresh under the current label, the block is not
+  # evaluated and a `skipped_fresh` run row is written. `force = TRUE`
+  # on the call and `options(modelrunnR.skip_if_fresh = FALSE)` both
+  # opt out. We pass the explicit label only -- auto-propagation runs
+  # from the recorded inputs of the finished block, which hasn't run
+  # yet.
   staleness <- .mr_is_stale(step, variant_label = label)
-  .mr_print_staleness(step, staleness)
+  skip_on_fresh <- isTRUE(getOption("modelrunnR.skip_if_fresh", TRUE))
+  will_skip <- !staleness$stale && !isTRUE(force) && skip_on_fresh
+  .mr_print_staleness(step, staleness, will_skip = will_skip)
+
+  if (will_skip) {
+    return(invisible(.mr_record_skipped_fresh(
+      step            = step,
+      run_id          = run_id,
+      started_at      = started_at,
+      resolved_ext    = resolved_ext,
+      code_body       = code_body,
+      label           = label
+    )))
+  }
 
   # Nested launches would clobber the outer launch's recording, helpers,
   # and rebinds state (all held in .mr_state singletons). Detect and error
@@ -411,9 +436,16 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   message(paste(lines, collapse = "\n"))
 }
 
-.mr_print_staleness <- function(step, staleness) {
+.mr_print_staleness <- function(step, staleness, will_skip = FALSE) {
   if (!staleness$stale) {
-    message(sprintf("modelrunnR: %s is fresh", basename(step)))
+    if (will_skip) {
+      message(sprintf(
+        "modelrunnR: %s is fresh -- skipping (use force = TRUE to run anyway)",
+        basename(step)
+      ))
+    } else {
+      message(sprintf("modelrunnR: %s is fresh", basename(step)))
+    }
     return(invisible(NULL))
   }
   message(sprintf(
@@ -422,4 +454,49 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     paste(staleness$reasons, collapse = ", ")
   ))
   invisible(NULL)
+}
+
+# Write a run row for a launch() that was skipped because the step was
+# fresh. No user code ran, so `inputs`/`outputs` are empty and
+# `duration_ms = 0`. `variant_label` inherits from the prior run's row
+# for this step when the caller didn't pass one, so the skipped row
+# stays in the same labeled thread.
+.mr_record_skipped_fresh <- function(step, run_id, started_at,
+                                     resolved_ext, code_body, label) {
+  con <- .mr_get_connection()
+  if (is.na(label)) {
+    prior <- DBI::dbGetQuery(
+      con,
+      "SELECT variant_label, code_hash FROM _mr_runs
+        WHERE step = ?
+        ORDER BY started_at DESC LIMIT 1",
+      params = list(step)
+    )
+    if (nrow(prior) > 0L && !is.na(prior$variant_label[1])) {
+      label <- prior$variant_label[1]
+    }
+  }
+  prior_hash <- DBI::dbGetQuery(
+    con,
+    "SELECT code_hash FROM _mr_runs
+      WHERE step = ?
+      ORDER BY started_at DESC LIMIT 1",
+    params = list(step)
+  )
+  code_hash <- if (nrow(prior_hash) == 0L) NA_character_ else prior_hash$code_hash[1]
+
+  .mr_write_run_row(
+    step            = step,
+    run_id          = run_id,
+    inputs          = list(),
+    outputs         = list(),
+    started_at      = started_at,
+    duration_ms     = 0L,
+    status          = "skipped_fresh",
+    code_hash       = code_hash,
+    external_inputs = resolved_ext,
+    helpers         = list(),
+    variant_label   = label,
+    code_body       = code_body
+  )
 }

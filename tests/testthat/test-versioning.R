@@ -89,9 +89,12 @@ test_that("grab(from_run = rid) returns what that run produced", {
     "stow(data.frame(x = seq_len(v)), 'seq')"
   ))
 
+  # force = TRUE because `v` is a global the block reads but isn't declared
+  # as an external input -- modelrunnR correctly sees the step as fresh.
+  # This test verifies `from_run` semantics, not staleness.
   r1 <- launch(script); assign("v", 2L, envir = globalenv())
-  r2 <- launch(script); assign("v", 3L, envir = globalenv())
-  r3 <- launch(script)
+  r2 <- launch(script, force = TRUE); assign("v", 3L, envir = globalenv())
+  r3 <- launch(script, force = TRUE)
 
   on.exit(rm("v", envir = globalenv()), add = TRUE)
 

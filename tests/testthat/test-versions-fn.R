@@ -19,8 +19,11 @@ test_that("versions(name) ties hashes to their producing runs", {
   ))
   on.exit(if (exists("v", envir = globalenv())) rm("v", envir = globalenv()), add = TRUE)
 
+  # force = TRUE because the global `v` isn't a declared external input;
+  # staleness correctly wouldn't detect it changed. Test intent is to
+  # verify one version per run, so we need both runs to actually execute.
   r1 <- launch(s); assign("v", 2L, envir = globalenv())
-  r2 <- launch(s)
+  r2 <- launch(s, force = TRUE)
 
   v <- versions("w")
   expect_equal(nrow(v), 2L)

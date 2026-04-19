@@ -4,7 +4,14 @@
 \alias{launch}
 \title{Launch a tracked modelrunnR step}
 \usage{
-launch(script_path, rebind = NULL, label = NULL, external_inputs = NULL, ...)
+launch(
+  script_path,
+  rebind = NULL,
+  label = NULL,
+  external_inputs = NULL,
+  force = FALSE,
+  ...
+)
 }
 \arguments{
 \item{script_path}{Either a path to an R script (script mode) or a
@@ -29,6 +36,15 @@ character vector of paths) and/or \code{env} (a character vector of
 environment variable names). Each declared input is hashed and
 recorded on the run row so later staleness checks can detect
 changes. Missing files error \emph{before} the script is sourced.}
+
+\item{force}{Logical, default \code{FALSE}. When \code{FALSE} and the step is
+fresh (code + inputs + external inputs unchanged since the last run
+under this label), \code{launch()} skips execution entirely: the block is
+not evaluated, side effects do not fire, and a \verb{_mr_runs} row is
+written with \code{status = "skipped_fresh"} to preserve provenance.
+\code{force = TRUE} runs the block regardless. To globally disable
+skip-on-fresh behavior (restore pre-v0.1 advisory-only staleness),
+set \code{options(modelrunnR.skip_if_fresh = FALSE)}.}
 
 \item{...}{Reserved for future arguments and for catching the
 removed \code{pin}/\code{data} arguments with a clear error message.}

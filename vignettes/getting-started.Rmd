@@ -107,9 +107,13 @@ run$outputs
 versions("predictions")
 ```
 
-Run the same block a second time and modelrunnR will report it as
-fresh — the expression bytes and the input hash haven't moved, so no
-new version is written.
+Run the same block a second time and modelrunnR will *skip it*.
+The expression bytes, the input hash, and the declared external
+inputs all match the last run under this label, so there is
+nothing to recompute. A row still lands on `_mr_runs` with
+`status = "skipped_fresh"` so the provenance trail is intact, but
+the block itself is not evaluated — pass `force = TRUE` (or set
+`options(modelrunnR.skip_if_fresh = FALSE)`) to re-run anyway.
 
 ```{r rerun}
 launch(
@@ -152,9 +156,13 @@ per labeled pipeline, with a run count and timestamps.
 variants(name = "predictions")
 ```
 
-Two runs of `"baseline"`, both tied to the same label. When you're
-confident an older iteration isn't worth keeping, `prune_variants()`
-and `prune_versions()` can clear the history.
+Three runs under `"baseline"`: the first launch, the skipped rerun,
+and the edited iteration. Every `launch()` writes a `_mr_runs` row
+(even skipped ones), and the row's `step` column keys on the
+expression bytes — so the table shows two distinct inline steps
+under the same label. When you're confident an older iteration
+isn't worth keeping, `prune_variants()` and `prune_versions()` can
+clear the history (see `?prune_variants`, `?prune_versions`).
 
 ## Re-running a pipeline by label
 
@@ -182,6 +190,21 @@ and staleness all work the same way.
 ```r
 launch("fit.R", label = "baseline")
 ```
+
+## Under the hood
+
+A few things happen without you having to configure them.
+
+**Where the DuckDB store lives.** modelrunnR walks up from your
+working directory looking for a project marker — `DESCRIPTION`,
+`*.Rproj`, `.git/`, `renv.lock`, or `.here` — and puts
+`modelrunnR.duckdb` at that root. `setwd()` into a subdirectory and
+you still hit the same DB, so a project has one store by default
+rather than a scatter of little ones. If no marker is found, it
+falls back to the current directory *and* warns you, so stray DBs
+don't accumulate silently. `db_path()` shows you the resolved path,
+and `options(modelrunnR.db = "...")` overrides it if you want to
+point multiple projects at a shared store.
 
 ```{r cleanup, include = FALSE}
 modelrunnR:::.mr_reset_connection()

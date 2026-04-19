@@ -3,6 +3,7 @@
 export(db_path)
 export(grab)
 export(ingest)
+export(is_stale)
 export(launch)
 export(launch_code)
 export(mr_as_of)
