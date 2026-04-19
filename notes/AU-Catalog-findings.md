@@ -86,6 +86,33 @@ A reader sees two "inputs" concepts with two shapes and has to remember which is
 
 **Suggested change:** One sentence in `?launch` emphasizing: *"The block's return value is discarded. Use `stow()` to surface results. The `run` returned by `launch()` is the run record, not the block result."*
 
+### F8 — **Resolved (2026-04-17):** `launch()` now skips fresh runs by default
+
+Fixed in the 0.0.0.9000 dev cycle. `launch()` gained a `force = FALSE`
+argument and defaults to skip-on-fresh: a step that is fresh under the
+current label no longer evaluates its block. A `_mr_runs` row with
+`status = "skipped_fresh"` is written for provenance. Users who want
+the prior advisory-only behavior set
+`options(modelrunnR.skip_if_fresh = FALSE)`. The internal staleness
+check is now exposed as `is_stale(mr_label("..."))` for users who want
+to gate their own logic without calling `launch()`. See `NEWS.md`.
+
+Original finding text preserved below for historical context:
+
+### F8 — **Critical:** `launch()` never auto-skips a fresh run (staleness is advisory)
+
+**Friction:** I expected `launch({ expensive_work })` to check staleness and, if nothing changed, *not run* the block. That's the mental model of a cache. `launch()` does not do that. From `R/launch.R:149`: *"Advisory staleness check -- report only, never auto-skip."* It prints `is fresh` and then runs the block anyway.
+
+The vignette even shows this behavior, with `"[success] in <1 ms (1 grabs, 2 stows)"` as the "fresh" rerun. That <1 ms cost hides the design choice: if the block is cheap, reruns are free; if the block shells out to a 90-minute Python job, reruns are 90 minutes.
+
+This bit me hard. The whole point of wrapping `python embed/embed_courses.py` in `launch()` was to avoid the second 90-minute run after iterating on downstream code. I got a second 90-minute run.
+
+**Workaround:** Write a manual skip gate *inside* the launch block using external files I control (`embeddings_meta.json` carries an `input_csv_sha256`; my revised `embed/run_embed.R` compares that to the current CSV's hash and short-circuits the `system2(...)` call when they match). modelrunnR still records the run, but the expensive work is gated outside its machinery.
+
+**Suggested change:** Either (1) add `skip_if_fresh = FALSE` (default) to `launch()` — when TRUE, skip block execution on a fresh result; or (2) expose a public `is_stale(step, external_inputs = ...)` so users can write `if (is_stale(...)) launch({...}) else { report cached run }` cleanly, without reaching into `.mr_is_stale`; or (3) prominently document in `?launch` and the getting-started vignette that staleness is advisory, with a canonical "skip-if-fresh" recipe. My preference is (1): the advisory-only design is a reasonable default for fast R blocks but a footgun for the "wrap an expensive external run" use case that the package's own motivation strongly suggests. A single opt-in flag preserves both paths.
+
+**Related discovery:** `.mr_is_stale()` is internal; there is no public "is this stale?" function. Without (1) or (2), a user-written skip gate has no way to reuse modelrunnR's own notion of staleness and must reinvent it from external cues. This almost inverts the value proposition — modelrunnR knows what's stale, but users re-derive it to act on it.
+
 ### F7 — Minor: `rebind` reference constructors feel over-exported at first glance
 
 **Friction:** Six exports (`mr_hash`, `mr_run`, `mr_variant`, `mr_as_of`, plus `versions`, `variants*`) are specialist enough that a new user scanning `ls("package:modelrunnR")` has to work out which three or four to focus on.

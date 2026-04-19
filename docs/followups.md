@@ -261,6 +261,31 @@ code, and the audit reviewer that flagged it.
   loop bodies. Post-v0.1, consider a label registry or a
   `valid_labels = c(...)` constraint argument on `launch()`. `[design]`
 
+- **`mr_init_project()` helper** — for users on unorganized filesystems
+  without `DESCRIPTION`/`.Rproj`/`.git/`/`renv.lock`, offer a one-liner
+  that drops a `.here` sentinel in the current directory so `db_path()`
+  has a stable root to anchor on. Not for the custom-config user (who
+  sets `options(modelrunnR.db = ...)`) — aimed at the "I just want
+  `modelrunnR` to stop warning me" case. Use `.here` directly rather
+  than inventing our own sentinel or taking a `here` dependency: `.here`
+  is already in the marker list (`R/project_root.R:12`) and composes
+  with `here::set_here()` at zero cost. Implementation is
+  `file.create(file.path(path, ".here"))`. `[design]`
+
+- **Orphan-DB merge helper** — companion to `mr_init_project()`. A
+  user who ran modelrunnR in several subdirs before dropping a `.here`
+  marker ends up with multiple stray `modelrunnR.duckdb` files that
+  should have been one. Offer a function (e.g.
+  `mr_merge_dbs(paths, into = db_path())`) that scans for orphans
+  under the project root, previews what would be merged, and unions
+  the `_mr_runs` / `_mr_versions` / artifact rows into the canonical
+  store. Deciding priority is hard: anyone with basic project hygiene
+  (git, `.Rproj`, `.here`, `renv`) never hits this, and the maintainer
+  works exclusively in git repos — so "real use" signal from the
+  maintainer is structurally absent. Candidates for a trigger: a
+  deliberate messy-filesystem test scenario, or observing a friend
+  with disorganized folders try the package. `[design]`
+
 - **Vignette note on the `y ~ .` sharp edge** — the features-as-parameter
   pattern documented in *Variants and swappability* has one hazard: `y ~ .`
   means "all non-`y` columns in whatever frame you pass." Swapping a
