@@ -3,6 +3,13 @@
 This file gives Claude Code (claude.ai/code) context for working in this
 repository.
 
+## North star framework
+
+This project uses a north star framework. At session start, read
+[`north_star.md`](north_star.md) and [`framework.md`](framework.md) — the
+framework lists invariants and a decision tree that govern execution.
+The `north-star-execute` skill automates this when present.
+
 ## What this is
 
 **modelrunnR** is an R package (early development) for orchestrating R and
