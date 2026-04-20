@@ -11,6 +11,7 @@ launch(
   external_inputs = NULL,
   force = FALSE,
   duckdb_seed = NULL,
+  materialize = FALSE,
   ...
 )
 }
@@ -56,6 +57,13 @@ value is stored on the run row. Note: this is DuckDB's RNG, not
 R's -- \code{set.seed()} does not reach DuckDB. The RNG state is not
 restored after the block.}
 
+\item{materialize}{Logical, default \code{FALSE}. SQL launches only.
+When \code{TRUE}, the SELECT body is wrapped as \verb{CREATE OR REPLACE TABLE} instead of the default \verb{CREATE OR REPLACE VIEW}, and the
+\verb{_mr_versions} row's \code{content_hash} is computed over row contents
+(same machinery as \code{stow()}-of-lazy-tbl). Use for expensive
+feature work consumed many times downstream. Ignored for non-SQL
+launches.}
+
 \item{...}{Reserved for future arguments and for catching the
 removed \code{pin}/\code{data} arguments with a clear error message.}
 }
@@ -93,6 +101,14 @@ directly. For file pipelines the script file is re-sourced from
 disk; if the file is gone, the stored snapshot is used and an
 informational message is emitted. The label is auto-inherited
 onto the new run unless the caller passes an explicit \code{label}.
+\item \strong{SQL mode} -- \code{launch("features.sql")} (file) or
+\code{launch(mr_sql("..."))} (inline) registers a SQL \code{SELECT} as a
+tracked step. The body is a bare query (no \code{CREATE}); modelrunnR
+wraps it as \verb{CREATE OR REPLACE VIEW <physical> AS <body>} by
+default, or \verb{CREATE OR REPLACE TABLE} when \code{materialize = TRUE}.
+\verb{-- @inputs: name1, name2} and \verb{-- @output: name} headers declare
+which modelrunnR-managed names the SELECT references and what to
+call the result. See \code{\link[=mr_sql]{mr_sql()}} for the inline form.
 }
 }
 

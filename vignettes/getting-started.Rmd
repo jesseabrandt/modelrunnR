@@ -195,6 +195,48 @@ and staleness all work the same way.
 launch("fit.R", label = "baseline")
 ```
 
+## SQL steps
+
+When the work is feature engineering — joins, window functions, group
+aggregates — DuckDB can do it natively. `launch()` accepts a `.sql`
+file (or `mr_sql("...")` inline) and registers the result as a tracked
+step alongside R-mode launches. The default is a **view** (cheap to
+register; rows compute when something downstream reads them); pass
+`materialize = TRUE` to force a `CREATE TABLE` instead.
+
+The body is a bare `SELECT` (or `WITH ... SELECT`) — modelrunnR owns
+the `CREATE OR REPLACE VIEW <physical> AS ...` wrapper. Optional
+`-- @inputs:` and `-- @output:` headers declare which existing
+modelrunnR names the SELECT references and what to call the result
+(filename stem is the default for files; required for inline).
+
+```{r sql-step}
+sql_body <- "
+  -- @inputs: training
+  -- @output: training_summary
+  SELECT
+    AVG(y) AS mean_y,
+    AVG(x1) AS mean_x1,
+    AVG(x2) AS mean_x2,
+    COUNT(*) AS n
+  FROM training
+"
+launch(mr_sql(sql_body))
+
+grab("training_summary") |> dplyr::collect()
+```
+
+Downstream R steps consume the view through the same `grab()` call as
+any other tabular value:
+
+```{r sql-then-r}
+launch({
+  s <- grab("training_summary") |> dplyr::collect()
+  message(sprintf("training had n = %d rows, mean(y) = %.2f",
+                  s$n, s$mean_y))
+})
+```
+
 ## Under the hood
 
 A few things happen without you having to configure them.

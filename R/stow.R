@@ -236,10 +236,13 @@ stow <- function(value, name) {
 }
 
 .mr_refresh_latest_view <- function(con, name) {
+  # Tables (kind='table') and SQL views (kind='view') both expose a
+  # physical relation queryable via SELECT * FROM <physical>. Either
+  # kind can back the latest-version convenience view at <logical>.
   latest <- DBI::dbGetQuery(
     con,
     "SELECT physical_name FROM _mr_versions
-      WHERE logical_name = ? AND kind = 'table'
+      WHERE logical_name = ? AND kind IN ('table', 'view')
       ORDER BY first_seen DESC
       LIMIT 1",
     params = list(name)
@@ -264,8 +267,9 @@ stow <- function(value, name) {
 }
 
 # Error if `name` already exists under a different kind (e.g. an
-# attempt to overwrite a table with an artifact).
-.mr_guard_namespace <- function(name, new_kind) {
+# attempt to overwrite a table with an artifact, or to register a
+# SQL view under a name that already holds a stowed table).
+.mr_guard_namespace <- function(name, new_kind, context = "stow") {
   con <- .mr_get_connection()
   existing_kinds <- DBI::dbGetQuery(
     con,
@@ -274,8 +278,8 @@ stow <- function(value, name) {
   )$kind
   if (length(existing_kinds) > 0L && !all(existing_kinds == new_kind)) {
     stop(sprintf(
-      "stow(): '%s' already exists as a %s; stowing it as a %s would collide. Use a different name.",
-      name, existing_kinds[1], new_kind
+      "%s(): '%s' already exists as a %s; refusing to register it as a %s. Use a different name or prune the existing versions first.",
+      context, name, existing_kinds[1], new_kind
     ), call. = FALSE)
   }
   invisible(NULL)

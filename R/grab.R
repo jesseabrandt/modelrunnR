@@ -80,12 +80,14 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
   .mr_read_value(con, resolved)
 }
 
-# Given a _mr_versions row, return the stored value. Tables go through
-# dplyr::tbl() so callers get a lazy dbplyr reference; artifacts are
-# fetched from `_mr_artifacts` (for BLOB storage) or read from disk
-# (for filesystem storage) and then deserialized via qs2.
+# Given a _mr_versions row, return the stored value. Tables and SQL
+# views both go through dplyr::tbl() so callers get a lazy dbplyr
+# reference (DuckDB inlines the view definition at query-plan time, so
+# the consumer cannot tell the two apart). Artifacts are fetched from
+# `_mr_artifacts` (for BLOB storage) or read from disk (for filesystem
+# storage) and then deserialized via qs2.
 .mr_read_value <- function(con, row) {
-  if (identical(row$kind, "table")) {
+  if (identical(row$kind, "table") || identical(row$kind, "view")) {
     return(dplyr::tbl(con, row$physical_name))
   }
   # artifact

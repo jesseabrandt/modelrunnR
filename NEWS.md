@@ -1,5 +1,33 @@
 # modelrunnR 0.0.0.9000
 
+## New features (launch SQL)
+
+* **SQL launches are first-class.** `launch("features.sql")` registers
+  the file's bare `SELECT` as a versioned DuckDB view tracked
+  identically to R-mode runs. Inline equivalent: `launch(mr_sql("..."))`.
+  modelrunnR owns the `CREATE OR REPLACE VIEW <physical> AS <body>`
+  wrapper; users supply only the query body plus optional declarative
+  headers (`-- @inputs: a, b`, `-- @output: name`).
+* **`materialize = TRUE`** opts a SQL launch into table mode, wrapping
+  the body as `CREATE OR REPLACE TABLE` and hashing by row contents.
+  Default is view (cheap to register; rows compute on `grab()`).
+* **`mr_sql()` constructor exported.** Inline counterpart to a `.sql`
+  file. Inline mode requires a `-- @output: <name>` header (no
+  filename to derive from).
+* **`kind = "view"`** is a new `_mr_versions` enum value. `grab()`
+  routes views through the same lazy-`tbl` path as tables; consumers
+  cannot tell them apart at the dplyr layer.
+* **Rebind for SQL launches.** `launch("f.sql", rebind = list(x = mr_hash(...)))`
+  rewrites occurrences of `x` in the SELECT body to the rebound
+  version's physical name (word-boundary substitution; aliases and
+  string literals are not substituted).
+* **`_mr_runs.rebinds`** new TEXT column populated for every run that
+  resolved a `rebind =`. JSON array: per name, the source tag
+  (`variant` / `hash` / `run` / `as_of` / `literal`), a human-readable
+  value, and the resolved content_hash. Skipped-fresh rows write the
+  resolved rebinds too, so a query against `_mr_runs` can answer
+  "what would this run have bound to?" without re-running.
+
 ## Breaking changes
 
 * **`launch()` now skips fresh runs by default.** When a step's code,

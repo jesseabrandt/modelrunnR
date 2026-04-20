@@ -27,6 +27,14 @@
 #'   disk; if the file is gone, the stored snapshot is used and an
 #'   informational message is emitted. The label is auto-inherited
 #'   onto the new run unless the caller passes an explicit `label`.
+#' - **SQL mode** -- `launch("features.sql")` (file) or
+#'   `launch(mr_sql("..."))` (inline) registers a SQL `SELECT` as a
+#'   tracked step. The body is a bare query (no `CREATE`); modelrunnR
+#'   wraps it as `CREATE OR REPLACE VIEW <physical> AS <body>` by
+#'   default, or `CREATE OR REPLACE TABLE` when `materialize = TRUE`.
+#'   `-- @inputs: name1, name2` and `-- @output: name` headers declare
+#'   which modelrunnR-managed names the SELECT references and what to
+#'   call the result. See [mr_sql()] for the inline form.
 #'
 #' @section Shadowed `source()`:
 #' During a tracked launch, `source()` inside the code (and inside
@@ -67,6 +75,13 @@
 #'   `force = TRUE` runs the block regardless. To globally disable
 #'   skip-on-fresh behavior (restore pre-v0.1 advisory-only staleness),
 #'   set `options(modelrunnR.skip_if_fresh = FALSE)`.
+#' @param materialize Logical, default `FALSE`. SQL launches only.
+#'   When `TRUE`, the SELECT body is wrapped as `CREATE OR REPLACE
+#'   TABLE` instead of the default `CREATE OR REPLACE VIEW`, and the
+#'   `_mr_versions` row's `content_hash` is computed over row contents
+#'   (same machinery as `stow()`-of-lazy-tbl). Use for expensive
+#'   feature work consumed many times downstream. Ignored for non-SQL
+#'   launches.
 #' @param duckdb_seed Optional numeric seed in `[-1, 1]`. When set,
 #'   modelrunnR calls `SELECT setseed(duckdb_seed)` on the DuckDB
 #'   connection immediately before evaluating the block, so lazy-tbl
@@ -81,7 +96,7 @@
 #' @return The run record (one row of `_mr_runs`), invisibly.
 #' @export
 launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = NULL,
-                   force = FALSE, duckdb_seed = NULL, ...) {
+                   force = FALSE, duckdb_seed = NULL, materialize = FALSE, ...) {
   dots <- list(...)
   if ("pin" %in% names(dots) || "data" %in% names(dots)) {
     stop(
@@ -96,6 +111,9 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     stop(sprintf("launch(): unknown arguments: %s",
                  paste(names(dots), collapse = ", ")),
          call. = FALSE)
+  }
+  if (!is.logical(materialize) || length(materialize) != 1L || is.na(materialize)) {
+    stop("launch(): `materialize` must be TRUE or FALSE.", call. = FALSE)
   }
   label <- .mr_validate_label(label)
 
@@ -115,6 +133,46 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   # -- forcing the promise would evaluate user code outside our tracking.
   script_expr <- substitute(script_path)
   inline_mode <- is.call(script_expr) && identical(script_expr[[1]], as.name("{"))
+
+  # SQL dispatch: handled before the R-mode dispatch ladder. Two routes:
+  #   - inline  : first arg is mr_sql("...")
+  #   - file    : first arg is a path with `.sql` extension (case-
+  #               insensitive)
+  # `materialize` only applies here; non-SQL launches that pass it
+  # silently ignore (spec keeps the signature clean).
+  is_inline_sql <- !inline_mode && inherits(script_path, "mr_ref_sql")
+  is_file_sql <- FALSE
+  if (!inline_mode && !is_inline_sql && is.character(script_path) &&
+      length(script_path) == 1L && !is.na(script_path) && nzchar(script_path)) {
+    ext <- tolower(tools::file_ext(script_path))
+    if (ext == "sql") is_file_sql <- TRUE
+  }
+  if (is_inline_sql || is_file_sql) {
+    src_kind     <- if (is_inline_sql) "inline" else "file"
+    body_or_path <- if (is_inline_sql) script_path$body else script_path
+    resolved_ext       <- .mr_resolve_external_inputs(external_inputs)
+    resolved_rebinds   <- .mr_resolve_rebinds(rebind)
+    skip_on_fresh      <- isTRUE(getOption("modelrunnR.skip_if_fresh", TRUE))
+    # Nested-launch guard mirrors the R-mode rule: a SQL launch that
+    # would run from inside an active R-mode recording would clobber
+    # the outer's state on the recording side and confuse provenance.
+    if (.mr_is_recording() || !is.null(.mr_state$helpers) ||
+        !is.null(.mr_state$rebinds)) {
+      stop("launch(): nested launches are not supported in v0.1.", call. = FALSE)
+    }
+    return(.mr_launch_sql(
+      src_kind                = src_kind,
+      path_or_body            = body_or_path,
+      materialize             = materialize,
+      rebind                  = resolved_rebinds$map,
+      provenance              = resolved_rebinds$provenance,
+      external_inputs_resolved = resolved_ext,
+      label                   = label,
+      force                   = force,
+      duckdb_seed             = duckdb_seed,
+      skip_on_fresh           = skip_on_fresh
+    ))
+  }
 
   relaunch_mode <- FALSE
   relaunch_expr <- NULL  # parsed code body for relaunch execution
@@ -172,7 +230,13 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
 
   # Resolve rebind up-front. Bare R values are stowed (producing fresh
   # hashes); mr_*() references are resolved to existing content_hashes.
+  # Resolution returns a name->hash `map` for grab() to read, plus a
+  # `provenance` list (one entry per rebound name) recorded on the run
+  # row so a query against `_mr_runs` can answer "what did this run
+  # bind to?" without joining back through `_mr_versions`.
   resolved_rebinds <- .mr_resolve_rebinds(rebind)
+  rebinds_map        <- resolved_rebinds$map
+  rebinds_provenance <- resolved_rebinds$provenance
 
   # Seed DuckDB's RNG if requested. Must happen before the block
   # evaluates so any slice_sample / RANDOM() inside uses this seed.
@@ -202,7 +266,9 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
       started_at      = started_at,
       resolved_ext    = resolved_ext,
       code_body       = code_body,
-      label           = label
+      label           = label,
+      rebinds         = rebinds_provenance,
+      duckdb_seed     = duckdb_seed
     )))
   }
 
@@ -216,7 +282,7 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
 
   .mr_start_recording()
   .mr_start_helper_tracking()
-  .mr_start_rebinding(resolved_rebinds)
+  .mr_start_rebinding(rebinds_map)
   on.exit(
     {
       if (.mr_is_recording()) .mr_stop_recording()
@@ -296,7 +362,8 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     helpers         = helpers,
     variant_label   = label,
     code_body       = code_body,
-    duckdb_seed     = if (is.null(duckdb_seed)) NA_real_ else duckdb_seed
+    duckdb_seed     = if (is.null(duckdb_seed)) NA_real_ else duckdb_seed,
+    rebinds         = rebinds_provenance
   )
 
   .mr_print_timing_summary(
@@ -411,7 +478,8 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
                               helpers = list(),
                               variant_label = NA_character_,
                               code_body = NA_character_,
-                              duckdb_seed = NA_real_) {
+                              duckdb_seed = NA_real_,
+                              rebinds = list()) {
   con <- .mr_get_connection()
   row <- data.frame(
     step            = step,
@@ -427,6 +495,7 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     variant_label   = variant_label,
     code_body       = code_body,
     duckdb_seed     = duckdb_seed,
+    rebinds         = .mr_pairs_to_json(rebinds),
     stringsAsFactors = FALSE
   )
   DBI::dbAppendTable(con, "_mr_runs", row)
@@ -493,7 +562,9 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
 # for this step when the caller didn't pass one, so the skipped row
 # stays in the same labeled thread.
 .mr_record_skipped_fresh <- function(step, run_id, started_at,
-                                     resolved_ext, code_body, label) {
+                                     resolved_ext, code_body, label,
+                                     rebinds = list(),
+                                     duckdb_seed = NULL) {
   con <- .mr_get_connection()
   if (is.na(label)) {
     prior <- DBI::dbGetQuery(
@@ -528,6 +599,8 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     external_inputs = resolved_ext,
     helpers         = list(),
     variant_label   = label,
-    code_body       = code_body
+    code_body       = code_body,
+    duckdb_seed     = if (is.null(duckdb_seed)) NA_real_ else duckdb_seed,
+    rebinds         = rebinds
   )
 }

@@ -55,6 +55,11 @@
   # DuckDB RNG seed captured when launch(..., duckdb_seed = x) was used.
   # Null when the caller didn't pass one.
   .mr_add_column_if_missing(con, "_mr_runs", "duckdb_seed", "DOUBLE")
+  # Resolved-rebinds JSON (one object per rebound name) recording how
+  # each name was selected: variant label, raw hash, run id, as_of,
+  # or a literal R value preview. Populated by every run that goes
+  # through .mr_resolve_rebinds(); empty array '[]' when no rebinds.
+  .mr_add_column_if_missing(con, "_mr_runs", "rebinds", "TEXT")
   # Earlier draft named this column `inline_code` and only populated
   # it for inline launches. Carry the data forward and drop the old
   # column so `code_body` stays single-source-of-truth.

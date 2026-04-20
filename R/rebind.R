@@ -30,14 +30,15 @@
 }
 
 .mr_resolve_rebinds <- function(rebind) {
-  if (is.null(rebind)) return(list())
+  if (is.null(rebind)) return(list(map = list(), provenance = list()))
   if (!is.list(rebind) || is.null(names(rebind)) || any(!nzchar(names(rebind)))) {
     stop("launch(): `rebind` must be a named list.", call. = FALSE)
   }
   for (nm in names(rebind)) .mr_validate_name(nm, context = "launch(rebind=)")
 
   con <- .mr_get_connection()
-  resolved <- list()
+  map        <- list()
+  provenance <- list()
 
   # Suppress interactive tracking for inline stows so launch-setup
   # stows don't pollute the interactive-writer warning path.
@@ -46,40 +47,75 @@
 
   for (nm in names(rebind)) {
     value <- rebind[[nm]]
-    resolved[[nm]] <- .mr_resolve_rebind_entry(con, nm, value)
+    entry <- .mr_resolve_rebind_entry(con, nm, value)
+    map[[nm]] <- entry$hash
+    provenance[[length(provenance) + 1L]] <- entry$provenance
   }
-  resolved
+  list(map = map, provenance = provenance)
 }
 
 .mr_resolve_rebind_entry <- function(con, name, value) {
   if (.mr_is_ref(value)) {
-    switch(value$kind,
+    hash <- switch(value$kind,
       hash    = .mr_resolve_ref_hash(con, name, value$value),
       run     = .mr_resolve_ref_run(con, name, value$value),
       as_of   = .mr_resolve_ref_as_of(con, name, value$value),
       variant = {
-        hash <- .mr_latest_hash_for_variant(con, name, value$value)
-        if (is.null(hash)) {
+        h <- .mr_latest_hash_for_variant(con, name, value$value)
+        if (is.null(h)) {
           stop(sprintf(
             "launch(rebind=): mr_variant('%s') has not produced '%s'.",
             value$value, name
           ), call. = FALSE)
         }
-        hash
+        h
       },
       stop(sprintf("launch(rebind=): unknown reference kind '%s'.", value$kind),
            call. = FALSE)
     )
+    value_str <- if (identical(value$kind, "as_of")) {
+      format(value$value, "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC")
+    } else {
+      as.character(value$value)
+    }
+    list(
+      hash       = hash,
+      provenance = list(name = name, source = value$kind,
+                        value = value_str, hash = hash)
+    )
   } else {
-    # Bare R value -> stow through the normal pathway.
+    # Bare R value -> stow through the normal pathway. The literal-source
+    # provenance describes what the user passed in (data frame shape or
+    # class/size); the hash links back to the just-stowed version so a
+    # join against `_mr_versions` always works.
     if (is.data.frame(value)) {
       .mr_guard_namespace(name, "table")
-      .mr_stow_table(name, value)
+      hash <- .mr_stow_table(name, value)
+      value_str <- sprintf("data.frame[%dx%d]", nrow(value), ncol(value))
     } else {
       .mr_guard_namespace(name, "artifact")
-      .mr_stow_artifact(name, value)
+      hash <- .mr_stow_artifact(name, value)
+      value_str <- .mr_format_literal_rebind(value)
     }
+    list(
+      hash       = hash,
+      provenance = list(name = name, source = "literal",
+                        value = value_str, hash = hash)
+    )
   }
+}
+
+# Format an arbitrary (non-data-frame) R value for the run-row provenance
+# JSON. Scalar atomics -> format(); other objects -> "<class>[<bytes>B]".
+.mr_format_literal_rebind <- function(value) {
+  if (is.atomic(value) && length(value) == 1L && !is.null(value)) {
+    return(format(value))
+  }
+  cls <- class(value)[1]
+  sz  <- tryCatch(as.numeric(utils::object.size(value)),
+                  error = function(e) NA_real_)
+  if (is.na(sz)) sprintf("<%s>", cls)
+  else sprintf("<%s>[%dB]", cls, as.integer(sz))
 }
 
 .mr_resolve_ref_hash <- function(con, name, hash) {
