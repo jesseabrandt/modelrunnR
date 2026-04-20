@@ -1,5 +1,58 @@
 # modelrunnR TODO
 
+## Surfaced 2026-04-19 (from batch-launches audit, fix-or-queue triage)
+
+### `batch_active` flag is a side-channel; consider explicit `on_error_arg`
+
+`R/launch_one.R` and `R/launch_sql.R` both gate their re-raise via
+`isTRUE(.mr_state$batch_active)`. That flag is set/restored on the
+`.mr_launch_batch*` stack frame. Reasonable today, but any future
+caller of `.mr_launch_one`/`.mr_launch_sql` must remember the
+contract. Cleaner: make per-envelope behavior explicit via an
+`on_error = c("raise", "capture")` argument with default `"raise"`,
+and have the batch dispatcher pass `"capture"`. Removes the
+`on.exit` save/restore dance and makes the contract local to the
+function signature.
+
+### `mr_envelopes()` doesn't warn on duplicate `.label` across envelopes
+
+Two envelopes labeled `"baseline"` both run and both stamp the same
+label, breaking the "label is a tracked variant thread" invariant
+that relaunch relies on. Likely a `warning()` (not an error: there
+are valid reasons to deliberately repeat a label, e.g. seeded reruns).
+
+### `do.call(rbind, rows)` is brittle if row schema diverges
+
+Today every `_mr_runs` row goes through `.mr_write_run_row` so
+schemas match. A future addition of a per-launch-only column (or a
+batch that mixes R-mode and SQL-mode rows, which the current
+dispatcher doesn't allow but isn't structurally prevented) would
+break `rbind`. Consider `dplyr::bind_rows()` with `fill = TRUE`
+semantics, or assert schema equality before rbind.
+
+### Atomic-vector `mr_binds()` slot loses names
+
+`as.list(c(low=0.1, mid=0.5))` strips the names. A user passing a
+named atomic vector expects the names to flow into provenance;
+they don't. Either preserve names explicitly when coercing
+atomics, or document in `mr_binds()` that named atomic slots are
+not supported (use `mr_envelopes()` for that).
+
+### Vignette: `mr_variants()` shown via eval=FALSE; readers can't see flow
+
+`vignettes/batch-launches.Rmd` introduces `mr_variants()` as
+`eval = FALSE` because building real labeled variants upstream
+adds setup overhead. Worth investing in a 5-line setup so the
+`mr_variants()` flow runs end-to-end in the vignette.
+
+### Spec ↔ vignette drift
+
+`docs/superpowers/specs/2026-04-19-batch-launch-design.md`
+section "## Vignette (feature guide)" duplicates the shipped
+vignette nearly verbatim. Drift over time is likely. Consider
+replacing the spec section with a one-line pointer at
+`vignettes/batch-launches.Rmd`.
+
 ## Surfaced 2026-04-19 (from launch-SQL audit, fix-or-queue triage)
 
 ### `.mr_check_inputs` ignores rebind when comparing to "current latest"

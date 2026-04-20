@@ -249,7 +249,7 @@
     propagation_source = propagation_source
   )
 
-  if (!is.null(err_obj)) stop(err_obj)
+  if (!is.null(err_obj) && !isTRUE(.mr_state$batch_active)) stop(err_obj)
   invisible(run_row)
 }
 

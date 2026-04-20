@@ -4,6 +4,9 @@
 ^LICENSE\.md$
 ^docs$
 ^notes$
+^TODO\.md$
+^north_star\.md$
+^framework\.md$
 .*\.duckdb$
 .*\.duckdb\.wal$
 ^modelrunnR_artifacts$

@@ -75,6 +75,16 @@
 #'   `force = TRUE` runs the block regardless. To globally disable
 #'   skip-on-fresh behavior (restore pre-v0.1 advisory-only staleness),
 #'   set `options(modelrunnR.skip_if_fresh = FALSE)`.
+#' @section Batch launches:
+#' Pass `rebind = mr_binds(...)` (or `mr_envelopes(...)`) to fan out
+#' into one launch per envelope. The block runs once per envelope with
+#' that envelope's rebind / `.label`; the call returns a `data.frame`
+#' of one run row per envelope (same shape as the single-launch
+#' return). Errors in any envelope are captured on that envelope's
+#' `_mr_runs` row (`status = "error"`) and the call raises (or warns
+#' if `on_error = "warn"`) at the end with a count summary. Works for
+#' both R-mode and SQL-mode launches.
+#'
 #' @param materialize Logical, default `FALSE`. SQL launches only.
 #'   When `TRUE`, the SELECT body is wrapped as `CREATE OR REPLACE
 #'   TABLE` instead of the default `CREATE OR REPLACE VIEW`, and the
@@ -90,13 +100,18 @@
 #'   value is stored on the run row. Note: this is DuckDB's RNG, not
 #'   R's -- `set.seed()` does not reach DuckDB. The RNG state is not
 #'   restored after the block.
+#' @param on_error `"raise"` (default) or `"warn"`. Batch mode only.
+#'   Controls whether the final call raises or warns when one or more
+#'   envelopes errored. Per-envelope rows are captured on `_mr_runs`
+#'   either way. Passing this argument outside batch mode is an error.
 #' @param ... Reserved for future arguments and for catching the
 #'   removed `pin`/`data` arguments with a clear error message.
 #'
 #' @return The run record (one row of `_mr_runs`), invisibly.
 #' @export
 launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = NULL,
-                   force = FALSE, duckdb_seed = NULL, materialize = FALSE, ...) {
+                   force = FALSE, duckdb_seed = NULL, materialize = FALSE,
+                   on_error = "raise", ...) {
   dots <- list(...)
   if ("pin" %in% names(dots) || "data" %in% names(dots)) {
     stop(
@@ -114,6 +129,16 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   }
   if (!is.logical(materialize) || length(materialize) != 1L || is.na(materialize)) {
     stop("launch(): `materialize` must be TRUE or FALSE.", call. = FALSE)
+  }
+  if (!is.character(on_error) || length(on_error) != 1L ||
+      !(on_error %in% c("raise", "warn"))) {
+    stop("launch(): `on_error` must be \"raise\" or \"warn\".", call. = FALSE)
+  }
+  if (!inherits(rebind, "mr_binds") && !identical(on_error, "raise")) {
+    stop(
+      "launch(): on_error only applies when rebind = is an mr_binds() / mr_envelopes() object.",
+      call. = FALSE
+    )
   }
   label <- .mr_validate_label(label)
 
@@ -150,6 +175,25 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   if (is_inline_sql || is_file_sql) {
     src_kind     <- if (is_inline_sql) "inline" else "file"
     body_or_path <- if (is_inline_sql) script_path$body else script_path
+
+    # Batch: one .mr_launch_sql() call per envelope. step/code_body
+    # depend only on src_kind+body, not rebind, so they're resolved
+    # once inside the SQL launcher per envelope (cheap; no I/O for
+    # inline; one read for file).
+    if (inherits(rebind, "mr_binds")) {
+      return(.mr_launch_batch_sql(
+        src_kind        = src_kind,
+        body_or_path    = body_or_path,
+        envelopes       = unclass(rebind),
+        materialize     = materialize,
+        label           = label,
+        external_inputs = external_inputs,
+        force           = force,
+        duckdb_seed     = duckdb_seed,
+        on_error        = on_error
+      ))
+    }
+
     resolved_ext       <- .mr_resolve_external_inputs(external_inputs)
     resolved_rebinds   <- .mr_resolve_rebinds(rebind)
     skip_on_fresh      <- isTRUE(getOption("modelrunnR.skip_if_fresh", TRUE))
@@ -217,170 +261,40 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     code_body <- paste(readLines(step, warn = FALSE), collapse = "\n")
   }
 
-  run_id     <- .mr_new_run_id()
-  started_at <- Sys.time()
-  start_secs <- as.numeric(started_at)
-
-  # Ensure the connection + schema exist before we start timing user code.
-  .mr_get_connection()
-
-  # Resolve declared external inputs up-front so a missing file errors
-  # before we write anything to _mr_runs.
-  resolved_ext <- .mr_resolve_external_inputs(external_inputs)
-
-  # Resolve rebind up-front. Bare R values are stowed (producing fresh
-  # hashes); mr_*() references are resolved to existing content_hashes.
-  # Resolution returns a name->hash `map` for grab() to read, plus a
-  # `provenance` list (one entry per rebound name) recorded on the run
-  # row so a query against `_mr_runs` can answer "what did this run
-  # bind to?" without joining back through `_mr_versions`.
-  resolved_rebinds <- .mr_resolve_rebinds(rebind)
-  rebinds_map        <- resolved_rebinds$map
-  rebinds_provenance <- resolved_rebinds$provenance
-
-  # Seed DuckDB's RNG if requested. Must happen before the block
-  # evaluates so any slice_sample / RANDOM() inside uses this seed.
-  # DuckDB's RNG is connection-scoped and we do not restore it after
-  # the block -- documented limitation.
-  if (!is.null(duckdb_seed)) {
-    con_for_seed <- .mr_get_connection()
-    DBI::dbExecute(con_for_seed, "SELECT setseed(?)", params = list(duckdb_seed))
-  }
-
-  # Staleness check. Default behavior (v0.2+) is skip-on-fresh:
-  # when a step is fresh under the current label, the block is not
-  # evaluated and a `skipped_fresh` run row is written. `force = TRUE`
-  # on the call and `options(modelrunnR.skip_if_fresh = FALSE)` both
-  # opt out. We pass the explicit label only -- auto-propagation runs
-  # from the recorded inputs of the finished block, which hasn't run
-  # yet.
-  staleness <- .mr_is_stale(step, variant_label = label)
-  skip_on_fresh <- isTRUE(getOption("modelrunnR.skip_if_fresh", TRUE))
-  will_skip <- !staleness$stale && !isTRUE(force) && skip_on_fresh
-  .mr_print_staleness(step, staleness, will_skip = will_skip)
-
-  if (will_skip) {
-    return(invisible(.mr_record_skipped_fresh(
+  # R-mode batch: dispatch once per envelope, sharing the resolved
+  # step / code_body / inline_mode / relaunch_expr (none of which
+  # depend on rebind). Each envelope contributes its own rebind list
+  # and optional `.label`.
+  if (inherits(rebind, "mr_binds")) {
+    return(.mr_launch_batch(
       step            = step,
-      run_id          = run_id,
-      started_at      = started_at,
-      resolved_ext    = resolved_ext,
       code_body       = code_body,
+      inline_mode     = inline_mode,
+      relaunch_mode   = relaunch_mode,
+      relaunch_expr   = relaunch_expr,
+      script_expr     = script_expr,
+      envelopes       = unclass(rebind),
       label           = label,
-      rebinds         = rebinds_provenance,
-      duckdb_seed     = duckdb_seed
-    )))
+      external_inputs = external_inputs,
+      force           = force,
+      duckdb_seed     = duckdb_seed,
+      on_error        = on_error
+    ))
   }
 
-  # Nested launches would clobber the outer launch's recording, helpers,
-  # and rebinds state (all held in .mr_state singletons). Detect and error
-  # rather than silently corrupting the outer run. A push/pop stack is
-  # post-v0.1.
-  if (.mr_is_recording() || !is.null(.mr_state$helpers) || !is.null(.mr_state$rebinds)) {
-    stop("launch(): nested launches are not supported in v0.1.", call. = FALSE)
-  }
-
-  .mr_start_recording()
-  .mr_start_helper_tracking()
-  .mr_start_rebinding(rebinds_map)
-  on.exit(
-    {
-      if (.mr_is_recording()) .mr_stop_recording()
-      if (!is.null(.mr_state$helpers)) .mr_stop_helper_tracking()
-      .mr_stop_rebinding()
-    },
-    add = TRUE
-  )
-
-  status  <- "success"
-  err_obj <- NULL
-  tryCatch(
-    if (inline_mode) {
-      .mr_eval_inline(script_expr)
-    } else if (relaunch_mode && !is.null(relaunch_expr)) {
-      .mr_eval_inline(relaunch_expr)
-    } else {
-      .mr_source_script(step)
-    },
-    error = function(e) {
-      status  <<- "error"
-      err_obj <<- e
-    }
-  )
-
-  rec     <- .mr_stop_recording()
-  helpers <- .mr_stop_helper_tracking()
-  duration_ms <- as.integer(round((as.numeric(Sys.time()) - start_secs) * 1000))
-
-  code_hash <- if (inline_mode || (relaunch_mode && !is.null(relaunch_expr))) {
-    # Inline execution (by construction: either a braced block or a
-    # relaunch that falls back to the stored snapshot).
-    .mr_code_hash_inline(code_body, helpers)
-  } else {
-    .mr_code_hash(step, helpers)
-  }
-
-  # Surface inputs that trace back to interactive writes -- design's
-  # "patched a table from the REPL and then a script depended on it"
-  # land mine. Done before writing the run row so the warning never
-  # looks at the current, in-progress run.
-  .mr_warn_interactive_inputs(step, rec$inputs)
-
-  # Auto-propagation: if the user didn't pass label= explicitly,
-  # inspect the observed inputs for labeled upstreams and inherit if
-  # all agree.
-  propagation_source <- NULL
-  if (is.na(label)) {
-    con_for_prop <- .mr_get_connection()
-    prop <- .mr_propagate_label(con_for_prop, rec$inputs)
-    if (!is.na(prop)) {
-      inherited_label <- unclass(prop)
-      label <- inherited_label
-      propagation_source <- .mr_first_input_producing(rec$inputs,
-                                                       con_for_prop,
-                                                       inherited_label)
-    } else if (!is.null(attr(prop, "disagreement"))) {
-      disagreement <- attr(prop, "disagreement")
-      warning(sprintf(
-        "ambiguous upstream variants: %s. Running without a label; pass label= to disambiguate.",
-        paste(sprintf("%s -> %s", names(disagreement), unlist(disagreement)),
-              collapse = ", ")
-      ), call. = FALSE)
-    }
-  }
-
-  run_row <- .mr_write_run_row(
+  .mr_launch_one(
     step            = step,
-    run_id          = run_id,
-    inputs          = rec$inputs,
-    outputs         = rec$outputs,
-    started_at      = started_at,
-    duration_ms     = duration_ms,
-    status          = status,
-    code_hash       = code_hash,
-    external_inputs = resolved_ext,
-    helpers         = helpers,
-    variant_label   = label,
     code_body       = code_body,
-    duckdb_seed     = if (is.null(duckdb_seed)) NA_real_ else duckdb_seed,
-    rebinds         = rebinds_provenance
+    inline_mode     = inline_mode,
+    relaunch_mode   = relaunch_mode,
+    relaunch_expr   = relaunch_expr,
+    script_expr     = script_expr,
+    rebind          = rebind,
+    label           = label,
+    external_inputs = external_inputs,
+    force           = force,
+    duckdb_seed     = duckdb_seed
   )
-
-  .mr_print_timing_summary(
-    step,
-    duration_ms,
-    status,
-    n_grabs            = rec$n_grabs,
-    n_stows            = rec$n_stows,
-    variant_label      = label,
-    propagation_source = propagation_source
-  )
-
-  if (!is.null(err_obj)) {
-    stop(err_obj)
-  }
-
-  invisible(run_row)
 }
 
 ## Internals ------------------------------------------------------------------

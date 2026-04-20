@@ -1,5 +1,36 @@
 # modelrunnR 0.0.0.9000
 
+## New features (batch launches)
+
+* **`launch(rebind = mr_binds(...))` fans out into one run per
+  envelope.** A single `launch()` call drives an entire sweep: every
+  envelope writes its own `_mr_runs` row, and the call returns a
+  data frame of N rows (one per envelope) shaped identically to the
+  single-run return.
+* **`mr_binds(..., mode = "zip" | "cross", .labels = NULL)`** builds
+  the envelope list from named sweep arguments. `zip` pairs values
+  element-wise; `cross` takes the Cartesian product. Optional
+  `.labels` attaches an explicit run label per envelope (length must
+  equal the expanded envelope count).
+* **`mr_variants("a", "b", ...)`** convenience constructor — equivalent
+  to `list(mr_variant("a"), mr_variant("b"), ...)`. Lets sweeps over
+  variant labels read naturally without bare strings being treated as
+  literal rebind values.
+* **`mr_envelopes(list(...), list(...), ...)`** primitive constructor
+  for hand-built batches, useful when envelopes need per-envelope
+  `.label` or mixed reference kinds across runs.
+* **`launch(..., on_error = "raise" | "warn")`** new argument controls
+  whether a batch with any errored runs raises (default) or warns at
+  the end. Per-envelope errors are captured on the run row regardless.
+  Passing `on_error =` outside batch mode is itself an error -- the
+  argument exists to express batch-level intent and silently ignoring
+  it would hide drift.
+* **SQL batches work out of the box.**
+  `launch("features.sql", rebind = mr_binds(panel = mr_variants("v1", "v2")))`
+  fans out one view per envelope under the same SQL body, with the
+  word-boundary substitution from the launch-SQL spec applied
+  per envelope.
+
 ## New features (launch SQL)
 
 * **SQL launches are first-class.** `launch("features.sql")` registers

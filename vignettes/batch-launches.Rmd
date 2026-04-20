@@ -1,0 +1,193 @@
+---
+title: "Batch launches: hyperparameter sweeps and variant fleets"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Batch launches: hyperparameter sweeps and variant fleets}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>"
+)
+.vignette_db <- tempfile(fileext = ".duckdb")
+options(modelrunnR.db = .vignette_db)
+```
+
+```{r setup}
+library(modelrunnR)
+
+# Toy data we'll sweep models over.
+set.seed(1)
+df <- data.frame(x = rnorm(50), y = rnorm(50))
+stow(df, "train")
+```
+
+Most model work isn't one fit — it's a sweep. Three features times three
+alphas, a few seeds, paired with a handful of preprocessing variants.
+modelrunnR runs these as a single `launch()` call and returns one row
+per run.
+
+The toy "fits" below stand in for the kind of work you'd really sweep
+(`glmnet`, `xgboost`, etc.) — the API is the same, just the body of
+the `launch()` block changes.
+
+## The helper
+
+`mr_binds()` builds the sweep description. Each named argument is the
+vector of values for that rebind slot.
+
+```{r build-binds}
+my_params <- mr_binds(
+  alpha = c(0.1, 0.5, 1.0),
+  beta  = c(0.0, 0.5, 1.0),
+  mode  = "zip"
+)
+length(my_params)  # 3 envelopes (length-3 zipped with length-3)
+```
+
+`mode = "zip"` (default) pairs values element-wise. Lengths must line
+up; length-1 slots recycle.
+
+`mode = "cross"` takes the Cartesian product:
+
+```{r cross-binds}
+length(mr_binds(alpha = c(0.1, 1.0), beta = c(0, 0.5, 1), mode = "cross"))
+# 6 envelopes (2 * 3)
+```
+
+## Running the batch
+
+Hand the result to `rebind =`:
+
+```{r run-batch}
+result <- launch({
+  d   <- grab("train") |> dplyr::collect()
+  fit <- list(
+    alpha = grab("alpha"),
+    beta  = grab("beta"),
+    coef  = with(d, cor(x, y)) * grab("alpha") + grab("beta")
+  )
+  stow(fit, "fit")
+}, rebind = my_params)
+
+nrow(result)
+result[, c("status", "duration_ms", "variant_label")]
+```
+
+Each envelope writes its own `_mr_runs` row. The returned data frame
+is the union, in envelope order.
+
+## Sweeping over variant labels
+
+`mr_variants()` is a small constructor for variant references — without
+it, bare strings would be passed as literal rebind values rather than
+variant refs:
+
+```{r mr-variants, eval = FALSE}
+mr_binds(features = mr_variants("clean", "raw", "imputed"),
+         alpha    = c(0.1, 0.5, 1.0))
+```
+
+## Labels
+
+Two ways to label batch runs: explicit per-envelope or
+auto-propagation from upstream variants.
+
+```{r explicit-labels}
+labeled <- launch({
+  fit <- list(alpha = grab("alpha"))
+  stow(fit, "fit_labeled")
+}, rebind = mr_binds(alpha = c(0.1, 0.5, 1.0),
+                      .labels = c("low", "mid", "high")))
+labeled$variant_label
+```
+
+For mixed per-envelope behavior (some explicit labels, some
+auto-propagated), drop down to `mr_envelopes()`:
+
+```{r envelopes, eval = FALSE}
+mr_envelopes(
+  list(.label = "baseline", features = mr_variant("clean"), alpha = 0.1),
+  list(features = mr_variant("raw"), alpha = 1.0)            # auto-label
+)
+```
+
+## Errors
+
+A batch runs to completion. Failed envelopes write `status = "error"`
+rows; the call raises (or warns, with `on_error = "warn"`) at the end.
+
+```{r errors}
+res <- tryCatch(
+  launch({
+    a <- grab("alpha")
+    if (a == 0.5) stop("simulated failure")
+    stow(list(a = a), "fit_err")
+  }, rebind = mr_binds(alpha = c(0.1, 0.5, 1.0)),
+  on_error = "warn"),
+  warning = function(w) message("got: ", conditionMessage(w))
+)
+
+# 2 rows succeeded; 1 errored.
+table(res$status)
+```
+
+## Seeing what each run bound to
+
+Every batch run records its resolved rebinds on the run row as JSON.
+The `value` field is human-readable: numbers stay as numbers, variant
+names stay as names, data frames show `data.frame[<rows>x<cols>]`.
+
+```{r rebinds}
+recent <- DBI::dbGetQuery(mr_con(),
+  "SELECT variant_label, rebinds FROM _mr_runs
+    WHERE rebinds IS NOT NULL AND rebinds != '[]'
+    ORDER BY started_at DESC
+    LIMIT 3")
+
+# Unpack the JSON for a more readable view.
+do.call(rbind, lapply(seq_len(nrow(recent)), function(i) {
+  rb <- jsonlite::fromJSON(recent$rebinds[i])
+  data.frame(variant_label = recent$variant_label[i], rb)
+}))
+```
+
+## SQL batches
+
+The same dispatch works for SQL launches — useful when feature
+engineering is one SQL body but the rebind varies across runs.
+
+```{r sql-batch}
+stow(data.frame(x = 1:5), "src")
+stow(data.frame(x = 100:104), "src")    # second version
+
+# `versions()` returns one row per stored version, latest first.
+src_versions <- versions("src")
+v_latest <- src_versions$content_hash[1]
+v_older  <- src_versions$content_hash[2]
+
+sql_batch <- launch(
+  mr_sql("-- @inputs: src\n-- @output: src_summary\nSELECT COUNT(*) AS n FROM src"),
+  rebind = mr_envelopes(
+    list(.label = "older",  src = mr_hash(v_older)),
+    list(.label = "latest", src = mr_hash(v_latest))
+  )
+)
+sql_batch[, c("variant_label", "status")]
+```
+
+## Mental model
+
+A batch launch is N independent single launches run back-to-back,
+sharing nothing except the block of code and the `force` /
+`duckdb_seed` / `on_error` flags. Staleness, label propagation, helper
+tracking, and interactive-write warnings all behave per run exactly as
+they do in single-launch mode.
+
+```{r cleanup, include = FALSE}
+modelrunnR:::.mr_reset_connection()
+if (file.exists(.vignette_db)) file.remove(.vignette_db)
+```

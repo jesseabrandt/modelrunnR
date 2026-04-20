@@ -12,6 +12,7 @@ launch(
   force = FALSE,
   duckdb_seed = NULL,
   materialize = FALSE,
+  on_error = "raise",
   ...
 )
 }
@@ -63,6 +64,11 @@ When \code{TRUE}, the SELECT body is wrapped as \verb{CREATE OR REPLACE TABLE} i
 (same machinery as \code{stow()}-of-lazy-tbl). Use for expensive
 feature work consumed many times downstream. Ignored for non-SQL
 launches.}
+
+\item{on_error}{\code{"raise"} (default) or \code{"warn"}. Batch mode only.
+Controls whether the final call raises or warns when one or more
+envelopes errored. Per-envelope rows are captured on \verb{_mr_runs}
+either way. Passing this argument outside batch mode is an error.}
 
 \item{...}{Reserved for future arguments and for catching the
 removed \code{pin}/\code{data} arguments with a clear error message.}
@@ -124,5 +130,17 @@ caller's frame), whereas \code{base::source()}'s default is \code{FALSE}
 \code{source("helper.R")} populating \code{globalenv()} will instead find
 their helpers scoped to the tracked environment. Explicitly
 passing \code{source("helper.R", local = FALSE)} still works.
+}
+
+\section{Batch launches}{
+
+Pass \code{rebind = mr_binds(...)} (or \code{mr_envelopes(...)}) to fan out
+into one launch per envelope. The block runs once per envelope with
+that envelope's rebind / \code{.label}; the call returns a \code{data.frame}
+of one run row per envelope (same shape as the single-launch
+return). Errors in any envelope are captured on that envelope's
+\verb{_mr_runs} row (\code{status = "error"}) and the call raises (or warns
+if \code{on_error = "warn"}) at the end with a count summary. Works for
+both R-mode and SQL-mode launches.
 }
 
