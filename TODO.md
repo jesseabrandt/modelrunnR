@@ -1,5 +1,82 @@
 # modelrunnR TODO
 
+## Surfaced 2026-04-22 (far-future stretch)
+
+### Multi-language script support via existing bridges
+
+v0.1 scope: R steps and SQL steps. Python is out of scope for the
+package — if a project needs it, hack it together outside modelrunnR
+(e.g. `system2("python", ...)` or a side reticulate call in an R step).
+
+Far future: add first-class script kinds for other languages via
+`Suggests:`-level integrations, so users don't pay the dep cost unless
+they opt in:
+
+- Python → `reticulate`
+- Rust → `extendr` (`rextendr`)
+- C++ → `Rcpp`
+- (open) Julia → `JuliaCall`; shell → direct `system2`
+
+Each would be a new step kind alongside R and SQL, reusing the same
+harness (code_hash of the script source, rebind semantics, staleness
+check, `_mr_runs` row). Defer until R + SQL are stable and someone has
+a concrete use case.
+
+### Map out phases / versioning roadmap
+
+No explicit phase plan exists. Write one: what lands in v0.1 (current
+R + SQL + batch launches + append-mode stow), v0.2, and further out
+(e.g. multi-language above, remote executors, richer diagnostics).
+Lets "is this in scope?" triage be a lookup instead of a judgment
+call. Target: a short `docs/roadmap.md` keyed to DESCRIPTION version
+bumps.
+
+## Surfaced 2026-04-21 (design question — append-mode stow)
+
+### Tabular `stow()` becomes append-by-default; runs are first-class
+
+Today `stow(df, "metrics")` creates a new **version** per call — each
+run's metrics sit in their own `metrics__<hash>` physical table, and
+`grab("metrics")` returns only the latest. Running 20 models produces
+20 disjoint one-row versions instead of one 20-row table.
+
+**Decisions (2026-04-21 conversation):**
+
+- **Contract flips for data frames / tables.** Tabular stow appends to
+  a single growing physical table by default. Versioned stow remains
+  the default for non-tabular (artifact) objects — no change there.
+- **Runs are a first-class query dimension.** Each appended row is
+  stamped with `run_id` (and probably `variant_label`). `grab("metrics")`
+  defaults to *latest run's rows only*; full history is an explicit
+  knob.
+- **Breakage assessment.** Accepted as non-breaking from a user's
+  perspective — the observable behavior of `stow(df, name)` followed
+  by `grab(name)` round-trips the data they just wrote, same as
+  before. Residue: orphaned versioned `metrics__<hash>` tables for
+  users with existing DuckDB stores. Fine to leave; `prune_versions()`
+  already handles cleanup.
+
+**Still to sort in the spec (write under
+`docs/superpowers/specs/2026-04-22-append-mode-stow-design.md`):**
+
+- Hash contract / staleness for a growing table. Likely: hash the
+  appended chunk, not the whole table.
+- Schema drift across runs (column added/removed between models) —
+  probably `bind_rows`-style with `fill = TRUE`.
+- Upsert vs. pure append on re-runs of the same `run_id` (skipped_fresh
+  path shouldn't double-append; failed re-runs probably replace the
+  failed run's rows).
+- Composition with `rebind`, `mr_variants()`, and `prune_versions()`.
+- `grab()` knob name for "give me everything, not just latest run" —
+  candidates: `run = "all"`, `latest_run = FALSE`, a dedicated
+  `grab_history()`.
+- Invariant 4 check: migration for in-the-wild DuckDB stores that
+  have versioned tabular `_mr_versions` rows. Adding an `append_table`
+  kind next to `table` / `artifact` / `view` is additive and fine; no
+  rename/drop of existing columns.
+
+Target: finish 2026-04-22 — spec first, then implement.
+
 ## Surfaced 2026-04-19 (from batch-launches audit, fix-or-queue triage)
 
 ### `batch_active` flag is a side-channel; consider explicit `on_error_arg`
