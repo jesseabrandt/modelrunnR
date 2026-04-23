@@ -1,5 +1,25 @@
 # modelrunnR TODO
 
+## Surfaced 2026-04-23 (from append-mode stow plan)
+
+### Update `../practicum_repos/final_practicum` post-implementation
+
+Invariant 1 is explicitly relaxed for the append-mode stow plan — the
+data-frame `stow()`/`grab()` contract flips, and `final_practicum`'s
+modeling scripts round-trip data frames through stow/grab. After the
+plan lands, grep final_practicum for `stow(` + `grab(` patterns on
+tabular values and either (a) wrap them in `launch()` with a `label`
+so they flow through Shape B naturally, or (b) convert the affected
+values to non-tabular artifacts (e.g. `stow(list(df), name)`) where
+per-run accumulation isn't wanted. Outside-launch `grab()` callers get
+a lazy tbl with `run_id`/`variant_label` columns instead of a bare
+tbl — update downstream `collect()` + column selection accordingly.
+
+Other follow-ups from the plan are tracked in the plan's completion
+checklist (`docs/superpowers/plans/2026-04-23-append-mode-stow-impl.md`):
+`.mr_reset_append()` user-facing promotion, lazy-path type coercion,
+block-level transaction semantics, and the §12 Shape A reorg.
+
 ## Surfaced 2026-04-22 (far-future stretch)
 
 ### Multi-language script support via existing bridges
