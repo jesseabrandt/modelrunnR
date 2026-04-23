@@ -8,6 +8,7 @@
   .mr_migrate_runs(con)
   .mr_migrate_versions(con)
   .mr_migrate_artifacts(con)
+  .mr_migrate_append_tables(con)
   invisible(NULL)
 }
 
@@ -105,6 +106,22 @@
     "CREATE UNIQUE INDEX IF NOT EXISTS _mr_versions_logical_content_idx
        ON _mr_versions (logical_name, content_hash)"
   )
+}
+
+.mr_migrate_append_tables <- function(con) {
+  sql <- "
+    CREATE TABLE IF NOT EXISTS _mr_append_tables (
+      logical_name   TEXT PRIMARY KEY,
+      physical_name  TEXT NOT NULL,
+      schema_json    TEXT,
+      first_seen     TIMESTAMP,
+      last_seen      TIMESTAMP,
+      row_count      BIGINT,
+      size_bytes     BIGINT
+    )
+  "
+  .mr_execute(con, sql)
+  invisible(NULL)
 }
 
 .mr_add_column_if_missing <- function(con, table, column, type) {
