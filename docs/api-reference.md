@@ -59,12 +59,12 @@ ingest(name, source)          # CSV/TSV/Parquet → stow() + record source_uri/h
 ### 3.2 Orchestration
 
 ```r
-launch(script_path,                 # braced block, file path, or mr_label()
+launch(code,                        # braced block, file path, mr_label(), or mr_sql()
        rebind = NULL,               # named list; see §5
        label = NULL,                # variant label
        external_inputs = NULL,      # list(files = chr, env = chr)
        force = FALSE,               # force run even if fresh
-       ...)                         # reserved; traps removed pin=/data=
+       ...)                         # reserved; traps removed pin=/data= and deprecated script_path=
 launch_code(run_id, from_db = FALSE)   # recover the code a run executed
 is_stale(ref)                         # ref must be mr_label() or mr_variant()
 ```
@@ -73,11 +73,14 @@ Dispatch inside `launch()` (in order):
 
 1. First arg is a literal `{ ... }` → **inline mode**. Step =
    `<inline:<hash12>>` of deparsed bytes.
-2. First arg is `mr_label(x)` → **relaunch mode**. Looks up most recent
+2. First arg is `mr_sql(x)` (inline SQL) or a path with a `.sql`
+   extension (file SQL) → **SQL mode**. The body is wrapped as
+   `CREATE OR REPLACE VIEW` (or `TABLE` when `materialize = TRUE`).
+3. First arg is `mr_label(x)` → **relaunch mode**. Looks up most recent
    run with `variant_label == x`, re-sources the file if present, else
    runs the stored `code_body` snapshot. Label auto-inherits unless
    caller overrides. Only `mr_label()` works here; other refs error.
-3. Otherwise treated as a file path (must exist).
+4. Otherwise treated as a file path (must exist).
 
 Skip-on-fresh behavior (default since 0.0.0.9000):
 

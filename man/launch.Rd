@@ -5,7 +5,7 @@
 \title{Launch a tracked modelrunnR step}
 \usage{
 launch(
-  script_path,
+  code,
   rebind = NULL,
   label = NULL,
   external_inputs = NULL,
@@ -17,10 +17,15 @@ launch(
 )
 }
 \arguments{
-\item{script_path}{Either a path to an R script (script mode) or a
-braced expression block \code{{ ... }} (inline mode). Dispatch is by
-syntax: a literal \code{{ ... }} in the call triggers inline mode;
-anything else is resolved as a path.}
+\item{code}{The code modelrunnR should run. One of:
+\itemize{
+\item a braced \code{{ ... }} block (inline R) -- a literal \code{{ ... }} at
+the call site triggers inline mode.
+\item a path to an \code{.R} script (R file mode).
+\item a path to a \code{.sql} file, or \code{\link[=mr_sql]{mr_sql()}} (SQL mode).
+\item \code{\link[=mr_label]{mr_label()}} (relaunch mode -- re-executes the most recent run
+under that label).
+}}
 
 \item{rebind}{Optional named list that overrides what each
 \code{grab()} inside the script resolves to. List values may be bare
@@ -70,8 +75,10 @@ Controls whether the final call raises or warns when one or more
 envelopes errored. Per-envelope rows are captured on \verb{_mr_runs}
 either way. Passing this argument outside batch mode is an error.}
 
-\item{...}{Reserved for future arguments and for catching the
-removed \code{pin}/\code{data} arguments with a clear error message.}
+\item{...}{Reserved for future arguments. Also traps legacy
+arguments: \code{pin} / \code{data} from before the swappability rework
+(error), and the deprecated \code{script_path} alias for \code{code}
+(deprecation warning).}
 }
 \value{
 The run record (one row of \verb{_mr_runs}), invisibly.

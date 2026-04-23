@@ -48,10 +48,13 @@
 #' their helpers scoped to the tracked environment. Explicitly
 #' passing `source("helper.R", local = FALSE)` still works.
 #'
-#' @param script_path Either a path to an R script (script mode) or a
-#'   braced expression block `{ ... }` (inline mode). Dispatch is by
-#'   syntax: a literal `{ ... }` in the call triggers inline mode;
-#'   anything else is resolved as a path.
+#' @param code The code modelrunnR should run. One of:
+#'   - a braced `{ ... }` block (inline R) -- a literal `{ ... }` at
+#'     the call site triggers inline mode.
+#'   - a path to an `.R` script (R file mode).
+#'   - a path to a `.sql` file, or [mr_sql()] (SQL mode).
+#'   - [mr_label()] (relaunch mode -- re-executes the most recent run
+#'     under that label).
 #' @param rebind Optional named list that overrides what each
 #'   `grab()` inside the script resolves to. List values may be bare
 #'   R objects (stowed inline through the normal versioning path) or
@@ -104,15 +107,41 @@
 #'   Controls whether the final call raises or warns when one or more
 #'   envelopes errored. Per-envelope rows are captured on `_mr_runs`
 #'   either way. Passing this argument outside batch mode is an error.
-#' @param ... Reserved for future arguments and for catching the
-#'   removed `pin`/`data` arguments with a clear error message.
+#' @param ... Reserved for future arguments. Also traps legacy
+#'   arguments: `pin` / `data` from before the swappability rework
+#'   (error), and the deprecated `script_path` alias for `code`
+#'   (deprecation warning).
 #'
 #' @return The run record (one row of `_mr_runs`), invisibly.
 #' @export
-launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = NULL,
+launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
                    force = FALSE, duckdb_seed = NULL, materialize = FALSE,
                    on_error = "raise", ...) {
   dots <- list(...)
+
+  # Deprecation shim for the old `script_path = ` name. See the dispatch
+  # block below for why the capture must happen here.
+  if ("script_path" %in% names(dots)) {
+    if (!missing(code)) {
+      stop(
+        "launch(): `script_path` is deprecated; pass `code` only (not both).",
+        call. = FALSE
+      )
+    }
+    warning(
+      "launch(): `script_path` is deprecated; use `code` instead. ",
+      "The argument accepts a braced block, a file path, mr_label(), or ",
+      "mr_sql() -- not only a script path.",
+      call. = FALSE
+    )
+    mcall <- match.call()
+    script_expr <- mcall[["script_path"]]
+    code <- dots$script_path
+    dots[names(dots) == "script_path"] <- NULL
+  } else {
+    script_expr <- substitute(code)
+  }
+
   if ("pin" %in% names(dots) || "data" %in% names(dots)) {
     stop(
       "launch(): `pin` and `data` were removed in the swappability rework. ",
@@ -153,10 +182,10 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     }
   }
 
-  # Dispatch: a literal `{ ... }` block triggers inline mode. Capturing
-  # with substitute() before `script_path` is ever touched is load-bearing
-  # -- forcing the promise would evaluate user code outside our tracking.
-  script_expr <- substitute(script_path)
+  # Dispatch: a literal `{ ... }` block triggers inline mode. `script_expr`
+  # was captured at the top of the body (from `substitute(code)` or from
+  # the deprecation shim's match.call(), so the braced block form works
+  # under both argument names).
   inline_mode <- is.call(script_expr) && identical(script_expr[[1]], as.name("{"))
 
   # SQL dispatch: handled before the R-mode dispatch ladder. Two routes:
@@ -165,16 +194,16 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   #               insensitive)
   # `materialize` only applies here; non-SQL launches that pass it
   # silently ignore (spec keeps the signature clean).
-  is_inline_sql <- !inline_mode && inherits(script_path, "mr_ref_sql")
+  is_inline_sql <- !inline_mode && inherits(code, "mr_ref_sql")
   is_file_sql <- FALSE
-  if (!inline_mode && !is_inline_sql && is.character(script_path) &&
-      length(script_path) == 1L && !is.na(script_path) && nzchar(script_path)) {
-    ext <- tolower(tools::file_ext(script_path))
+  if (!inline_mode && !is_inline_sql && is.character(code) &&
+      length(code) == 1L && !is.na(code) && nzchar(code)) {
+    ext <- tolower(tools::file_ext(code))
     if (ext == "sql") is_file_sql <- TRUE
   }
   if (is_inline_sql || is_file_sql) {
     src_kind     <- if (is_inline_sql) "inline" else "file"
-    body_or_path <- if (is_inline_sql) script_path$body else script_path
+    body_or_path <- if (is_inline_sql) code$body else code
 
     # Batch: one .mr_launch_sql() call per envelope. step/code_body
     # depend only on src_kind+body, not rebind, so they're resolved
@@ -221,11 +250,11 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
   relaunch_mode <- FALSE
   relaunch_expr <- NULL  # parsed code body for relaunch execution
 
-  if (!inline_mode && .mr_is_ref(script_path)) {
-    if (!identical(script_path$kind, "label")) {
+  if (!inline_mode && .mr_is_ref(code)) {
+    if (!identical(code$kind, "label")) {
       stop(sprintf(
         "launch(): only mr_label() is accepted as a first argument reference; got mr_%s().",
-        script_path$kind
+        code$kind
       ), call. = FALSE)
     }
     relaunch_mode <- TRUE
@@ -239,23 +268,23 @@ launch <- function(script_path, rebind = NULL, label = NULL, external_inputs = N
     # against an older expression's history.
     step <- sprintf("<inline:%s>", substr(expr_hash, 1L, 12L))
   } else if (relaunch_mode) {
-    resolved <- .mr_resolve_relaunch(script_path$value)
+    resolved <- .mr_resolve_relaunch(code$value)
     step          <- resolved$step
     code_body     <- resolved$code_body
     relaunch_expr <- resolved$expr
     # Auto-inherit the label unless the user passed one explicitly.
-    if (is.na(label)) label <- script_path$value
+    if (is.na(label)) label <- code$value
   } else {
     stopifnot(
-      is.character(script_path),
-      length(script_path) == 1L,
-      nzchar(script_path)
+      is.character(code),
+      length(code) == 1L,
+      nzchar(code)
     )
-    if (!file.exists(script_path)) {
-      stop(sprintf("launch(): script not found: %s", script_path), call. = FALSE)
+    if (!file.exists(code)) {
+      stop(sprintf("launch(): file not found: %s", code), call. = FALSE)
     }
     # Normalize path so the `step` column is stable relative to resolution.
-    step <- normalizePath(script_path, mustWork = TRUE)
+    step <- normalizePath(code, mustWork = TRUE)
     # Capture the file bytes as the run's recovery snapshot. Later the
     # file may be edited or deleted; this keeps the run row self-contained.
     code_body <- paste(readLines(step, warn = FALSE), collapse = "\n")

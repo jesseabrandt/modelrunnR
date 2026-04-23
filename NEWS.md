@@ -1,5 +1,15 @@
 # modelrunnR 0.0.0.9000
 
+## Deprecations
+
+* **`launch()` first argument renamed from `script_path` to `code`.** The
+  argument accepts a braced block, a file path, `mr_label()`, or
+  `mr_sql()` — not only a script path, so the name now reflects the
+  contract. Callers that passed `script_path = ...` by name continue to
+  work with a deprecation warning; positional callers (`launch("fit.R")`)
+  are unaffected. The alias will be removed in a future release; migrate
+  named calls to `code = ...`.
+
 ## New features (batch launches)
 
 * **`launch(rebind = mr_binds(...))` fans out into one run per

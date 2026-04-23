@@ -108,7 +108,7 @@ Ten user-facing functions plus four reference constructors used inside `rebind =
 
 - **`ingest(name, source)`** — read a flat file (CSV, parquet, etc.) and load it into DuckDB as `name`, recording the source file path and content hash in metadata. Callable explicitly, or implicitly via `grab(name, source = ...)`.
 
-- **`launch(script_path, rebind = NULL, label = NULL, external_inputs = NULL)`** — entry point for tracked execution. Sources `script_path` in an instrumented context, records observed I/O, measures wall-clock time, and writes a run record to the metadata table on completion. The `rebind` argument accepts a named list mapping logical names to replacement values, overriding what each `grab()` inside the script resolves to; list values may be bare R objects (stowed inline through the normal versioning path) or reference constructors (`mr_hash()`, `mr_run()`, `mr_variant()`, `mr_as_of()`) that resolve to existing versions without round-tripping through R memory. The `label` argument marks the run as belonging to a tracked variant — a user-named experimental thread that survives code edits, is protected from `prune_versions()`, and is visible in `variants()`. Runs without a label are plain runs. See *Variants and swappability* below for the full semantics of rebinding, labels, and auto-propagation. `external_inputs` allows declaring file paths or env vars that should be tracked as inputs for staleness.
+- **`launch(code, rebind = NULL, label = NULL, external_inputs = NULL)`** — entry point for tracked execution. Runs `code` in an instrumented context (a file path, a braced block, a SQL ref, or a relaunch label), records observed I/O, measures wall-clock time, and writes a run record to the metadata table on completion. The `rebind` argument accepts a named list mapping logical names to replacement values, overriding what each `grab()` inside the script resolves to; list values may be bare R objects (stowed inline through the normal versioning path) or reference constructors (`mr_hash()`, `mr_run()`, `mr_variant()`, `mr_as_of()`) that resolve to existing versions without round-tripping through R memory. The `label` argument marks the run as belonging to a tracked variant — a user-named experimental thread that survives code edits, is protected from `prune_versions()`, and is visible in `variants()`. Runs without a label are plain runs. See *Variants and swappability* below for the full semantics of rebinding, labels, and auto-propagation. `external_inputs` allows declaring file paths or env vars that should be tracked as inputs for staleness.
 
 - **`db_path()`** — inspector; returns the currently-active DuckDB file path.
 
@@ -141,7 +141,9 @@ There is no `connect()` function — the name would collide with `DBI::dbConnect
 
 ### Execution flow
 
-When `launch(script_path, rebind = NULL, label = NULL)` is called:
+When `launch(code, rebind = NULL, label = NULL)` is called:
+
+The canonical flow below assumes file-mode R; inline, relaunch, and SQL modes dispatch through the same recording context with mode-specific variations at steps 1 and 5.
 
 1. Compute the content hash of the script file.
 2. Open (or reuse) the DuckDB connection for the current artifact store.
