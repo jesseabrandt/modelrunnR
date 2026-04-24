@@ -203,11 +203,11 @@ stow <- function(value, name) {
 
 .mr_maybe_warn_version_count <- function(con, name) {
   threshold <- getOption("modelrunnR.version_warn_threshold", 20L)
-  count <- as.integer(DBI::dbGetQuery(
+  count <- DBI::dbGetQuery(
     con,
     "SELECT COUNT(*) AS c FROM _mr_versions WHERE logical_name = ?",
     params = list(name)
-  )$c[1])
+  )$c[1]
   if (count > threshold) {
     warning(sprintf(
       "'%s' has %d versions (threshold: %d). Consider running prune_versions('%s', ...) to reclaim storage.",

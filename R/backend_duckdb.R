@@ -8,7 +8,7 @@
   # Create the parent directory lazily.
   dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
   drv <- duckdb::duckdb()
-  DBI::dbConnect(drv, dbdir = path, read_only = FALSE, bigint = "integer64")
+  DBI::dbConnect(drv, dbdir = path, read_only = FALSE)
 }
 
 .mr_disconnect <- function(con) {

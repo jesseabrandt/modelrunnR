@@ -25,7 +25,7 @@ test_that(".mr_append_write_frame creates the physical table on first write", {
   reg <- DBI::dbGetQuery(con, "SELECT * FROM _mr_append_tables WHERE logical_name = 'metrics'")
   expect_identical(nrow(reg), 1L)
   expect_identical(reg$physical_name, "metrics__append")
-  expect_identical(reg$row_count, bit64::as.integer64(1L))
+  expect_equal(as.integer(reg$row_count), 1L)
 
   rows <- DBI::dbGetQuery(con, "SELECT * FROM metrics__append")
   expect_identical(nrow(rows), 1L)
