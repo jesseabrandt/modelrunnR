@@ -25,6 +25,7 @@
 }
 
 .mr_append_r_to_duckdb_type <- function(col) {
+  if (inherits(col, "integer64")) return("BIGINT")
   if (is.integer(col))   return("INTEGER")
   if (is.numeric(col))   return("DOUBLE")
   if (is.logical(col))   return("BOOLEAN")

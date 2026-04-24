@@ -56,4 +56,8 @@ test_that("second write appends under existing physical table", {
   expect_identical(nrow(rows), 2L)
   expect_identical(rows[["_mr_run_id"]], c("run_1", "run_2"))
   expect_identical(rows[["_mr_variant_label"]], c("lm", "rf"))
+
+  reg <- DBI::dbGetQuery(con,
+    "SELECT row_count FROM _mr_append_tables WHERE logical_name = 'metrics'")
+  expect_equal(as.integer(reg$row_count), 2L)
 })
