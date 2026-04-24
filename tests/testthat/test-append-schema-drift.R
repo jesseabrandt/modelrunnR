@@ -1,3 +1,50 @@
+test_that("incoming frame dropping columns inserts NULLs and emits a message", {
+  new_test_db()
+  con <- .mr_get_connection()
+
+  .mr_start_recording(run_id = "run_1", variant_label = "lm")
+  .mr_append_write_frame("metrics",
+    data.frame(model = "lm", rmse = 0.5, mae = 0.3, stringsAsFactors = FALSE))
+  .mr_stop_recording()
+
+  .mr_start_recording(run_id = "run_2", variant_label = "rf")
+  expect_message(
+    .mr_append_write_frame("metrics",
+      data.frame(model = "rf", rmse = 0.4, stringsAsFactors = FALSE)),
+    "missing column 'mae'"
+  )
+  .mr_stop_recording()
+
+  rows <- DBI::dbGetQuery(con,
+    "SELECT * FROM metrics__append ORDER BY _mr_run_id")
+  expect_identical(nrow(rows), 2L)
+  expect_identical(rows$mae, c(0.3, NA_real_))
+})
+
+test_that("same-schema write produces no warning, no message, no schema_json change", {
+  new_test_db()
+  con <- .mr_get_connection()
+
+  .mr_start_recording(run_id = "run_1", variant_label = "lm")
+  .mr_append_write_frame("metrics",
+    data.frame(model = "lm", rmse = 0.5, stringsAsFactors = FALSE))
+  .mr_stop_recording()
+
+  reg_before <- DBI::dbGetQuery(con,
+    "SELECT schema_json FROM _mr_append_tables WHERE logical_name = 'metrics'")
+
+  .mr_start_recording(run_id = "run_2", variant_label = "rf")
+  expect_silent(
+    .mr_append_write_frame("metrics",
+      data.frame(model = "rf", rmse = 0.4, stringsAsFactors = FALSE))
+  )
+  .mr_stop_recording()
+
+  reg_after <- DBI::dbGetQuery(con,
+    "SELECT schema_json FROM _mr_append_tables WHERE logical_name = 'metrics'")
+  expect_identical(reg_before$schema_json, reg_after$schema_json)
+})
+
 test_that("incoming frame with extra columns triggers ALTER TABLE ADD + NULL backfill", {
   new_test_db()
   con <- .mr_get_connection()
