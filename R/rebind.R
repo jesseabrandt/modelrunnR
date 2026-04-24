@@ -12,13 +12,15 @@
 ## for the duration of the launch and overrides default grab()
 ## resolution.
 
-.mr_start_rebinding <- function(rebinds) {
-  .mr_state$rebinds <- rebinds
+.mr_start_rebinding <- function(rebinds, shape_b_filters = NULL) {
+  .mr_state$rebinds         <- rebinds
+  .mr_state$shape_b_filters <- shape_b_filters
   invisible(NULL)
 }
 
 .mr_stop_rebinding <- function() {
-  .mr_state$rebinds <- NULL
+  .mr_state$rebinds         <- NULL
+  .mr_state$shape_b_filters <- NULL
   invisible(NULL)
 }
 
@@ -27,6 +29,12 @@
   if (is.null(rb)) return(NULL)
   if (!(name %in% names(rb))) return(NULL)
   rb[[name]]
+}
+
+.mr_rebound_shape_b_filter <- function(name) {
+  f <- .mr_state$shape_b_filters
+  if (is.null(f)) return(NULL)
+  f[[name]]
 }
 
 .mr_resolve_rebinds <- function(rebind) {
@@ -45,17 +53,27 @@
   .mr_state$suppress_interactive <- TRUE
   on.exit(.mr_state$suppress_interactive <- NULL, add = TRUE)
 
+  shape_b_filters <- list()
   for (nm in names(rebind)) {
     value <- rebind[[nm]]
     entry <- .mr_resolve_rebind_entry(con, nm, value)
     map[[nm]] <- entry$hash
+    if (!is.null(entry$shape_b_filter)) {
+      shape_b_filters[[nm]] <- entry$shape_b_filter
+    }
     provenance[[length(provenance) + 1L]] <- entry$provenance
   }
+  .mr_state$pending_shape_b_filters <- if (length(shape_b_filters) > 0L) shape_b_filters else NULL
   list(map = map, provenance = provenance)
 }
 
 .mr_resolve_rebind_entry <- function(con, name, value) {
   if (.mr_is_ref(value)) {
+    shape <- .mr_lookup_shape(name)
+    if (identical(shape, "B")) {
+      return(.mr_resolve_rebind_shape_b(con, name, value))
+    }
+    # Shape A branch (unchanged)
     hash <- switch(value$kind,
       hash    = .mr_resolve_ref_hash(con, name, value$value),
       run     = .mr_resolve_ref_run(con, name, value$value),
@@ -79,9 +97,10 @@
       as.character(value$value)
     }
     list(
-      hash       = hash,
-      provenance = list(name = name, source = value$kind,
-                        value = value_str, hash = hash)
+      hash           = hash,
+      shape_b_filter = NULL,
+      provenance     = list(name = name, source = value$kind,
+                            value = value_str, hash = hash)
     )
   } else {
     # Bare R value -> stow through the normal pathway. The literal-source
@@ -98,9 +117,10 @@
       value_str <- .mr_format_literal_rebind(value)
     }
     list(
-      hash       = hash,
-      provenance = list(name = name, source = "literal",
-                        value = value_str, hash = hash)
+      hash           = hash,
+      shape_b_filter = NULL,
+      provenance     = list(name = name, source = "literal",
+                            value = value_str, hash = hash)
     )
   }
 }
@@ -177,4 +197,72 @@
     ), call. = FALSE)
   }
   row$content_hash[1]
+}
+
+# Shape B rebind resolution. mr_hash() is disallowed; mr_run(),
+# mr_variant(), and mr_as_of() all resolve to a run_id filter that
+# grab() inside the launch will honor.
+.mr_resolve_rebind_shape_b <- function(con, name, value) {
+  kind <- value$kind
+  if (identical(kind, "hash")) {
+    stop(sprintf(
+      "launch(rebind=): mr_hash() addresses content-hashed (Shape A) values; '%s' is an append log (Shape B). Use mr_run() or mr_variant().",
+      name
+    ), call. = FALSE)
+  }
+  if (identical(kind, "run")) {
+    run <- DBI::dbGetQuery(con,
+      "SELECT 1 FROM _mr_runs WHERE run_id = ?", params = list(value$value))
+    if (nrow(run) == 0L) {
+      stop(sprintf("launch(rebind=): mr_run('%s') is not a known run id.",
+                   value$value), call. = FALSE)
+    }
+    provenance <- list(name = name, source = "run",
+                       value = as.character(value$value),
+                       hash = NA_character_,
+                       shape = "B", filter_kind = "run",
+                       filter_value = as.character(value$value))
+    return(list(hash = NA_character_, provenance = provenance,
+                shape_b_filter = list(kind = "run", value = value$value)))
+  }
+  if (identical(kind, "variant")) {
+    latest <- DBI::dbGetQuery(con,
+      "SELECT run_id FROM _mr_runs
+        WHERE variant_label = ?
+        ORDER BY started_at DESC LIMIT 1",
+      params = list(value$value))
+    if (nrow(latest) == 0L) {
+      stop(sprintf(
+        "launch(rebind=): mr_variant('%s') has not produced '%s'.",
+        value$value, name), call. = FALSE)
+    }
+    rid <- latest$run_id[1]
+    provenance <- list(name = name, source = "variant",
+                       value = as.character(value$value),
+                       hash = NA_character_,
+                       shape = "B", filter_kind = "run", filter_value = rid)
+    return(list(hash = NA_character_, provenance = provenance,
+                shape_b_filter = list(kind = "run", value = rid)))
+  }
+  if (identical(kind, "as_of")) {
+    row <- DBI::dbGetQuery(con,
+      "SELECT run_id FROM _mr_runs
+        WHERE started_at <= ?
+        ORDER BY started_at DESC LIMIT 1",
+      params = list(value$value))
+    if (nrow(row) == 0L) {
+      stop(sprintf(
+        "launch(rebind=): mr_as_of() found no run at or before %s.",
+        format(value$value)), call. = FALSE)
+    }
+    rid <- row$run_id[1]
+    provenance <- list(name = name, source = "as_of",
+                       value = format(value$value, "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC"),
+                       hash = NA_character_,
+                       shape = "B", filter_kind = "run", filter_value = rid)
+    return(list(hash = NA_character_, provenance = provenance,
+                shape_b_filter = list(kind = "run", value = rid)))
+  }
+  stop(sprintf("launch(rebind=): unknown reference kind '%s'.", kind),
+       call. = FALSE)
 }

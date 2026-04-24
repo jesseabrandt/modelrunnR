@@ -99,6 +99,15 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
       .mr_record_read(name, NA_character_)
       return(reading)
     }
+    # If this name is rebound to a specific filter, honor it before the
+    # launch-context default so explicit rebinds override "current run".
+    rebound_filter <- .mr_rebound_shape_b_filter(name)
+    if (!is.null(rebound_filter)) {
+      reading <- .mr_append_read(name, run = rebound_filter$value)
+      .mr_record_read(name, NA_character_)
+      return(reading)
+    }
+
     # Default: launch-context aware.
     current_run <- .mr_recording_run_id()
     reading <- if (!is.null(current_run) && !is.na(current_run)) {

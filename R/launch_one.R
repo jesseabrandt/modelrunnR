@@ -29,6 +29,8 @@
   resolved_rebinds   <- .mr_resolve_rebinds(rebind)
   rebinds_map        <- resolved_rebinds$map
   rebinds_provenance <- resolved_rebinds$provenance
+  shape_b_filters    <- .mr_state$pending_shape_b_filters
+  .mr_state$pending_shape_b_filters <- NULL
 
   if (!is.null(duckdb_seed)) {
     con_for_seed <- .mr_get_connection()
@@ -60,7 +62,7 @@
 
   .mr_start_recording(run_id = run_id, variant_label = label)
   .mr_start_helper_tracking()
-  .mr_start_rebinding(rebinds_map)
+  .mr_start_rebinding(rebinds_map, shape_b_filters)
   on.exit(
     {
       if (.mr_is_recording()) .mr_stop_recording()

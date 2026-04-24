@@ -225,6 +225,7 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 
     resolved_ext       <- .mr_resolve_external_inputs(external_inputs)
     resolved_rebinds   <- .mr_resolve_rebinds(rebind)
+    .mr_state$pending_shape_b_filters <- NULL   # SQL path: no R grab(); discard
     skip_on_fresh      <- isTRUE(getOption("modelrunnR.skip_if_fresh", TRUE))
     # Nested-launch guard mirrors the R-mode rule: a SQL launch that
     # would run from inside an active R-mode recording would clobber
