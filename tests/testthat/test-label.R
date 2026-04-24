@@ -26,8 +26,7 @@ test_that("launch(label = ' trimmed ') strips whitespace", {
   expect_equal(row$variant_label, "eta_0.01")
 })
 
-test_that("grab(name, variant = 'x') resolves to latest hash produced under that label", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("grab(name, variant = 'x') resolves to rows from the latest run under that label (Shape B)", {
   new_test_db()
 
   fit <- write_script('stow(data.frame(v = 1:3), "features")')
@@ -40,32 +39,29 @@ test_that("grab(name, variant = 'x') resolves to latest hash produced under that
   expect_equal(nrow(dplyr::collect(grab("features", variant = "fast"))), 9L)
 })
 
-test_that("grab(variant = 'nonexistent') errors cleanly", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("grab(variant = 'nonexistent') errors cleanly (Shape B)", {
   new_test_db()
 
-  stow(data.frame(v = 1), "features")
+  launch({ stow(data.frame(v = 1), "features") })
   expect_error(
     grab("features", variant = "nothing"),
-    regexp = "no variant.*nothing",
+    regexp = "no.*variant.*nothing|no run with variant",
     fixed = FALSE
   )
 })
 
-test_that("grab() errors on multiple selectors including variant", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("grab() errors on multiple selectors including variant (Shape B)", {
   new_test_db()
 
-  stow(data.frame(v = 1), "features")
+  launch({ stow(data.frame(v = 1), "features") })
   expect_error(
-    grab("features", variant = "x", version = "abc"),
+    grab("features", variant = "x", from_run = "abc"),
     regexp = "more than one selector",
     fixed = FALSE
   )
 })
 
-test_that("rebind = list(x = mr_variant('slow')) resolves to the labeled variant", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("rebind = list(x = mr_variant('slow')) resolves to the labeled variant (Shape B)", {
   new_test_db()
 
   producer <- write_script('stow(data.frame(v = 1:4), "features")')
@@ -76,11 +72,10 @@ test_that("rebind = list(x = mr_variant('slow')) resolves to the labeled variant
     'stow(data.frame(n = nrow(f)),  "n")'
   ))
   launch(consumer, rebind = list(features = mr_variant("slow")))
-  expect_equal(dplyr::collect(grab("n"))$n, 4L)
+  expect_equal(dplyr::collect(grab("n", run = "all"))$n, 4L)
 })
 
-test_that("grab(variant = 'x') inside launch() records the read on the run row", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("grab(variant = 'x') inside launch() records the read on the run row (Shape B)", {
   new_test_db()
 
   prod <- write_script('stow(data.frame(v = 1:3), "features")')

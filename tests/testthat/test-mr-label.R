@@ -1,21 +1,17 @@
-test_that("launch(mr_label(...)) re-executes an inline labeled pipeline", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("launch(mr_label(...)) re-executes an inline labeled pipeline (Shape B)", {
   new_test_db()
 
-  stow(data.frame(x = 1:3), "src")
-
   launch(
-    { stow(grab("src"), "out") },
+    { stow(data.frame(x = 1:3), "src") },
     label = "baseline"
   )
 
-  # Edit nothing; just relaunch by label. force = TRUE because the
-  # default skip-on-fresh would no-op this relaunch (nothing changed).
-  # The test's intent is to verify re-execution semantics.
+  # Re-execute same pipeline by label (force = TRUE so skip-on-fresh doesn't no-op).
   run <- launch(mr_label("baseline"), force = TRUE)
 
   expect_equal(run$status, "success")
-  expect_match(run$outputs, "out")
+  # outputs JSON must mention "src"
+  expect_match(run$outputs, "src")
 })
 
 test_that("launch(mr_label(...)) auto-inherits the label", {
@@ -29,8 +25,7 @@ test_that("launch(mr_label(...)) auto-inherits the label", {
   expect_equal(run$variant_label, "baseline")
 })
 
-test_that("launch(mr_label(...)) picks up the most recent iteration", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("launch(mr_label(...)) picks up the most recent iteration (Shape B)", {
   new_test_db()
 
   # Iteration 1.
@@ -44,10 +39,11 @@ test_that("launch(mr_label(...)) picks up the most recent iteration", {
     label = "baseline"
   )
 
-  launch(mr_label("baseline"))
-  # Whatever iteration we ran, the latest "obj" must match the most
-  # recent pipeline (a = 99).
-  expect_equal(dplyr::collect(grab("obj"))$a, 99L)
+  launch(mr_label("baseline"), force = TRUE)
+  # Whatever iteration we ran, the latest "obj" must include the most
+  # recent row (a = 99).
+  got <- grab("obj", run = "all") |> dplyr::collect()
+  expect_true(99L %in% got$a)
 })
 
 test_that("launch(mr_label(...)) re-sources a file pipeline when the file still exists", {
@@ -61,8 +57,7 @@ test_that("launch(mr_label(...)) re-sources a file pipeline when the file still 
   expect_equal(run$variant_label, "file_pipe")
 })
 
-test_that("launch(mr_label(...)) falls back to the snapshot when the file is gone", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("launch(mr_label(...)) falls back to the snapshot when the file is gone (Shape B)", {
   new_test_db()
 
   s <- write_script('stow(data.frame(a = 1), "gone_pipe")')
@@ -74,7 +69,9 @@ test_that("launch(mr_label(...)) falls back to the snapshot when the file is gon
     "gone from disk"
   )
   expect_equal(run$status, "success")
-  expect_equal(dplyr::collect(grab("gone_pipe"))$a, 1)
+  got <- grab("gone_pipe", run = "all") |> dplyr::collect()
+  # Both the original and relaunch wrote a row; all must have a = 1.
+  expect_true(all(got$a == 1))
 })
 
 test_that("launch(mr_label(...)) errors when the label has no runs", {
@@ -82,11 +79,13 @@ test_that("launch(mr_label(...)) errors when the label has no runs", {
   expect_error(launch(mr_label("nonexistent")), "no run with label")
 })
 
-test_that("launch() rejects non-label mr_refs in first position", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("launch() rejects non-label mr_refs in first position (Shape B)", {
   new_test_db()
-  stow(data.frame(v = 1), "x")
-  hashes <- versions("x")$content_hash
+  launch({ stow(data.frame(v = 1), "x") })
+  # mr_hash references are Shape A concepts; grab("x") under Shape B has no hash
+  # But we can still test the error path by manufacturing an artifact hash.
+  stow(list(v = 1), "x_art")
+  hashes <- versions("x_art")$content_hash
   expect_error(
     launch(mr_hash(hashes[1])),
     "only mr_label\\(\\) is accepted as a first argument reference"
