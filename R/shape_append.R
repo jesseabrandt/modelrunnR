@@ -249,11 +249,94 @@
   .mr_hash_bytes(serialize(value[do.call(order, value), , drop = FALSE], NULL))
 }
 
-# Stub — Task 10 implements the server-side INSERT ... SELECT path.
-# Present so stow(tbl_lazy) dispatch doesn't fail to resolve at load_all.
 .mr_append_write_lazy <- function(name, value) {
-  stop(
-    "stow(tbl_lazy) Shape B wiring lands in the next commit (Task 10).",
-    call. = FALSE
-  )
+  run_id <- .mr_recording_run_id()
+  if (is.null(run_id) || is.na(run_id)) {
+    stop(
+      "stow(): append writes require an active launch() context; ",
+      "stow() outside launch() is not supported for lazy tbls in v0.1.",
+      call. = FALSE
+    )
+  }
+  label <- .mr_recording_variant_label()
+  if (is.null(label)) label <- NA_character_
+
+  con <- .mr_get_connection()
+  remote <- dbplyr::remote_con(value)
+  if (!identical(remote, con)) {
+    stop(
+      "stow(): lazy tbl is bound to a different DBI connection; ",
+      "call dplyr::collect() first and stow the materialized result.",
+      call. = FALSE
+    )
+  }
+
+  # Peek the lazy tbl's column types via a zero-row collect — lets us
+  # reuse the reconciliation path without materializing the full result
+  # twice.
+  zero_head <- value |> head(0) |> dplyr::collect()
+  .mr_append_guard_reserved_cols(name, zero_head)
+
+  frame_types <- .mr_append_frame_types(zero_head)
+  sql_body <- as.character(dbplyr::sql_render(value))
+  physical <- .mr_append_physical_name(name)
+  now <- Sys.time()
+
+  DBI::dbBegin(con)
+  tryCatch({
+    registered <- DBI::dbGetQuery(
+      con,
+      "SELECT * FROM _mr_append_tables WHERE logical_name = ?",
+      params = list(name)
+    )
+    if (nrow(registered) == 0L) {
+      .mr_append_ensure_table(con, name, frame_types)
+      schema <- frame_types
+    } else {
+      schema <- .mr_append_reconcile_schema(con, name, registered, zero_head)
+      coerce <- attr(schema, "coerce_to_text")
+      if (!is.null(coerce)) {
+        stop(sprintf(
+          "stow(<lazy tbl>, '%s'): type conflict on column(s) %s; lazy-path coercion deferred to v0.2. Collect() and stow the materialized frame.",
+          name, paste(coerce, collapse = ", ")
+        ), call. = FALSE)
+      }
+    }
+
+    user_cols <- names(schema)
+    insert_cols <- paste(c(
+      vapply(user_cols, .mr_quote_ident, character(1)),
+      "\"_mr_run_id\"", "\"_mr_variant_label\""
+    ), collapse = ", ")
+    select_user <- paste(
+      vapply(user_cols, .mr_quote_ident, character(1)),
+      collapse = ", "
+    )
+    sql <- sprintf(
+      "INSERT INTO %s (%s) SELECT %s, %s, %s FROM (%s) AS _src",
+      .mr_quote_ident(physical),
+      insert_cols,
+      select_user,
+      DBI::dbQuoteLiteral(con, run_id),
+      if (is.na(label)) "NULL" else DBI::dbQuoteLiteral(con, as.character(label)),
+      sql_body
+    )
+    rows_inserted <- DBI::dbExecute(con, sql)
+
+    DBI::dbExecute(
+      con,
+      "UPDATE _mr_append_tables
+          SET row_count = row_count + ?, last_seen = ?
+        WHERE logical_name = ?",
+      params = list(rows_inserted, now, name)
+    )
+    DBI::dbCommit(con)
+  }, error = function(e) {
+    DBI::dbRollback(con)
+    stop(e)
+  })
+
+  chunk_hash <- .mr_hash_bytes(charToRaw(sql_body))
+  .mr_record_write(name, chunk_hash)
+  invisible(chunk_hash)
 }

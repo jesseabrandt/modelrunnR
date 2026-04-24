@@ -1,6 +1,6 @@
 test_that("duckdb_seed makes slice_sample reproducible across runs", {
-  skip("append-mode stow: stow(tbl_lazy) inside launch body — wires in Task 10")
   new_test_db()
+  con <- .mr_get_connection()
   df <- data.frame(id = 1:1000, v = rnorm(1000))
   .mr_stow_table("big", df)
 
@@ -12,7 +12,6 @@ test_that("duckdb_seed makes slice_sample reproducible across runs", {
     },
     label = "seeded_a", duckdb_seed = 0.42, force = TRUE
   )
-  hash_a <- mr_versions_rows("sample_a")$content_hash[1]
 
   # Clear and re-run under the same seed; the sample should be byte-identical.
   launch(
@@ -23,14 +22,16 @@ test_that("duckdb_seed makes slice_sample reproducible across runs", {
     },
     label = "seeded_b", duckdb_seed = 0.42, force = TRUE
   )
-  hash_b <- mr_versions_rows("sample_b")$content_hash[1]
 
-  expect_identical(hash_a, hash_b)
+  # Both Shape B tables should have 20 rows with the same ids (same seed).
+  rows_a <- DBI::dbGetQuery(con, "SELECT id FROM sample_a__append ORDER BY id")
+  rows_b <- DBI::dbGetQuery(con, "SELECT id FROM sample_b__append ORDER BY id")
+  expect_identical(rows_a$id, rows_b$id)
 })
 
 test_that("different duckdb_seeds produce different samples", {
-  skip("append-mode stow: stow(tbl_lazy) inside launch body — wires in Task 10")
   new_test_db()
+  con <- .mr_get_connection()
   .mr_stow_table("big", data.frame(id = 1:1000, v = rnorm(1000)))
 
   launch(
@@ -42,9 +43,10 @@ test_that("different duckdb_seeds produce different samples", {
     label = "seed_y", duckdb_seed = 0.90, force = TRUE
   )
 
-  h1 <- mr_versions_rows("s1")$content_hash[1]
-  h2 <- mr_versions_rows("s2")$content_hash[1]
-  expect_false(identical(h1, h2))
+  # Different seeds should produce different sampled rows.
+  ids_1 <- DBI::dbGetQuery(con, "SELECT id FROM s1__append ORDER BY id")$id
+  ids_2 <- DBI::dbGetQuery(con, "SELECT id FROM s2__append ORDER BY id")$id
+  expect_false(identical(ids_1, ids_2))
 })
 
 test_that("out-of-range duckdb_seed errors", {

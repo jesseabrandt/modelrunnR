@@ -130,3 +130,28 @@ test_that("stow(obj, name) for non-tabular values still goes to Shape A", {
     "SELECT * FROM _mr_append_tables WHERE logical_name = 'my_model'")
   expect_identical(nrow(reg), 0L)
 })
+
+test_that("stow(tbl_lazy, name) materializes server-side into Shape B", {
+  new_test_db()
+  con <- .mr_get_connection()
+
+  # Seed an ingested source to have something to dbplyr over.
+  src <- tempfile(fileext = ".csv")
+  write.csv(data.frame(model = c("lm","rf"), rmse = c(0.5, 0.4)),
+            src, row.names = FALSE)
+  ingest("src", src)
+
+  launch({
+    t <- grab("src")
+    t |>
+      dplyr::filter(rmse < 0.5) |>
+      stow("filtered_metrics")
+  }, label = "lm")
+
+  expect_true(DBI::dbExistsTable(con, "filtered_metrics__append"))
+  rows <- DBI::dbGetQuery(con, "SELECT * FROM filtered_metrics__append")
+  expect_identical(nrow(rows), 1L)
+  expect_identical(rows$model, "rf")
+  expect_false(is.na(rows[["_mr_run_id"]][1]))
+  expect_identical(rows[["_mr_variant_label"]][1], "lm")
+})
