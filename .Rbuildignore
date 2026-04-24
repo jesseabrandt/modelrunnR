@@ -10,3 +10,4 @@
 .*\.duckdb$
 .*\.duckdb\.wal$
 ^modelrunnR_artifacts$
+^\.worktrees$
