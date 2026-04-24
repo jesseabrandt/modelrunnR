@@ -2,6 +2,15 @@
 
 ## Surfaced 2026-04-23 (from append-mode stow plan)
 
+### `.mr_stow_lazy` is dead code after Task 9
+
+The Shape A lazy-tbl writer (`R/stow_lazy.R :: .mr_stow_lazy`) has zero
+callers after Task 9 flipped `stow(tbl_lazy, ...)` to Shape B
+(`.mr_append_write_lazy`). Two options: (a) delete it as part of the
+§12 reorg; (b) preserve it in case a bare-lazy-tbl `rebind` path ever
+needs it. Not urgent — R CMD check doesn't fail on unused internals —
+but worth closing the loop on.
+
 ### Consider structured return from `.mr_append_reconcile_schema`
 
 The reconciler currently returns the extended `schema` list with
