@@ -3,10 +3,10 @@
 ## Breaking semantic changes
 
 * `stow(df, name)` now appends to a single growing DuckDB table per
-  logical name (Shape B: run-indexed append log), stamping each row
+  logical name (append-shape: run-indexed append log), stamping each row
   with `_mr_run_id` and `_mr_variant_label`. The prior behavior —
   creating one `_mr_versions` row per stow — remains for non-tabular
-  values (Shape A artifact). `grab(name)` returns one coherent
+  values (versioned-shape artifact). `grab(name)` returns one coherent
   snapshot by default: inside `launch()` it's the current run's rows;
   outside `launch()` it's the latest run that wrote to the name, with
   system columns stripped. Pass `run = "all"` for the full
@@ -23,24 +23,24 @@
   single exported pruner. Works on both storage shapes: the default
   `by = "auto"` dispatches on the name's shape; explicit `by = "version"`
   / `"run"` / `"age"` pin behavior. Invalid combinations (`by = "version"`
-  on a Shape B name, etc.) error clearly. `prune_variants()` stays
+  on a append-shape name, etc.) error clearly. `prune_variants()` stays
   separate — variants are a different axis from shape. This honors the
   rev-3 "shapes should be invisible to the user" amendment of the
   append-mode spec.
 * **`stow(df, name)` outside `launch()` is supported.** Mints an
-  `<interactive:TS>` run row (matching the existing Shape A / `ingest()`
+  `<interactive:TS>` run row (matching the existing versioned-shape / `ingest()`
   convention) and stamps the appended rows with that run_id. Bare stows
   no longer error; downstream launches that `grab()` the value get the
   same reproducibility warning already emitted for artifact and ingest
   inputs.
-* **`versions(name)` works for Shape B names.** Returns one row per
+* **`versions(name)` works for append-shape names.** Returns one row per
   appended chunk, keyed by its `chunk_hash`, latest-first; each row's
-  `produced_by_runs` lists the run_id that wrote that chunk. (Shape A
+  `produced_by_runs` lists the run_id that wrote that chunk. (versioned-shape
   semantics unchanged.) Amends the original append-mode spec.
-* **`mr_hash()` rebinds work on Shape B names.** Resolves against the
+* **`mr_hash()` rebinds work on append-shape names.** Resolves against the
   chunk_hashes surfaced by `versions()`, mapping the hash to the
-  producing run_id and using the same Shape B run-filter path as
-  `mr_run()`. SQL-launch `@inputs` on Shape B names are also supported
+  producing run_id and using the same append-shape run-filter path as
+  `mr_run()`. SQL-launch `@inputs` on append-shape names are also supported
   via on-demand filtered views.
 
 ## Storage

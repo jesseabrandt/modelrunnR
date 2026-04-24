@@ -1,8 +1,61 @@
 # modelrunnR TODO
 
+## Surfaced 2026-04-24 (from nested-sweep cookbook design)
+
+### Auto-surface rebind values as columns on append-shape `grab(run = "all")`
+
+Nested sweeps (hyperparameter × k-fold CV) work today via
+`mode = "cross"` on `mr_binds()`, but the user must manually stow
+rebind values into the metrics tibble as columns:
+
+```r
+tibble::tibble(
+  alpha = grab("alpha"),        # manual
+  fold  = grab("fold"),         # manual
+  rmse  = ...
+) |> stow("cv_metrics")
+```
+
+so that `grab("cv_metrics", run = "all") |> group_by(alpha)` works at
+aggregation time. The resolved rebind values are already recorded on
+each `_mr_runs.rebinds` JSON entry; they just don't flow into the
+append-shape table automatically.
+
+Proposal: `grab(name, run = "all")` on an append-shape name joins the
+accumulator against `_mr_runs.rebinds` and surfaces per-run literal /
+variant rebind values as columns alongside `run_id` and
+`variant_label`. Empty/`[]` rebinds produce no extra columns. No new
+exports.
+
+Open design questions:
+
+- **Non-literal rebind kinds.** Variant refs → surface label string;
+  `mr_run()` refs → surface run id string; bare data frames → skip (or
+  stringify as `data.frame[RxC]` matching the `rebinds` JSON `value`
+  field).
+- **Collisions.** If the user's stowed df already has a column named
+  `alpha`, user columns win; surfaced rebinds get a `_rebind_` prefix
+  on collision.
+- **Scope.** Apply to `run = "all"` only, or also to explicit
+  `run = <id>` / `variant = "x"` (where the resolved rebind columns
+  would be constants on the returned frame)?
+
+Not urgent. The cookbook pattern (`vignettes/nested-sweeps.Rmd`) works
+today with the explicit stow; this removes three lines of boilerplate
+from sweep code once the design questions are answered.
+
+### Test comments still reference `Shape A` / `Shape B`
+
+The 2026-04-24 rename to `versioned-shape` / `append-shape` covered
+user-facing surfaces (spec, framework, README, NEWS, getting-started
+vignette, this file) but deferred the ~20 test files under
+`tests/testthat/` that reference the old names in comments and
+`test_that()` descriptions. Update opportunistically when touching
+those files for other reasons, or in one dedicated rename pass.
+
 ## Surfaced 2026-04-23 (from consolidated-branch audit)
 
-### Shape B non-interactive provenance gap
+### Append-shape non-interactive provenance gap
 
 Inside a `launch()`, `stow(df, name)` commits the data row + the
 registry update in a DuckDB transaction, but the `_mr_runs.outputs`
@@ -22,8 +75,8 @@ below — doing both at once may be cleaner.
 ### `.mr_append_chunk_entries` is O(n_runs) per call — full `_mr_runs` scan
 
 Currently scans every `_mr_runs` row with a non-empty `outputs` column
-and JSON-parses each one, for every Shape B grab / versions() /
-mr_hash() resolution / SQL `@inputs` on a Shape B name. Acceptable
+and JSON-parses each one, for every append-shape grab / versions() /
+mr_hash() resolution / SQL `@inputs` on a append-shape name. Acceptable
 today; hits a wall once a store accumulates thousands of runs.
 Cleanest fix is a dedicated `_mr_append_chunks (run_id, logical_name,
 chunk_hash, rows_appended, started_at)` populated at stow commit time
@@ -32,7 +85,7 @@ after prune" issue below in the same refactor.
 
 ### Ghost chunk_hashes after `prune(name, by = "run")`
 
-Pruning rows from a Shape B physical table doesn't remove the
+Pruning rows from a append-shape physical table doesn't remove the
 `append_table` entries from `_mr_runs.outputs` JSON. `versions(name)`
 afterward still lists the pruned chunk's hash; `grab(run = pruned_id)`
 returns zero rows silently; `mr_hash(<pruned_hash>)` rebinds resolve
@@ -59,27 +112,27 @@ the registry INSERT + row INSERT.
 hashes the SQL body text. Two runs that produce identical rows via
 different SQL get different chunk_hashes; two runs that render to the
 same SQL against different upstream data get the same chunk_hash.
-`versions()` surfaces these as Shape B versions but the identity
+`versions()` surfaces these as append-shape versions but the identity
 meaning isn't uniform. Pick one: either always materialize and hash
 rows (temp-table + `.mr_hash_duckdb_table`), or document that lazy
 chunk_hash is SQL-level and frame chunk_hash is row-level. Design
 decision, not a bug — flag before v0.1.
 
-### SQL-launch records Shape B chunk_hash on `_mr_runs.inputs`; R-launch records `NA`
+### SQL-launch records append-shape chunk_hash on `_mr_runs.inputs`; R-launch records `NA`
 
-`R/launch_sql.R:120-126` resolves Shape B inputs to their chunk_hash
+`R/launch_sql.R:120-126` resolves append-shape inputs to their chunk_hash
 and records it on `_mr_runs.inputs`. `R/grab.R:125` (R-launch path)
-records `NA_character_` for the same Shape B grab. `.mr_check_inputs`
-treats NA-hash entries as "always fresh" — so an R-mode consumer of a
-Shape B input never goes stale when the upstream changes, while a
+records `NA_character_` for the same append-shape grab. `.mr_check_inputs`
+treats NA-hash entries as "always fresh" — so an R-mode consumer of an
+append-shape input never goes stale when the upstream changes, while a
 SQL-mode consumer does. Pick one convention per the
 shape-invisibility principle; matching the SQL-mode behavior on R
-would give real upstream-change detection for Shape B inputs.
+would give real upstream-change detection for append-shape inputs.
 
 ### `serialize()`-based chunk_hash is not R-version-stable
 
 Frame-path chunk_hash uses R's `serialize()` format, which may change
-with major R upgrades. A Shape B `chunk_hash` recorded on R 4.x may
+with major R upgrades. A append-shape `chunk_hash` recorded on R 4.x may
 differ on R 5.x for identical content. Pre-1.0 is fine to leave; fix
 pre-release by hashing a canonical representation
 (`digest::digest(x, algo = "xxhash64")` on a column-wise sort) or
@@ -128,9 +181,9 @@ the on.exit handler doesn't drop the staging table. Move the flag
 flip to after the `dbCommit` returns. Pre-existing pattern, not new
 to the append-mode branch.
 
-### Shape A extraction to `shape_versioned.R`
+### Versioned-shape extraction to `shape_versioned.R`
 
-Spec §12 calls for `R/shape_versioned.R` to absorb Shape A writer
+Spec §12 calls for `R/shape_versioned.R` to absorb versioned-shape writer
 logic currently sitting inline in `R/stow.R` (.mr_stow_table,
 .mr_stow_artifact) and `R/versions.R`. Deferred — touches a lot of
 surface and pairs naturally with the `_mr_append_chunks` refactor.
@@ -167,13 +220,13 @@ passes can double-rewrite. Edge case; real SQL with `name__hex_hash`
 physical names won't collide in practice. Consider placeholder
 replacement (two-pass: name -> UUID -> physical) for defense.
 
-### Batch vignette reads like Shape A semantics
+### Batch vignette reads like versioned-shape semantics
 
 `vignettes/batch-launches.Rmd:164-178` uses `stow(data.frame(), "src")`
-producing "versions" — under the new contract this is Shape B, so the
+producing "versions" — under the new contract this is append-shape, so the
 per-call chunks are surfaced as versions via the Option Y amendment,
-but the vignette narrative still describes it in Shape A terms. Fix:
-either switch the vignette source to `ingest()` (keeps Shape A) or
+but the vignette narrative still describes it in versioned-shape terms. Fix:
+either switch the vignette source to `ingest()` (keeps versioned-shape) or
 rewrite the surrounding prose to name the chunk-per-append model.
 
 ## Surfaced 2026-04-23 (from feat/batch-id merge)
@@ -183,20 +236,20 @@ rewrite the surrounding prose to name the chunk-per-append model.
 The merge of feat/batch-id into feat/append-mode-stow dropped two SQL-batch
 tests ("SQL batch fans out one envelope per version of a rebound input" and
 "SQL batch with one bad rebind still records the others") because both
-harvested Shape A content hashes via `stow(data.frame(), "src")` +
+harvested versioned-shape content hashes via `stow(data.frame(), "src")` +
 `mr_versions_rows("src")$content_hash`. Under the append-mode contract
-`stow(data.frame())` routes to Shape B, so the helper returns zero rows.
+`stow(data.frame())` routes to append-shape, so the helper returns zero rows.
 
 R-mode batch_id coverage is retained in `tests/testthat/test-launch-batch.R`.
 SQL-mode should get equivalent coverage via `ingest()` for the source data
-(which stays Shape A) so `mr_hash()`-rebound SQL batches remain tested.
+(which stays versioned-shape) so `mr_hash()`-rebound SQL batches remain tested.
 
 ## Surfaced 2026-04-23 (from append-mode stow plan)
 
 ### `.mr_stow_lazy` is dead code after Task 9
 
-The Shape A lazy-tbl writer (`R/stow_lazy.R :: .mr_stow_lazy`) has zero
-callers after Task 9 flipped `stow(tbl_lazy, ...)` to Shape B
+The versioned-shape lazy-tbl writer (`R/stow_lazy.R :: .mr_stow_lazy`) has zero
+callers after Task 9 flipped `stow(tbl_lazy, ...)` to append-shape
 (`.mr_append_write_lazy`). Two options: (a) delete it as part of the
 §12 reorg; (b) preserve it in case a bare-lazy-tbl `rebind` path ever
 needs it. Not urgent — R CMD check doesn't fail on unused internals —
@@ -220,7 +273,7 @@ data-frame `stow()`/`grab()` contract flips, and `final_practicum`'s
 modeling scripts round-trip data frames through stow/grab. After the
 plan lands, grep final_practicum for `stow(` + `grab(` patterns on
 tabular values and either (a) wrap them in `launch()` with a `label`
-so they flow through Shape B naturally, or (b) convert the affected
+so they flow through append-shape naturally, or (b) convert the affected
 values to non-tabular artifacts (e.g. `stow(list(df), name)`) where
 per-run accumulation isn't wanted. Outside-launch `grab()` callers get
 a lazy tbl with `run_id`/`variant_label` columns instead of a bare
@@ -229,12 +282,12 @@ tbl — update downstream `collect()` + column selection accordingly.
 Other follow-ups from the plan are tracked in the plan's completion
 checklist (`docs/superpowers/plans/2026-04-23-append-mode-stow-impl.md`):
 `.mr_reset_append()` user-facing promotion, lazy-path type coercion,
-block-level transaction semantics, and the §12 Shape A reorg.
+block-level transaction semantics, and the §12 versioned-shape reorg.
 
-### Block-level transaction semantics for Shape B
+### Block-level transaction semantics for append-shape
 
 Spec §6 "failed runs roll back" is currently implemented per-stow
-(each Shape B stow is an independent DuckDB transaction). A mid-block
+(each append-shape stow is an independent DuckDB transaction). A mid-block
 throw leaves any prior completed stows committed. If block-level
 rollback is desired, launch() would wrap the block in a super-txn.
 Defer to v0.2.

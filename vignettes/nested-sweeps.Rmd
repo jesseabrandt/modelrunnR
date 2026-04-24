@@ -1,0 +1,210 @@
+---
+title: "Nested sweeps: hyperparameter tuning and k-fold CV"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Nested sweeps: hyperparameter tuning and k-fold CV}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment  = "#>"
+)
+.vignette_db <- tempfile(fileext = ".duckdb")
+options(modelrunnR.db = .vignette_db)
+```
+
+Cross-validating three hyperparameter values across five folds is
+fifteen model fits arranged in a 3 × 5 grid. Conceptually that's a
+nested loop; mechanically, modelrunnR runs it as a flat cross-product
+of rebind envelopes and lets the append-shape accumulator plus a
+post-batch aggregation launch do the "nesting" for you — no nested
+`launch()` calls.
+
+See `vignette("batch-launches")` for the general feature; this is a
+cookbook application of it.
+
+## The shape
+
+- **Outer axis — hyperparameter.** One candidate value per rebind, e.g.
+  `alpha ∈ {0.1, 0.5, 1.0}`.
+- **Inner axis — fold.** One value per held-out partition, e.g.
+  `fold ∈ 1:5`.
+- **Flat sweep.** `mode = "cross"` on `mr_binds()` expands the two axes
+  into a single batch of 15 envelopes. Each envelope is an independent
+  `launch()` run writing a one-row metrics result to a shared
+  append-shape table.
+- **Aggregation.** A second `launch()` reads the 15-row accumulator,
+  groups by `alpha`, and writes a 3-row CV summary.
+
+One `batch_id` ties the 15 runs together, one append-shape table holds
+their metrics, and one follow-up run computes mean-RMSE per `alpha`.
+
+## Setup
+
+A toy regression problem so the rest of the vignette has something to
+fit:
+
+```{r setup}
+library(modelrunnR)
+
+set.seed(42)
+n  <- 200
+df <- data.frame(x1 = rnorm(n), x2 = rnorm(n))
+df$y <- 1 + df$x1 + 2 * df$x2 + rnorm(n, sd = 0.5)
+
+# Register as an ingested source so launch() blocks can grab() it.
+train_csv <- tempfile(fileext = ".csv")
+write.csv(df, train_csv, row.names = FALSE)
+ingest("training", train_csv)
+```
+
+## Pre-assign fold IDs
+
+If every envelope sampled its own random split, per-alpha RMSEs across
+folds wouldn't be directly comparable. Assign fold IDs once, stow them,
+and let every sweep run grab the same splits:
+
+```{r folds}
+launch({
+  dat <- grab("training") |> dplyr::collect()
+  set.seed(1)
+  dat$fold_id <- sample(1:5, nrow(dat), replace = TRUE)
+  stow(dat, "folds")
+}, label = "make-folds")
+```
+
+## The nested sweep
+
+One call. 3 × 5 = 15 envelopes, one run row per envelope, all tied
+together by a shared `batch_id`.
+
+`mr_binds(mode = "cross")` expands with the leftmost argument varying
+fastest, matching `expand.grid()` — so computing per-envelope labels is
+a one-liner:
+
+```{r sweep}
+grid <- expand.grid(alpha = c(0.1, 0.5, 1.0), fold = 1:5)
+
+params <- mr_binds(
+  alpha   = c(0.1, 0.5, 1.0),
+  fold    = 1:5,
+  mode    = "cross",
+  .labels = sprintf("alpha=%s_fold=%d", grid$alpha, grid$fold)
+)
+
+launch({
+  # Inside a launch, append-shape grabs default to the *current* run's
+  # rows — designed for the write-then-read-back pattern. Here we're
+  # reading data a *prior* run stowed, so ask for it by source variant:
+  folds <- grab("folds", variant = "make-folds") |> dplyr::collect()
+  train <- dplyr::filter(folds, fold_id != grab("fold"))
+  held  <- dplyr::filter(folds, fold_id == grab("fold"))
+
+  # Toy "model": fit unshrunk, then shrink coefficients toward zero by
+  # alpha. Stand-in for a real regularized fit (glmnet, xgboost, etc.).
+  fit      <- lm(y ~ x1 + x2, data = train)
+  shrunken <- coef(fit) * (1 - grab("alpha"))
+  pred     <- cbind(1, held$x1, held$x2) %*% shrunken
+
+  tibble::tibble(
+    alpha = grab("alpha"),
+    fold  = grab("fold"),
+    rmse  = sqrt(mean((pred - held$y)^2))
+  ) |> stow("cv_metrics")
+}, rebind = params)
+```
+
+Four things to notice:
+
+- **`.labels` gives every envelope its own variant identity.** Without
+  them, every envelope runs the same code against the same grabs, and
+  the skip-on-fresh check — which is keyed on `(step, label)` —
+  considers the second envelope a repeat of the first. Unique labels
+  per sweep coordinate keep each envelope independently tracked.
+- **`grab("folds", variant = "make-folds")`.** Inside a launch, the
+  append-shape default returns only the current run's rows. The
+  `variant =` selector reads the latest rows stowed under that source
+  variant — i.e. the fold assignments from the prep step.
+- **`alpha` and `fold` are carried in the stowed tibble.** Their values
+  are on the run row via `_mr_runs.rebinds` already, but surfacing them
+  as columns on the append-shape `cv_metrics` table makes the
+  aggregation step a plain `group_by()` — no JSON parsing. See
+  `TODO.md` for a follow-up that would auto-surface rebind values.
+- **No nested `launch()`.** The sweep block runs straight through to
+  `stow()`. `fold` is just another dimension of the cross-product, not
+  an inner loop.
+
+The batch returns a 15-row data frame shaped like the single-run return:
+
+```{r batch-return, eval = FALSE}
+# Each row is one envelope; columns include run_id, status,
+# duration_ms, variant_label, and the rebinds JSON.
+```
+
+And the accumulator can be inspected directly:
+
+```{r inspect-accumulator}
+grab("cv_metrics", run = "all") |> dplyr::collect()
+```
+
+## Aggregating fold-level metrics
+
+A second `launch()` reads the 15-row accumulator back as a single lazy
+tbl and summarises it. `run = "all"` is the opt-in to the full-history
+view; without it, a `grab()` outside the originating launch would
+return only the latest run's rows.
+
+```{r aggregate}
+launch({
+  grab("cv_metrics", run = "all") |>
+    dplyr::group_by(alpha) |>
+    dplyr::summarise(
+      mean_rmse = mean(rmse),
+      sd_rmse   = sd(rmse),
+      .groups   = "drop"
+    ) |>
+    stow("cv_summary")
+}, label = "cv-summary")
+
+grab("cv_summary") |> dplyr::collect()
+```
+
+`cv_summary` is itself append-shape, so re-running the sweep (e.g. with
+`alpha = c(0.1, 0.5, 1.0, 1.5)`) and re-running this aggregation writes
+a fresh row set keyed by the new `run_id`.
+
+## Recovering a batch
+
+Every envelope in a batch shares a `batch_id`. That's the anchor when
+you want to query the sweep as a group — not just by label, but as
+"the N runs from that call":
+
+```{r batch-id}
+DBI::dbGetQuery(mr_con(),
+  "SELECT batch_id, COUNT(*) AS n_envelopes, MIN(started_at) AS started
+     FROM _mr_runs
+    WHERE batch_id IS NOT NULL
+    GROUP BY batch_id ORDER BY started DESC")
+```
+
+## Mental model
+
+- Nested loops are a cognitive frame. The package runs them flat.
+- `mr_binds(..., mode = "cross")` turns the nesting into one sequence
+  of envelopes.
+- The append-shape accumulator captures per-envelope results in one
+  growing table.
+- A second `launch()` aggregates over that table. This is the "inner
+  reduction" of the logical nested loop — but mechanically, it's just
+  another tracked run.
+
+Three tracked runs hold the full workflow: `make-folds`, the 15-run
+batch sweep, and `cv-summary`. Everything else is flat.
+
+```{r cleanup, include = FALSE}
+modelrunnR:::.mr_reset_connection()
+if (file.exists(.vignette_db)) file.remove(.vignette_db)
+```

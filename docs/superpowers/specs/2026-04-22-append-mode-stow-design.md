@@ -9,22 +9,22 @@
 ## Changes from first draft (2026-04-22 → 2026-04-22 rev)
 
 - **Reframed around storage shapes, not registries.** The organizing concept is the physical layout each logical name needs (content-addressed immutable vs. run-indexed accumulator). Registries (`_mr_versions`, `_mr_append_tables`) are bookkeeping for the two shapes; they don't drive the design.
-- **Cleaner `grab()` default rule.** Inside an active `launch()`, a Shape B `grab(name)` returns the current run's rows. Outside `launch()`, it returns the full table. The previous draft's "single-row hint" (§5.2) is dropped — the rule it was warning about is gone.
+- **Cleaner `grab()` default rule.** Inside an active `launch()`, a append-shape `grab(name)` returns the current run's rows. Outside `launch()`, it returns the full table. The previous draft's "single-row hint" (§5.2) is dropped — the rule it was warning about is gone.
 - **Internal API is re-sketched around shapes, not verbs** (§12). `stow.R` and `grab.R` become thin dispatchers; the hard work lives in `shape_versioned.R` and `shape_append.R`.
-- **Prune is unified internally; exports are unchanged.** `prune_versions()` stays exported (invariant 5); a new `prune_runs()` export handles Shape B. Both call a shared internal `.mr_prune(by = ...)`.
+- **Prune is unified internally; exports are unchanged.** `prune_versions()` stays exported (invariant 5); a new `prune_runs()` export handles append-shape. Both call a shared internal `.mr_prune(by = ...)`.
 
 ## Amendments 2026-04-23 (rev 3 — shape-invisibility principle)
 
-Organizing principle going forward: **shapes should be invisible to the user.** The two storage shapes are an internals concern; a user shouldn't need to know which shape a logical name is in to decide which function to call. All user-facing operations should work on both shapes (with sensibly different *meaning*, but identical calls and — where possible — identical return schemas). Earlier amendments (option Y: `versions()` / `mr_hash()` extended to Shape B) were instances of this principle; this rev names it and closes the remaining gaps.
+Organizing principle going forward: **shapes should be invisible to the user.** The two storage shapes are an internals concern; a user shouldn't need to know which shape a logical name is in to decide which function to call. All user-facing operations should work on both shapes (with sensibly different *meaning*, but identical calls and — where possible — identical return schemas). Earlier amendments (option Y: `versions()` / `mr_hash()` extended to append-shape) were instances of this principle; this rev names it and closes the remaining gaps.
 
 Concrete decisions from this pass:
 
-- **One unified `prune()` export (shape axis).** Replaces the split `prune_versions()` + planned `prune_runs()` with a single `prune(name, by = c("version", "run", "age"), older_than = ..., keep = ..., keep_latest = ..., force = ...)` that dispatches on the name's shape. Invalid `by` for the resolved shape errors clearly (`by = "version"` on a Shape B name, etc.); `by = "age"` works on both. Internal `.mr_prune()` stays (§12). **`prune_variants()` is out of scope** of this unification — variants are a separate axis from shape, so that export is unaffected. **Invariant 5 impact:** `prune_versions()` is a pre-existing export on `main`; removal is authorized in conversation (2026-04-23). No deprecation shim — pre-1.0.
-- **`grab(name, run = "all")` is meaningful on both shapes.** On Shape B it already stacks all runs' rows with `run_id` / `variant_label` surfaced (existing §5.2). On Shape A it returns a **list** of versions (one element per version, in `versions()` row order), with each element the materialized value and names taken from `content_hash`. Makes the cross-history knob work regardless of shape, at the cost of Shape A returning a list rather than a tbl — acceptable because the user asked for "all" on an inherently non-tbl-shaped history.
-- **`versions()` ordering is latest-first for both shapes.** Shape A currently returns ascending; changed to descending by `first_seen` (and `created_at` where that's the per-row timestamp) to match Shape B. Rd docs and any callers that indexed `[1]` expecting oldest are updated. Closes `TODO.md`'s "versions() row ordering inconsistent" item.
+- **One unified `prune()` export (shape axis).** Replaces the split `prune_versions()` + planned `prune_runs()` with a single `prune(name, by = c("version", "run", "age"), older_than = ..., keep = ..., keep_latest = ..., force = ...)` that dispatches on the name's shape. Invalid `by` for the resolved shape errors clearly (`by = "version"` on a append-shape name, etc.); `by = "age"` works on both. Internal `.mr_prune()` stays (§12). **`prune_variants()` is out of scope** of this unification — variants are a separate axis from shape, so that export is unaffected. **Invariant 5 impact:** `prune_versions()` is a pre-existing export on `main`; removal is authorized in conversation (2026-04-23). No deprecation shim — pre-1.0.
+- **`grab(name, run = "all")` is meaningful on both shapes.** On append-shape it already stacks all runs' rows with `run_id` / `variant_label` surfaced (existing §5.2). On versioned-shape it returns a **list** of versions (one element per version, in `versions()` row order), with each element the materialized value and names taken from `content_hash`. Makes the cross-history knob work regardless of shape, at the cost of versioned-shape returning a list rather than a tbl — acceptable because the user asked for "all" on an inherently non-tbl-shaped history.
+- **`versions()` ordering is latest-first for both shapes.** versioned-shape currently returns ascending; changed to descending by `first_seen` (and `created_at` where that's the per-row timestamp) to match append-shape. Rd docs and any callers that indexed `[1]` expecting oldest are updated. Closes `TODO.md`'s "versions() row ordering inconsistent" item.
 
 Downstream spec sections to re-read under this principle:
-- §5 (`grab()` semantics) — `run = "all"` Shape A behavior is the new addition.
+- §5 (`grab()` semantics) — `run = "all"` versioned-shape behavior is the new addition.
 - §7 (composition with rebind / variants / prune) — "Prune" bullet list is superseded by the unified export above.
 - §12 (internal API sketch) — `prune.R`'s exported entry point is now `prune()` not `prune_versions()` / `prune_runs()`; `.mr_prune(by = ...)` is unchanged.
 
@@ -34,10 +34,10 @@ Today every `stow(df, "metrics")` call creates a new *version* under a fresh `me
 
 Under the hood there are two different *storage shapes* hiding behind one API:
 
-- **Shape A — content-addressed store.** One physical table (or blob) per distinct value. Identity is the content hash. Two runs producing the same value share the table. Used for ingested reference data, artifacts, views.
-- **Shape B — run-indexed append log.** One physical table per logical name. Rows tagged with `run_id` (and `variant_label`). Identity is the run that wrote the row. No dedup; ordering by run is the point.
+- **Versioned-shape — content-addressed store.** One physical table (or blob) per distinct value. Identity is the content hash. Two runs producing the same value share the table. Used for ingested reference data, artifacts, views.
+- **Append-shape — run-indexed append log.** One physical table per logical name. Rows tagged with `run_id` (and `variant_label`). Identity is the run that wrote the row. No dedup; ordering by run is the point.
 
-Versioning (Shape A) is right for immutable stored values that need reproducibility, rebind-by-hash, and time-travel. It's wrong for per-run tabular outputs, which are fundamentally accumulating streams indexed by run. Naming the two shapes separately is what makes the surprising cases (per-run metrics, sweep results) become obvious.
+Versioning (versioned-shape) is right for immutable stored values that need reproducibility, rebind-by-hash, and time-travel. It's wrong for per-run tabular outputs, which are fundamentally accumulating streams indexed by run. Naming the two shapes separately is what makes the surprising cases (per-run metrics, sweep results) become obvious.
 
 ## Target vignette snippet (what success looks like)
 
@@ -83,14 +83,14 @@ The mental model: "there is one `metrics` table; it grows with runs." No per-ver
 
 Every logical name in the store has exactly one shape, fixed the first time it's written.
 
-### Shape A — content-addressed
+### Versioned-shape — content-addressed
 
 - Bookkeeping table: `_mr_versions` (unchanged).
 - Kinds: `table` (ingested tabular reference data), `view`, `artifact`, `lazy`.
 - Identity: `(logical_name, content_hash)`. Physical: `<logical>__<hash>` per distinct value.
 - Contract: immutable. Reproducibility via rebind-by-hash, `mr_as_of()`, dedup across runs.
 
-### Shape B — run-indexed append log
+### Append-shape — run-indexed append log
 
 - Bookkeeping table: new `_mr_append_tables`.
 - Kinds: just one — the accumulator.
@@ -115,19 +115,19 @@ Cross-shape name collision (same `logical_name` appearing in both `_mr_versions`
 
 ```
 stow(value, name)
-  ├─ is.data.frame(value) || inherits(value, "tbl_lazy")  → Shape B (append)
-  └─ otherwise                                              → Shape A (artifact)
+  ├─ is.data.frame(value) || inherits(value, "tbl_lazy")  → append-shape (append)
+  └─ otherwise                                              → versioned-shape (artifact)
 ```
 
-The data-frame / lazy-tbl branch unconditionally goes to Shape B. There is no versioned-tabular kind under the new contract; users who want a one-shot immutable tabular value should use an artifact (`stow(as.list(df), "snapshot")`) or rely on Shape B's `run_id` filter.
+The data-frame / lazy-tbl branch unconditionally goes to append-shape. There is no versioned-tabular kind under the new contract; users who want a one-shot immutable tabular value should use an artifact (`stow(as.list(df), "snapshot")`) or rely on append-shape's `run_id` filter.
 
-> **Amendment 2026-04-23 (option Y).** The original draft said Shape B has no content-hash identity — but the chunk_hash computed per append already functions as one, at the *chunk level* (one run's contribution = one "version"). This spec's §5 / §6 originally disallowed `versions()` and `mr_hash()` on Shape B names; in practice the `batch-launches.Rmd` SQL-batch example relied on exactly those, so the implementation now surfaces per-append chunk_hashes as versions and lets `mr_hash()` resolve against them. See "Amendment §5 / §6" below.
+> **Amendment 2026-04-23 (option Y).** The original draft said append-shape has no content-hash identity — but the chunk_hash computed per append already functions as one, at the *chunk level* (one run's contribution = one "version"). This spec's §5 / §6 originally disallowed `versions()` and `mr_hash()` on append-shape names; in practice the `batch-launches.Rmd` SQL-batch example relied on exactly those, so the implementation now surfaces per-append chunk_hashes as versions and lets `mr_hash()` resolve against them. See "Amendment §5 / §6" below.
 
 Lazy-tbl stow materializes server-side via `INSERT INTO <physical> SELECT * FROM (<lazy body>)`, same shape as eager stow — no special path.
 
-**`ingest()` is unchanged.** `ingest()` loads reference data into Shape A (`kind = "table"` in `_mr_versions`) — it's for immutable source data, not per-run outputs. Only `stow()`'s data-frame / lazy-tbl path changes.
+**`ingest()` is unchanged.** `ingest()` loads reference data into versioned-shape (`kind = "table"` in `_mr_versions`) — it's for immutable source data, not per-run outputs. Only `stow()`'s data-frame / lazy-tbl path changes.
 
-## 3. Physical table shape (Shape B)
+## 3. Physical table shape (append-shape)
 
 The growing table carries two system-injected columns alongside the user's:
 
@@ -139,9 +139,9 @@ Leading-underscore names follow the package's existing `_mr_*` convention. `stow
 
 First call on a name creates the physical table with these columns appended. Subsequent calls insert rows, filling both system columns from the current run's identifiers.
 
-`physical_name` convention: `<logical>__append` (distinct from Shape A's `<logical>__<hash>`). A name containing unusual characters gets the same sanitization as today's versioned tables.
+`physical_name` convention: `<logical>__append` (distinct from versioned-shape's `<logical>__<hash>`). A name containing unusual characters gets the same sanitization as today's versioned tables.
 
-Wrap physical insert + registry update in one DuckDB transaction — matches how `stow()` already handles atomicity for Shape A kinds.
+Wrap physical insert + registry update in one DuckDB transaction — matches how `stow()` already handles atomicity for versioned-shape kinds.
 
 ## 4. Schema drift — lossless reconciliation
 
@@ -171,9 +171,9 @@ Insertion uses an explicit `INSERT INTO <physical> (<cols>) SELECT ...` so colum
 
 ### 5.1 Shape dispatch
 
-`grab(name)` first looks `name` up in the namespace (§1) and dispatches by shape. Shape A semantics are unchanged from today. What follows governs Shape B.
+`grab(name)` first looks `name` up in the namespace (§1) and dispatches by shape. Versioned-shape semantics are unchanged from today. What follows governs append-shape.
 
-### 5.2 Default rule (Shape B)
+### 5.2 Default rule (append-shape)
 
 **Revised 2026-04-23.** Default returns one coherent single-run snapshot, not the full accumulator — the exploratory `grab("metrics") |> collect()` workflow should look like any other `grab()`, not force-dump every prior run as input. The full-history view is an explicit opt-in.
 
@@ -195,13 +195,13 @@ Return type: lazy tbl (matches the post-lazy-grab world). System columns `_mr_ru
 
 **Dropped from prior draft:** the `options(modelrunnR.append_grab_hint)` single-row hint. With the rule above, the "why did I only get one row" failure mode doesn't occur at the REPL (default is "all"), and inside `launch()` a one-row default is what the user is actively asking for.
 
-> **Amendment 2026-04-23 (option Y).** `versions(name)` was originally scoped to Shape A only; implementation now returns one row per appended chunk for Shape B names, reading from `_mr_runs.outputs` entries with `kind = "append_table"`. `content_hash` on each row is the chunk_hash; `produced_by_runs` lists the producing run_id. This makes `versions()` + `mr_hash()` round-trip through Shape B, matching the `batch-launches.Rmd` SQL-batch pattern. Ordering for Shape B is latest-first (divergent from Shape A's ascending — tracked in `TODO.md`).
+> **Amendment 2026-04-23 (option Y).** `versions(name)` was originally scoped to versioned-shape only; implementation now returns one row per appended chunk for append-shape names, reading from `_mr_runs.outputs` entries with `kind = "append_table"`. `content_hash` on each row is the chunk_hash; `produced_by_runs` lists the producing run_id. This makes `versions()` + `mr_hash()` round-trip through append-shape, matching the `batch-launches.Rmd` SQL-batch pattern. Ordering for append-shape is latest-first (divergent from versioned-shape's ascending — tracked in `TODO.md`).
 
-> **Amendment 2026-04-23 (interactive writes for Shape B).** `stow(df, name)` and `stow(<lazy tbl>, name)` outside `launch()` no longer error. Implementation mints an `<interactive:TS>` `_mr_runs` row with `status = "interactive"` (matching the Shape A / `ingest()` convention in `R/interactive.R`) and stamps appended rows with that synthetic run_id. Downstream launches that `grab()` an interactively-stowed value get the same reproducibility warning already emitted for artifact / ingest inputs. This preserves grab's "latest run" rule without requiring users to wrap one-off stows in an empty `launch({})`.
+> **Amendment 2026-04-23 (interactive writes for append-shape).** `stow(df, name)` and `stow(<lazy tbl>, name)` outside `launch()` no longer error. Implementation mints an `<interactive:TS>` `_mr_runs` row with `status = "interactive"` (matching the versioned-shape / `ingest()` convention in `R/interactive.R`) and stamps appended rows with that synthetic run_id. Downstream launches that `grab()` an interactively-stowed value get the same reproducibility warning already emitted for artifact / ingest inputs. This preserves grab's "latest run" rule without requiring users to wrap one-off stows in an empty `launch({})`.
 
 ## 6. Staleness and run-transaction semantics
 
-Driven by the existing launch() machinery — code hash + input hashes + external inputs. No new staleness logic for Shape B contents.
+Driven by the existing launch() machinery — code hash + input hashes + external inputs. No new staleness logic for append-shape contents.
 
 - **`skipped_fresh` runs do not append.** The block never executes; no rows.
 - **Failed runs roll back.** `stow()` uses transactions; a crash mid-block leaves the growing table in its pre-run state. Partial appends are impossible.
@@ -210,7 +210,7 @@ Driven by the existing launch() machinery — code hash + input hashes + externa
 
 ## 7. Composition with rebind / variants / prune
 
-Inside `launch(..., rebind = list(x = ...))`, each ref kind behaves as follows when `x` resolves to a Shape B name:
+Inside `launch(..., rebind = list(x = ...))`, each ref kind behaves as follows when `x` resolves to a append-shape name:
 
 - **`mr_run(id)`** — subsequent `grab("x")` inside the block filters rows to that `run_id` (overrides the §5.2 default).
 - **`mr_variant(label)`** — `grab("x")` filters rows to the latest run with that variant.
@@ -219,14 +219,14 @@ Inside `launch(..., rebind = list(x = ...))`, each ref kind behaves as follows w
 
 Prune (superseded by rev-3 unification, 2026-04-23):
 
-- Single exported `prune(name = NULL, by = c("auto", "version", "run", "age"), older_than = ..., keep = ..., keep_latest = ..., force = ...)` dispatches on the resolved shape. `by = "auto"` (the default) picks `"version"` for Shape A names and `"run"` for Shape B names; `by = "age"` works on both. Invalid combos (`by = "version"` on a Shape B name) error clearly.
-- For Shape B, pruning drops rows (not whole tables) by `run_id` / age. Variant protection carries over — rows with a non-null `_mr_variant_label` are protected unless `force = TRUE`. Dropping all rows for a logical name does **not** drop the `_mr_append_tables` registry row; the accumulator exists even when empty.
+- Single exported `prune(name = NULL, by = c("auto", "version", "run", "age"), older_than = ..., keep = ..., keep_latest = ..., force = ...)` dispatches on the resolved shape. `by = "auto"` (the default) picks `"version"` for versioned-shape names and `"run"` for append-shape names; `by = "age"` works on both. Invalid combos (`by = "version"` on a append-shape name) error clearly.
+- For append-shape, pruning drops rows (not whole tables) by `run_id` / age. Variant protection carries over — rows with a non-null `_mr_variant_label` are protected unless `force = TRUE`. Dropping all rows for a logical name does **not** drop the `_mr_append_tables` registry row; the accumulator exists even when empty.
 - Internal `.mr_prune(by = ...)` unchanged — see §12.
 - `prune_variants()` stays as a separate export — variants are a different axis from shape.
 
 ## 8. Provenance: `_mr_runs.outputs`
 
-For Shape B stows, each run's `outputs` JSON records one entry per logical name appended:
+For append-shape stows, each run's `outputs` JSON records one entry per logical name appended:
 
 ```json
 {
@@ -269,7 +269,7 @@ Clean break — this package has no production users beyond the maintainer, who 
 | Type conflict | Coerce to TEXT (or overflow table — §4.1); warn | Never lose a run's work |
 | System column in user frame (`_mr_run_id` / `_mr_variant_label`) | Error before any insert | Caught pre-insert; user data still in memory |
 | Name collision across shapes (A and B) | Error | Contract ambiguity |
-| `mr_hash()` rebind on Shape B name | Error | Append logs aren't content-addressable |
+| `mr_hash()` rebind on append-shape name | Error | Append logs aren't content-addressable |
 | Crash mid-block | Full rollback via transaction | Atomicity |
 
 The only `stop()` conditions are pre-insert — a run that reaches a `stow()` call can always save its work.
@@ -280,11 +280,11 @@ The current `R/` layout organizes by verb (`stow.R`, `grab.R`, `versions.R`). Af
 
 ```
 R/
-  shape_versioned.R   # Shape A: insert, lookup-by-hash, list, row-count,
+  shape_versioned.R   # Versioned-shape: insert, lookup-by-hash, list, row-count,
                       # prune-by-lineage. Wraps _mr_versions.
-                      # (status 2026-04-23: deferred — Shape A writer
+                      # (status 2026-04-23: deferred — versioned-shape writer
                       # logic still lives inline in stow.R; see TODO.md)
-  shape_append.R      # Shape B: ensure_table, reconcile_schema,
+  shape_append.R      # Append-shape: ensure_table, reconcile_schema,
                       # append_rows (with system columns), query-by-run,
                       # prune-by-run. Wraps _mr_append_tables. (landed)
   namespace.R         # .mr_guard_namespace(): one name → one shape.

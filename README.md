@@ -57,8 +57,8 @@ versions("metrics")
 versions("model")
 
 # Garbage-collect older data. Dispatches on shape.
-prune("model",   keep = 3)          # keep 3 latest versions (Shape A)
-prune("metrics", keep = 3)          # keep 3 latest runs' rows  (Shape B)
+prune("model",   keep = 3)          # keep 3 latest versions (versioned-shape)
+prune("metrics", keep = 3)          # keep 3 latest runs' rows  (append-shape)
 prune(older_than = "30d", by = "age")  # shape-agnostic
 ```
 
