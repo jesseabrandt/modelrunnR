@@ -141,7 +141,12 @@
   })
 
   chunk_hash <- .mr_append_row_hash(value)
-  .mr_record_write(name, chunk_hash)
+  .mr_record_structured_output(list(
+    kind          = "append_table",
+    logical_name  = name,
+    rows_appended = nrow(value),
+    chunk_hash    = chunk_hash
+  ))
   invisible(chunk_hash)
 }
 
@@ -383,6 +388,11 @@
   })
 
   chunk_hash <- .mr_hash_bytes(charToRaw(sql_body))
-  .mr_record_write(name, chunk_hash)
+  .mr_record_structured_output(list(
+    kind          = "append_table",
+    logical_name  = name,
+    rows_appended = rows_inserted,
+    chunk_hash    = chunk_hash
+  ))
   invisible(chunk_hash)
 }

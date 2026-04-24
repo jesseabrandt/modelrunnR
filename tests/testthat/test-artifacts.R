@@ -75,7 +75,10 @@ test_that("artifacts are recorded in run outputs and addressable via from_run", 
                     params = list(run$run_id))$outputs[1],
     simplifyVector = FALSE
   )
-  names_produced <- vapply(outs, function(p) p$name, character(1))
+  # Shape A entries use $name; Shape B entries use $logical_name.
+  names_produced <- vapply(outs, function(p) {
+    if (!is.null(p$name)) p$name else p$logical_name
+  }, character(1))
   expect_setequal(names_produced, c("tbl", "fit"))
 
   refit <- grab("fit", from_run = run$run_id)

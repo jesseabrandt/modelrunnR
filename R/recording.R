@@ -80,4 +80,19 @@
   FALSE
 }
 
+# Record a structured output (non-{name,hash} shape) on the current
+# recording. Used by Shape B writes for their append_table entry.
+# Deduplication is intentionally NOT performed — Shape B writes are
+# run-indexed and one-per-logical-name-per-run is the expected pattern;
+# stray double-stow under one run is unusual enough that preserving
+# the entry is more useful than collapsing it.
+.mr_record_structured_output <- function(entry) {
+  if (!.mr_is_recording()) return(invisible(NULL))
+  rec <- .mr_state$recording
+  rec$n_stows <- rec$n_stows + 1L
+  rec$outputs <- c(rec$outputs, list(entry))
+  .mr_state$recording <- rec
+  invisible(NULL)
+}
+
 `%||%` <- function(x, y) if (is.null(x)) y else x

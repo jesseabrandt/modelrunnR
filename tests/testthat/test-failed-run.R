@@ -16,6 +16,9 @@ test_that("a script that errors still writes a run row with status = 'error'", {
 
   # The stow that happened before the error must still be recorded as output.
   outs <- jsonlite::fromJSON(runs$outputs[1], simplifyVector = FALSE)
-  out_names <- vapply(outs, function(p) p$name, character(1))
+  # Shape B (data frame) entries use $logical_name instead of $name.
+  out_names <- vapply(outs, function(p) {
+    if (!is.null(p$name)) p$name else p$logical_name
+  }, character(1))
   expect_equal(out_names, "partial")
 })
