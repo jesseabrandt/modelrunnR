@@ -32,11 +32,6 @@
   shape_b_filters    <- .mr_state$pending_shape_b_filters
   .mr_state$pending_shape_b_filters <- NULL
 
-  if (!is.null(duckdb_seed)) {
-    con_for_seed <- .mr_get_connection()
-    DBI::dbExecute(con_for_seed, "SELECT setseed(?)", params = list(duckdb_seed))
-  }
-
   staleness <- .mr_is_stale(step, variant_label = label)
   skip_on_fresh <- isTRUE(getOption("modelrunnR.skip_if_fresh", TRUE))
   will_skip <- !staleness$stale && !isTRUE(force) && skip_on_fresh
@@ -54,6 +49,14 @@
       duckdb_seed     = duckdb_seed,
       batch_id        = batch_id
     )))
+  }
+
+  # Apply duckdb_seed after the skip-check so a skipped_fresh run does
+  # not perturb the connection's RNG state. SQL-mode does it in the
+  # same order; keep the two paths consistent.
+  if (!is.null(duckdb_seed)) {
+    con_for_seed <- .mr_get_connection()
+    DBI::dbExecute(con_for_seed, "SELECT setseed(?)", params = list(duckdb_seed))
   }
 
   if (.mr_is_recording() || !is.null(.mr_state$helpers) ||

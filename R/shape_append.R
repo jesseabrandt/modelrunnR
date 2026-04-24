@@ -467,12 +467,37 @@
     )
     rows_inserted <- DBI::dbExecute(con, sql)
 
+    # Rough R-memory-equivalent size estimate for the lazy path:
+    # (rows_inserted) x (object.size of one synthesized user-cols row).
+    # Matches the frame path's object.size() semantics so the registry's
+    # size_bytes counter is comparable across both writers. Proper
+    # DuckDB on-disk sizing is tracked as a follow-up.
+    per_row_bytes <- if (length(user_cols) > 0L && nrow(zero_head) == 0L) {
+      # Build a 1-row frame of the right types from schema and measure.
+      sample_row <- as.data.frame(lapply(schema, function(type) {
+        switch(type,
+          INTEGER   = NA_integer_,
+          BIGINT    = NA_real_,
+          DOUBLE    = NA_real_,
+          VARCHAR   = NA_character_,
+          TEXT      = NA_character_,
+          BOOLEAN   = NA,
+          TIMESTAMP = Sys.time(),
+          NA
+        )
+      }), stringsAsFactors = FALSE)
+      as.numeric(utils::object.size(sample_row))
+    } else 0
+    size_bytes_delta <- rows_inserted * per_row_bytes
+
     DBI::dbExecute(
       con,
       "UPDATE _mr_append_tables
-          SET row_count = row_count + ?, last_seen = ?
+          SET row_count  = row_count + ?,
+              size_bytes = size_bytes + ?,
+              last_seen  = ?
         WHERE logical_name = ?",
-      params = list(rows_inserted, now, name)
+      params = list(rows_inserted, size_bytes_delta, now, name)
     )
     chunk_hash <- .mr_hash_bytes(charToRaw(sql_body))
     output_entry <- list(

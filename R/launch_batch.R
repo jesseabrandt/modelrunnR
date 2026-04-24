@@ -114,6 +114,11 @@
       # Resolve rebinds inside the per-envelope tryCatch so a dangling
       # mr_hash / mr_variant in one envelope doesn't halt the batch.
       resolved_rebinds <- .mr_resolve_rebinds(env_rebind)
+      # SQL path doesn't honor shape_b_filters (there's no R-side grab()
+      # inside SQL); discard the side-channel state here to match the
+      # non-batch SQL path in launch.R and avoid leaking filters set by
+      # one envelope into the next.
+      .mr_state$pending_shape_b_filters <- NULL
       .mr_launch_sql(
         src_kind                 = src_kind,
         path_or_body             = body_or_path,

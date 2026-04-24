@@ -346,8 +346,8 @@
 }
 
 # Materialize a SQL body as a versioned table. Hashed by row contents
-# (same machinery as .mr_stow_lazy); source_sql captures the rendered
-# SQL informationally.
+# via .mr_hash_duckdb_table; source_sql captures the rendered SQL
+# informationally.
 .mr_register_sql_table <- function(name, rendered_sql) {
   con <- .mr_get_connection()
 

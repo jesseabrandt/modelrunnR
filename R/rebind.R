@@ -107,7 +107,19 @@
     # provenance describes what the user passed in (data frame shape or
     # class/size); the hash links back to the just-stowed version so a
     # join against `_mr_versions` always works.
+    #
+    # Bare data frames go to Shape A for rebind. If the name already
+    # exists as Shape B, we can't stow a one-off frame as a versioned
+    # value without a shape collision; point the user at the Shape B
+    # rebind refs that do work rather than letting .mr_guard_namespace
+    # surface the generic collision error.
     if (is.data.frame(value)) {
+      if (identical(.mr_lookup_shape(name), "B")) {
+        stop(sprintf(
+          "launch(rebind=): '%s' is an append table; bare data frames aren't a valid rebind target for it. Use mr_run(id), mr_variant(label), mr_hash(chunk_hash), or mr_as_of(ts) to pick an existing run's rows.",
+          name
+        ), call. = FALSE)
+      }
       .mr_guard_namespace(name, shape = "A", new_kind = "table")
       hash <- .mr_stow_table(name, value)
       value_str <- sprintf("data.frame[%dx%d]", nrow(value), ncol(value))
