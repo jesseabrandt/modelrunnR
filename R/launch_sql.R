@@ -34,7 +34,8 @@
                            rebind, provenance,
                            external_inputs_resolved,
                            label, force, duckdb_seed,
-                           skip_on_fresh) {
+                           skip_on_fresh,
+                           batch_id = NA_character_) {
   stopifnot(src_kind %in% c("file", "inline"))
 
   # 1. Read raw bytes (file mode) or take the body string directly.
@@ -206,7 +207,8 @@
       code_body          = code_body,
       label              = label,
       provenance         = provenance,
-      duckdb_seed        = duckdb_seed
+      duckdb_seed        = duckdb_seed,
+      batch_id           = batch_id
     )))
   }
 
@@ -277,7 +279,8 @@
     variant_label   = label,
     code_body       = code_body,
     duckdb_seed     = if (is.null(duckdb_seed)) NA_real_ else duckdb_seed,
-    rebinds         = provenance
+    rebinds         = provenance,
+    batch_id        = batch_id
   )
 
   .mr_print_timing_summary(
@@ -413,7 +416,8 @@
 # created, run row records what would have been bound to.
 .mr_record_skipped_fresh_sql <- function(step, run_id, started_at,
                                          external_inputs, code_body,
-                                         label, provenance, duckdb_seed) {
+                                         label, provenance, duckdb_seed,
+                                         batch_id = NA_character_) {
   con <- .mr_get_connection()
   if (is.na(label)) {
     prior <- DBI::dbGetQuery(
@@ -450,7 +454,8 @@
     variant_label   = label,
     code_body       = code_body,
     duckdb_seed     = if (is.null(duckdb_seed)) NA_real_ else duckdb_seed,
-    rebinds         = provenance
+    rebinds         = provenance,
+    batch_id        = batch_id
   )
 }
 

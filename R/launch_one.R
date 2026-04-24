@@ -17,7 +17,7 @@
 .mr_launch_one <- function(step, code_body, inline_mode,
                            relaunch_mode, relaunch_expr, script_expr,
                            rebind, label, external_inputs, force,
-                           duckdb_seed) {
+                           duckdb_seed, batch_id = NA_character_) {
   run_id     <- .mr_new_run_id()
   started_at <- Sys.time()
   start_secs <- as.numeric(started_at)
@@ -51,7 +51,8 @@
       code_body       = code_body,
       label           = label,
       rebinds         = rebinds_provenance,
-      duckdb_seed     = duckdb_seed
+      duckdb_seed     = duckdb_seed,
+      batch_id        = batch_id
     )))
   }
 
@@ -134,7 +135,8 @@
     variant_label   = label,
     code_body       = code_body,
     duckdb_seed     = if (is.null(duckdb_seed)) NA_real_ else duckdb_seed,
-    rebinds         = rebinds_provenance
+    rebinds         = rebinds_provenance,
+    batch_id        = batch_id
   )
 
   .mr_print_timing_summary(

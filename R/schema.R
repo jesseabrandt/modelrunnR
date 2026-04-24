@@ -61,6 +61,11 @@
   # or a literal R value preview. Populated by every run that goes
   # through .mr_resolve_rebinds(); empty array '[]' when no rebinds.
   .mr_add_column_if_missing(con, "_mr_runs", "rebinds", "TEXT")
+  # Batch grouping id. One id per launch() call that fans out into a
+  # batch (mr_binds() / mr_envelopes()); shared across all envelopes
+  # in that batch. NULL for single-envelope launches -- they're
+  # already uniquely identified by run_id.
+  .mr_add_column_if_missing(con, "_mr_runs", "batch_id", "TEXT")
   # Earlier draft named this column `inline_code` and only populated
   # it for inline launches. Carry the data forward and drop the old
   # column so `code_body` stays single-source-of-truth.

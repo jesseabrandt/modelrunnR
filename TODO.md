@@ -1,5 +1,20 @@
 # modelrunnR TODO
 
+## Surfaced 2026-04-23 (from feat/batch-id merge)
+
+### SQL-mode batch_id coverage dropped in merge — needs Shape-B-friendly rewrite
+
+The merge of feat/batch-id into feat/append-mode-stow dropped two SQL-batch
+tests ("SQL batch fans out one envelope per version of a rebound input" and
+"SQL batch with one bad rebind still records the others") because both
+harvested Shape A content hashes via `stow(data.frame(), "src")` +
+`mr_versions_rows("src")$content_hash`. Under the append-mode contract
+`stow(data.frame())` routes to Shape B, so the helper returns zero rows.
+
+R-mode batch_id coverage is retained in `tests/testthat/test-launch-batch.R`.
+SQL-mode should get equivalent coverage via `ingest()` for the source data
+(which stays Shape A) so `mr_hash()`-rebound SQL batches remain tested.
+
 ## Surfaced 2026-04-23 (from R CMD check session — option Y follow-ups)
 
 ### `versions()` row ordering inconsistent between Shape A and Shape B

@@ -1,7 +1,7 @@
 # Batch launches via `rebind`
 
-**Status:** design, approved 2026-04-19
-**Scope:** `launch()` dispatch, new `on_error =` argument, new exports `mr_binds()`, `mr_variants()`, `mr_envelopes()`, new `_mr_runs.rebinds` column (applies to single launches too), vignette section.
+**Status:** design, approved 2026-04-19; amended 2026-04-23 (added `_mr_runs.batch_id`).
+**Scope:** `launch()` dispatch, new `on_error =` argument, new exports `mr_binds()`, `mr_variants()`, `mr_envelopes()`, new `_mr_runs.rebinds` column (applies to single launches too), new `_mr_runs.batch_id` column (batch mode only), vignette section.
 **Depends on:** nothing new. Coexists with [lazy-grab](2026-04-17-lazy-grab-design.md) and [launch-sql](2026-04-18-launch-sql-design.md) — both operate at the single-run layer this spec wraps.
 
 ## Motivation
@@ -186,6 +186,35 @@ New column added via `.mr_add_column_if_missing(con, "_mr_runs", "rebinds", "TEX
 ### User-facing surface
 
 No new function. Users query the column directly via `mr_con()` or by reading `_mr_runs`. A helper (`rebinds(run_id)` or similar) is out of scope for this spec; add one when a concrete use case demands it.
+
+## Batch grouping id (amended 2026-04-23)
+
+Added after first practicum use revealed a gap: repeated invocations of the same batch (same envelopes, same labels, e.g. a k-fold CV harness called twice) produced interleaved `_mr_runs` rows with no disambiguator. `started_at` orders them but doesn't *group* them, and rebind hashes are identical across the two calls so the existing `rebinds` column doesn't help either.
+
+This amendment adds a new `_mr_runs.batch_id` column (TEXT, nullable):
+
+- One id is generated per `launch()` call that fans out via `mr_binds()` / `mr_envelopes()`. It's shared across every envelope's row in that batch — success, error, and `skipped_fresh` alike.
+- Single-envelope launches leave it `NULL`. They're already uniquely identified by `run_id`, and labelling them as a "batch of 1" would be misleading.
+- Format: `batch_<ts>_<suf>` (parallel to `run_<ts>_<suf>`).
+- Generated inside `.mr_launch_batch()` / `.mr_launch_batch_sql()` once per call, then forwarded to each per-envelope `.mr_launch_one()` / `.mr_launch_sql()` call and on into `.mr_write_run_row()` / `.mr_record_skipped_fresh*()`.
+
+### Migration
+
+Additive only — `.mr_add_column_if_missing(con, "_mr_runs", "batch_id", "TEXT")`. Existing rows get `NULL` and stay readable.
+
+### User-facing surface
+
+No new function. Group by `batch_id` to recover the envelope set of a single call:
+
+```r
+DBI::dbGetQuery(mr_con(),
+  "SELECT batch_id, COUNT(*) AS n, MIN(started_at) AS started
+     FROM _mr_runs
+    WHERE batch_id IS NOT NULL
+    GROUP BY batch_id ORDER BY started DESC")
+```
+
+A helper (`batches()` or similar) is out of scope here; add when demand is concrete.
 
 ## Return shape
 
