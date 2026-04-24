@@ -1,13 +1,21 @@
-## Helpers for parsing the JSON-encoded {name, hash} pair lists that
-## Slice 3 introduced for _mr_runs.inputs/outputs.
-parse_io <- function(json) {
+## Helpers for parsing the JSON-encoded output pair lists on _mr_runs.
+## Shape B outputs use the structured form {kind, logical_name, ...};
+## Shape A outputs use {name, hash}. This parser handles both.
+parse_output_names <- function(json) {
+  if (is.na(json) || !nzchar(json)) return(character())
+  parsed <- jsonlite::fromJSON(json, simplifyVector = FALSE)
+  vapply(parsed, function(p) {
+    if (!is.null(p$name)) p$name else p$logical_name
+  }, character(1))
+}
+
+parse_input_names <- function(json) {
   if (is.na(json) || !nzchar(json)) return(character())
   parsed <- jsonlite::fromJSON(json, simplifyVector = FALSE)
   vapply(parsed, function(p) p$name, character(1))
 }
 
-test_that("run record captures observed inputs/outputs and success status", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("run record captures observed inputs/outputs and success status (Shape B)", {
   new_test_db()
 
   writer <- write_script(c(
@@ -17,7 +25,7 @@ test_that("run record captures observed inputs/outputs and success status", {
   launch(writer)
 
   rw <- write_script(c(
-    "a <- grab('a') |> dplyr::collect()",
+    "a <- grab('a', run = 'all') |> dplyr::collect()",
     "stow(data.frame(z = nrow(a)), 'c')"
   ))
   launch(rw)
@@ -28,11 +36,11 @@ test_that("run record captures observed inputs/outputs and success status", {
   expect_equal(nrow(runs), 2L)
   expect_equal(runs$status, c("success", "success"))
 
-  expect_length(parse_io(runs$inputs[1]), 0L)
-  expect_setequal(parse_io(runs$outputs[1]), c("a", "b"))
+  expect_length(parse_input_names(runs$inputs[1]), 0L)
+  expect_setequal(parse_output_names(runs$outputs[1]), c("a", "b"))
 
-  expect_equal(parse_io(runs$inputs[2]),  "a")
-  expect_equal(parse_io(runs$outputs[2]), "c")
+  expect_equal(parse_input_names(runs$inputs[2]),   "a")
+  expect_equal(parse_output_names(runs$outputs[2]), "c")
 })
 
 test_that("run record stores a positive duration and a valid timestamp", {

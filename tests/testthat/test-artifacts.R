@@ -50,15 +50,22 @@ test_that("blob_threshold option controls the storage choice", {
   expect_equal(v$storage_location, "blob")
 })
 
-test_that("namespace collision between a table and an artifact errors cleanly", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("namespace collision between a table and an artifact errors cleanly (Shape B)", {
+  # After stow(df, name) the name is registered as Shape B (append table).
+  # Trying to stow an artifact under the same name must error.
   new_test_db()
-  stow(data.frame(n = 1:3), "x")
-  expect_error(stow(list(a = 1), "x"), regexp = "already exists.*table|different kind")
+  launch({ stow(data.frame(n = 1:3), "x") })
+  expect_error(stow(list(a = 1), "x"),
+               regexp = "already exists.*append table|refusing to register")
 
+  # After stow(artifact, name) the name is registered as Shape A.
+  # Trying to stow a data frame (Shape B) under the same name must error.
   new_test_db()
   stow(list(a = 1), "y")
-  expect_error(stow(data.frame(n = 1:3), "y"), regexp = "already exists.*artifact|different kind")
+  expect_error(
+    launch({ stow(data.frame(n = 1:3), "y") }),
+    regexp = "already exists.*versioned|refusing to register"
+  )
 })
 
 test_that("artifacts are recorded in run outputs and addressable via from_run", {
