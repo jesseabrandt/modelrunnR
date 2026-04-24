@@ -23,9 +23,8 @@
 # Unified namespace guard. `shape` is the incoming shape ("A" or "B").
 # `new_kind` is the within-shape kind (artifact/table/view for Shape A;
 # ignored for Shape B which has only one kind).
-.mr_guard_namespace <- function(name, shape = c("A", "B"),
-                                new_kind = NULL, context = "stow") {
-  shape <- match.arg(shape)
+.mr_guard_namespace <- function(name, shape, new_kind = NULL, context = "stow") {
+  shape <- match.arg(shape, c("A", "B"))
   existing <- .mr_lookup_shape(name)
   if (is.null(existing)) return(invisible(NULL))
 
