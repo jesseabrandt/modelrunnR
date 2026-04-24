@@ -338,13 +338,19 @@
   }
 
   if (!is.null(variant)) {
+    # Restrict to runs that actually wrote to `name`; a run with a
+    # matching variant_label that produced a different table would
+    # otherwise silently give zero rows.
     latest_run <- DBI::dbGetQuery(
       con,
-      "SELECT run_id
-         FROM _mr_runs
-        WHERE variant_label = ?
-        ORDER BY started_at DESC
-        LIMIT 1",
+      sprintf(
+        "SELECT run_id
+           FROM _mr_runs
+          WHERE variant_label = ?
+            AND run_id IN (SELECT DISTINCT _mr_run_id FROM %s)
+          ORDER BY started_at DESC
+          LIMIT 1",
+        .mr_quote_ident(physical)),
       params = list(variant)
     )
     if (nrow(latest_run) == 0L) {

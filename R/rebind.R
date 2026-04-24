@@ -238,10 +238,17 @@
                 shape_b_filter = list(kind = "run", value = value$value)))
   }
   if (identical(kind, "variant")) {
+    # Restrict candidates to runs that actually appended to `name` — a run
+    # can have a matching variant_label but have written to other tables,
+    # and without this the filter would silently return zero rows.
+    physical <- .mr_append_physical_name(name)
     latest <- DBI::dbGetQuery(con,
-      "SELECT run_id FROM _mr_runs
-        WHERE variant_label = ?
-        ORDER BY started_at DESC LIMIT 1",
+      sprintf(
+        "SELECT run_id FROM _mr_runs
+          WHERE variant_label = ?
+            AND run_id IN (SELECT DISTINCT _mr_run_id FROM %s)
+          ORDER BY started_at DESC LIMIT 1",
+        .mr_quote_ident(physical)),
       params = list(value$value))
     if (nrow(latest) == 0L) {
       stop(sprintf(
@@ -257,15 +264,22 @@
                 shape_b_filter = list(kind = "run", value = rid)))
   }
   if (identical(kind, "as_of")) {
+    # Same filter: restrict to runs that wrote to `name` so as_of() lands
+    # on the last producing run before the timestamp, not whichever run
+    # happens to have started most recently system-wide.
+    physical <- .mr_append_physical_name(name)
     row <- DBI::dbGetQuery(con,
-      "SELECT run_id FROM _mr_runs
-        WHERE started_at <= ?
-        ORDER BY started_at DESC LIMIT 1",
+      sprintf(
+        "SELECT run_id FROM _mr_runs
+          WHERE started_at <= ?
+            AND run_id IN (SELECT DISTINCT _mr_run_id FROM %s)
+          ORDER BY started_at DESC LIMIT 1",
+        .mr_quote_ident(physical)),
       params = list(value$value))
     if (nrow(row) == 0L) {
       stop(sprintf(
-        "launch(rebind=): mr_as_of() found no run at or before %s.",
-        format(value$value)), call. = FALSE)
+        "launch(rebind=): mr_as_of() found no run of '%s' at or before %s.",
+        name, format(value$value)), call. = FALSE)
     }
     rid <- row$run_id[1]
     provenance <- list(name = name, source = "as_of",
