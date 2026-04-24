@@ -24,3 +24,28 @@ test_that("_mr_runs.outputs for Shape A artifacts keeps the legacy {name, hash} 
   expect_identical(outputs[[1]]$name, "my_model")
   expect_true(nzchar(outputs[[1]]$hash))
 })
+
+test_that("per-stow transactions commit independently; mid-block throw preserves stows that completed", {
+  new_test_db()
+  con <- .mr_get_connection()
+  launch({ stow(data.frame(m = "lm"), "metrics") }, label = "lm")
+
+  expect_error(launch({
+    stop("boom before any stow")
+  }, label = "rf"), "boom")
+
+  rows <- DBI::dbGetQuery(con, "SELECT * FROM metrics__append")
+  expect_identical(nrow(rows), 1L)
+  expect_identical(rows[["_mr_variant_label"]], "lm")
+})
+
+test_that("skipped_fresh runs do not append rows", {
+  new_test_db()
+  con <- .mr_get_connection()
+  launch({ stow(data.frame(m = "lm", v = 1), "metrics") }, label = "lm")
+  # Re-run same block under same label — should be skipped_fresh, no new row.
+  launch({ stow(data.frame(m = "lm", v = 1), "metrics") }, label = "lm")
+
+  rows <- DBI::dbGetQuery(con, "SELECT * FROM metrics__append")
+  expect_identical(nrow(rows), 1L)
+})

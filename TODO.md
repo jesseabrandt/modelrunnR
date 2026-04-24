@@ -40,6 +40,14 @@ checklist (`docs/superpowers/plans/2026-04-23-append-mode-stow-impl.md`):
 `.mr_reset_append()` user-facing promotion, lazy-path type coercion,
 block-level transaction semantics, and the §12 Shape A reorg.
 
+### Block-level transaction semantics for Shape B
+
+Spec §6 "failed runs roll back" is currently implemented per-stow
+(each Shape B stow is an independent DuckDB transaction). A mid-block
+throw leaves any prior completed stows committed. If block-level
+rollback is desired, launch() would wrap the block in a super-txn.
+Defer to v0.2.
+
 ## Surfaced 2026-04-22 (far-future stretch)
 
 ### Multi-language script support via existing bridges
