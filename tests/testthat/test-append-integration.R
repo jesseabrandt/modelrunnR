@@ -49,3 +49,24 @@ test_that("skipped_fresh runs do not append rows", {
   rows <- DBI::dbGetQuery(con, "SELECT * FROM metrics__append")
   expect_identical(nrow(rows), 1L)
 })
+
+test_that("Shape B inputs do not make downstream launches stale", {
+  new_test_db()
+  launch({ stow(data.frame(m = "lm", rmse = 0.5), "metrics") }, label = "producer")
+
+  script <- tempfile(fileext = ".R")
+  writeLines("x <- grab('metrics') |> dplyr::collect()", script)
+  r1 <- launch(script, label = "consumer")
+  r2 <- launch(script, label = "consumer")
+  expect_identical(r2$status, "skipped_fresh")
+})
+
+test_that("label propagates across Shape B grab()", {
+  new_test_db()
+  launch({ stow(data.frame(m = "lm"), "metrics") }, label = "experiment_x")
+
+  script <- tempfile(fileext = ".R")
+  writeLines("x <- grab('metrics') |> dplyr::collect()", script)
+  r <- launch(script)
+  expect_identical(r$variant_label, "experiment_x")
+})

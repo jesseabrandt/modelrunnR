@@ -155,3 +155,13 @@ test_that("stow(tbl_lazy, name) materializes server-side into Shape B", {
   expect_false(is.na(rows[["_mr_run_id"]][1]))
   expect_identical(rows[["_mr_variant_label"]][1], "lm")
 })
+
+test_that("stow() warns when a data frame has non-default row names", {
+  new_test_db()
+  .mr_start_recording(run_id = "run_1", variant_label = "lm")
+  on.exit(.mr_stop_recording(), add = TRUE)
+
+  df <- data.frame(x = 1:3)
+  rownames(df) <- c("a", "b", "c")
+  expect_warning(.mr_append_write_frame("metrics", df), "row names")
+})

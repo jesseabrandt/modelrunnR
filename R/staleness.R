@@ -159,6 +159,12 @@
   pairs <- jsonlite::fromJSON(inputs_json, simplifyVector = FALSE)
   reasons <- character()
   for (p in pairs) {
+    # Shape B inputs record (name, NA) because an append log has no
+    # single content hash. Skip the version-latest comparison on these;
+    # upstream launch freshness is the authoritative signal. jsonlite
+    # round-trips NA_character_ as null → R NULL, so handle both.
+    if (is.null(p$hash) || is.na(p$hash)) next
+
     row <- DBI::dbGetQuery(
       con,
       "SELECT content_hash FROM _mr_versions
