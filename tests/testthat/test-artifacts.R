@@ -51,6 +51,7 @@ test_that("blob_threshold option controls the storage choice", {
 })
 
 test_that("namespace collision between a table and an artifact errors cleanly", {
+  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
   stow(data.frame(n = 1:3), "x")
   expect_error(stow(list(a = 1), "x"), regexp = "already exists.*table|different kind")

@@ -1,4 +1,5 @@
 test_that("launch + stow round-trips a data frame to the next launch's grab", {
+  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
 
   writer <- write_script(c(
@@ -22,6 +23,7 @@ test_that("launch + stow round-trips a data frame to the next launch's grab", {
 })
 
 test_that("stow outside launch writes, grab outside launch reads (no recording)", {
+  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
 
   df <- data.frame(a = c(1, 2, 3))

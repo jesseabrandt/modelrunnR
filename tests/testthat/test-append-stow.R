@@ -86,3 +86,47 @@ test_that("stowing a frame with reserved system columns errors pre-insert", {
     "SELECT * FROM _mr_append_tables WHERE logical_name = 'metrics'")
   expect_identical(nrow(reg), 0L)
 })
+
+test_that("stow(df, name) inside launch() routes to Shape B", {
+  new_test_db()
+  con <- .mr_get_connection()
+
+  launch({
+    stow(data.frame(model = "lm", rmse = 0.5, stringsAsFactors = FALSE),
+         "metrics")
+  }, label = "lm")
+
+  launch({
+    stow(data.frame(model = "rf", rmse = 0.4, stringsAsFactors = FALSE),
+         "metrics")
+  }, label = "rf")
+
+  expect_true(DBI::dbExistsTable(con, "metrics__append"))
+  rows <- DBI::dbGetQuery(con,
+    "SELECT * FROM metrics__append ORDER BY _mr_variant_label")
+  expect_identical(nrow(rows), 2L)
+  expect_setequal(rows[["_mr_variant_label"]], c("lm", "rf"))
+
+  # _mr_versions must NOT have metrics (Shape A) rows.
+  versions <- DBI::dbGetQuery(con,
+    "SELECT * FROM _mr_versions WHERE logical_name = 'metrics'")
+  expect_identical(nrow(versions), 0L)
+})
+
+test_that("stow(obj, name) for non-tabular values still goes to Shape A", {
+  new_test_db()
+  con <- .mr_get_connection()
+  launch({
+    stow(list(a = 1, b = 2), "my_model")
+  }, label = "x")
+
+  versions <- DBI::dbGetQuery(con,
+    "SELECT * FROM _mr_versions WHERE logical_name = 'my_model'")
+  expect_identical(nrow(versions), 1L)
+  expect_identical(versions$kind, "artifact")
+
+  # And _mr_append_tables has nothing.
+  reg <- DBI::dbGetQuery(con,
+    "SELECT * FROM _mr_append_tables WHERE logical_name = 'my_model'")
+  expect_identical(nrow(reg), 0L)
+})

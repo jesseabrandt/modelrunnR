@@ -248,3 +248,12 @@
 .mr_append_row_hash <- function(value) {
   .mr_hash_bytes(serialize(value[do.call(order, value), , drop = FALSE], NULL))
 }
+
+# Stub — Task 10 implements the server-side INSERT ... SELECT path.
+# Present so stow(tbl_lazy) dispatch doesn't fail to resolve at load_all.
+.mr_append_write_lazy <- function(name, value) {
+  stop(
+    "stow(tbl_lazy) Shape B wiring lands in the next commit (Task 10).",
+    call. = FALSE
+  )
+}

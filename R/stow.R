@@ -50,11 +50,11 @@ stow <- function(value, name) {
   .mr_validate_name(name, context = "stow")
 
   if (inherits(value, "tbl_lazy")) {
-    .mr_guard_namespace(name, shape = "A", new_kind = "table")
-    .mr_stow_lazy(name, value)
+    .mr_guard_namespace(name, shape = "B")
+    .mr_append_write_lazy(name, value)
   } else if (is.data.frame(value)) {
-    .mr_guard_namespace(name, shape = "A", new_kind = "table")
-    .mr_stow_table(name, value)
+    .mr_guard_namespace(name, shape = "B")
+    .mr_append_write_frame(name, value)
   } else {
     .mr_guard_namespace(name, shape = "A", new_kind = "artifact")
     .mr_stow_artifact(name, value)
