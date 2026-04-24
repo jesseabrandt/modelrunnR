@@ -11,13 +11,20 @@ versions(name)
 }
 \value{
 A data frame with columns \code{content_hash}, \code{first_seen},
-\code{last_seen}, \code{size_bytes}, \code{produced_by_runs}, ordered by
-\code{first_seen}.
+\code{last_seen}, \code{size_bytes}, \code{produced_by_runs}, ordered latest
+first. \code{size_bytes} is \code{NA} for Shape B rows — the value is tracked
+at the table level in \verb{_mr_append_tables}, not per chunk.
 }
 \description{
-Returns one row per distinct \verb{(logical_name, content_hash)} pair
-for \code{name}, with the metadata needed to inspect history and decide
-what to keep versus prune. \code{produced_by_runs} is a list-column of
-the run ids that produced each version (empty when the version was
-written outside any tracked run).
+Returns one row per distinct version of \code{name}, with the metadata
+needed to inspect history and decide what to keep versus prune.
+\code{produced_by_runs} is a list-column of the run ids that produced each
+version (empty when the version was written outside any tracked run).
+}
+\details{
+Works on both storage shapes. For \strong{versioned} (Shape A) names each
+row is one \verb{(logical_name, content_hash)} pair. For \strong{append} (Shape
+B) names each row is one appended chunk; \code{content_hash} is the
+chunk's hash and \code{produced_by_runs} lists the single run that wrote
+it. Rows are ordered \strong{latest first} on both shapes.
 }

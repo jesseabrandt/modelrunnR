@@ -1,16 +1,22 @@
 #' List stored versions of a logical name
 #'
-#' Returns one row per distinct `(logical_name, content_hash)` pair
-#' for `name`, with the metadata needed to inspect history and decide
-#' what to keep versus prune. `produced_by_runs` is a list-column of
-#' the run ids that produced each version (empty when the version was
-#' written outside any tracked run).
+#' Returns one row per distinct version of `name`, with the metadata
+#' needed to inspect history and decide what to keep versus prune.
+#' `produced_by_runs` is a list-column of the run ids that produced each
+#' version (empty when the version was written outside any tracked run).
+#'
+#' Works on both storage shapes. For **versioned** (Shape A) names each
+#' row is one `(logical_name, content_hash)` pair. For **append** (Shape
+#' B) names each row is one appended chunk; `content_hash` is the
+#' chunk's hash and `produced_by_runs` lists the single run that wrote
+#' it. Rows are ordered **latest first** on both shapes.
 #'
 #' @param name A length-one character vector naming a logical value.
 #'
 #' @return A data frame with columns `content_hash`, `first_seen`,
-#'   `last_seen`, `size_bytes`, `produced_by_runs`, ordered by
-#'   `first_seen`.
+#'   `last_seen`, `size_bytes`, `produced_by_runs`, ordered latest
+#'   first. `size_bytes` is `NA` for Shape B rows — the value is tracked
+#'   at the table level in `_mr_append_tables`, not per chunk.
 #' @export
 versions <- function(name) {
   .mr_validate_name(name, context = "versions")
@@ -18,9 +24,7 @@ versions <- function(name) {
 
   # Shape B names don't use `_mr_versions`. Each append's chunk_hash,
   # recorded in the producing run's outputs JSON, functions as the
-  # version identifier. One row per append, latest first (matches the
-  # convention used by the SQL-batch vignette: content_hash[1] is the
-  # most recent version).
+  # version identifier. One row per append, latest first.
   if (identical(.mr_lookup_shape(name), "B")) {
     entries <- .mr_append_chunk_entries(con, name)
     if (nrow(entries) == 0L) {
@@ -52,7 +56,7 @@ versions <- function(name) {
     "SELECT content_hash, first_seen, last_seen, size_bytes
        FROM _mr_versions
       WHERE logical_name = ?
-      ORDER BY first_seen",
+      ORDER BY first_seen DESC",
     params = list(name)
   )
   if (nrow(v) == 0L) {
