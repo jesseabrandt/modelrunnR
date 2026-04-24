@@ -98,10 +98,7 @@
     if (nrow(registered) == 0L) {
       .mr_append_ensure_table(con, name, frame_types)
     } else {
-      # Reconciliation (columns added / dropped / type conflict) lands
-      # in a subsequent task. First-cut behavior: require exact schema
-      # match. Reconciliation will relax this.
-      .mr_append_require_schema_match(registered, value)
+      .mr_append_reconcile_schema(con, name, registered, value)
     }
 
     # Stamp system columns and insert. `dbAppendTable` matches by name
@@ -146,19 +143,57 @@
   invisible(NULL)
 }
 
-# Placeholder — tightened in the schema-drift task.
-.mr_append_require_schema_match <- function(registered_row, value) {
-  schema <- jsonlite::fromJSON(registered_row$schema_json[1], simplifyVector = FALSE)
-  incoming_cols <- names(value)
-  known_cols    <- names(schema)
-  if (!setequal(incoming_cols, known_cols)) {
-    stop(sprintf(
-      "stow(): incoming columns {%s} do not match stored schema {%s}. Schema reconciliation not yet implemented.",
-      paste(incoming_cols, collapse = ", "),
-      paste(known_cols,    collapse = ", ")
+# Reconcile the incoming frame's columns against the stored schema.
+# Returns the (possibly extended) stored schema list. Performs any
+# ALTER TABLE ADD COLUMN operations and updates _mr_append_tables's
+# schema_json inside the caller's transaction.
+.mr_append_reconcile_schema <- function(con, name, registered_row, value) {
+  physical <- registered_row$physical_name[1]
+  schema   <- jsonlite::fromJSON(registered_row$schema_json[1], simplifyVector = FALSE)
+  incoming_types <- .mr_append_frame_types(value)
+
+  added   <- setdiff(names(incoming_types), names(schema))
+  missing <- setdiff(names(schema), names(incoming_types))
+
+  if (length(added) > 0L) {
+    warning(sprintf(
+      "stow('%s'): extending schema with new column%s: %s",
+      name,
+      if (length(added) == 1L) "" else "s",
+      paste(added, collapse = ", ")
     ), call. = FALSE)
+    for (col in added) {
+      type <- incoming_types[[col]]
+      .mr_execute(
+        con,
+        sprintf("ALTER TABLE %s ADD COLUMN %s %s",
+                .mr_quote_ident(physical),
+                .mr_quote_ident(col),
+                type)
+      )
+      schema[[col]] <- type
+    }
   }
-  invisible(NULL)
+
+  if (length(missing) > 0L) {
+    message(sprintf(
+      "stow('%s'): incoming data missing column%s %s; inserted as NULL",
+      name,
+      if (length(missing) == 1L) "" else "s",
+      paste(sprintf("'%s'", missing), collapse = ", ")
+    ))
+  }
+
+  if (length(added) > 0L) {
+    schema_json <- jsonlite::toJSON(schema, auto_unbox = TRUE)
+    DBI::dbExecute(
+      con,
+      "UPDATE _mr_append_tables SET schema_json = ? WHERE logical_name = ?",
+      params = list(as.character(schema_json), name)
+    )
+  }
+
+  schema
 }
 
 # Stable, row-order-independent hash of the rows this call contributed.
