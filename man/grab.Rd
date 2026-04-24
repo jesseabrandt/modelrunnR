@@ -10,21 +10,22 @@ grab(
   from_run = NULL,
   as_of = NULL,
   source = NULL,
-  variant = NULL
+  variant = NULL,
+  run = NULL
 )
 }
 \arguments{
 \item{name}{A length-one character vector naming a logical value.}
 
 \item{version}{Optional content hash (as returned by \code{\link[=versions]{versions()}})
-to select a specific stored version.}
+to select a specific stored version. Shape A only.}
 
 \item{from_run}{Optional run id (as returned by \code{\link[=launch]{launch()}}'s
 invisibly-returned run row) to select the exact version produced
-by that run.}
+by that run. For Shape B tables, filters to rows from that run.}
 
 \item{as_of}{Optional \code{POSIXct} timestamp; returns the version
-that was latest at that time.}
+that was latest at that time. Shape A only.}
 
 \item{source}{Optional path to a CSV or Parquet file. Triggers an
 implicit \code{\link[=ingest]{ingest()}} when the file hash differs from (or is not
@@ -32,8 +33,12 @@ yet present in) the stored source metadata.}
 
 \item{variant}{Optional string; resolves to the latest version produced
 by any run launched with \code{label = variant}. Mutually exclusive with
-\code{version}, \code{from_run}, and \code{as_of}. See \emph{Variants and swappability}
-in docs/design.md for the full semantics.}
+\code{version}, \code{from_run}, \code{as_of}, and \code{run}. See \emph{Variants and
+swappability} in docs/design.md for the full semantics.}
+
+\item{run}{For append tables (Shape B) only: a run id string to filter to
+that run's rows, or \code{"all"} to return the full table regardless of
+launch context. Overrides the launch-context default.}
 }
 \value{
 For tabular stored values (ingested files, stowed data
@@ -44,12 +49,19 @@ to materialize. For non-tabular artifacts, the deserialized R
 object.
 }
 \description{
-Returns the value stowed under \code{name}. By default returns the
-current latest version. Historical versions can be selected via
-\code{version} (content hash), \code{from_run} (run id), or \code{as_of}
+Returns the value stowed under \code{name}. For versioned (Shape A) artifacts,
+the default returns the current latest version; historical versions can be
+selected via \code{version} (content hash), \code{from_run} (run id), or \code{as_of}
 (timestamp), in that precedence order.
 }
 \details{
+For append tables (Shape B), the default is launch-context aware:
+inside a \code{\link[=launch]{launch()}} block, \code{grab()} returns only the rows written by the
+current run (with system columns stripped); outside a launch it returns the
+full table with system columns renamed to user-facing \code{run_id} and
+\code{variant_label}. Pass \code{run = "all"} to bypass the launch-context default
+and always get the full table.
+
 Inside a tracked \code{\link[=launch]{launch()}}, the read is recorded as an input
 \verb{\{name, hash\}} pair on the run row. Outside a launch, the read
 is not logged.

@@ -249,6 +249,52 @@
   .mr_hash_bytes(serialize(value[do.call(order, value), , drop = FALSE], NULL))
 }
 
+# Reader for Shape B. Returns a dbplyr lazy tbl filtered per the caller's
+# intent. System columns are stripped / renamed per spec §5.2:
+#   - single run scope -> drop _mr_run_id, _mr_variant_label.
+#   - multi-run scope  -> expose as `run_id` and `variant_label`.
+.mr_append_read <- function(name, run = NULL, variant = NULL) {
+  con <- .mr_get_connection()
+  physical <- .mr_append_physical_name(name)
+  base <- dplyr::tbl(con, physical)
+
+  if (!is.null(run) && !identical(run, "all")) {
+    base <- base |>
+      dplyr::filter(.data[["_mr_run_id"]] == !!run) |>
+      dplyr::select(-dplyr::any_of(c("_mr_run_id", "_mr_variant_label")))
+    return(base)
+  }
+
+  if (!is.null(variant)) {
+    latest_run <- DBI::dbGetQuery(
+      con,
+      "SELECT run_id
+         FROM _mr_runs
+        WHERE variant_label = ?
+        ORDER BY started_at DESC
+        LIMIT 1",
+      params = list(variant)
+    )
+    if (nrow(latest_run) == 0L) {
+      stop(sprintf(
+        "grab(): no run with variant '%s' has produced '%s'.", variant, name
+      ), call. = FALSE)
+    }
+    rid <- latest_run$run_id[1]
+    base <- base |>
+      dplyr::filter(.data[["_mr_run_id"]] == !!rid) |>
+      dplyr::select(-dplyr::any_of(c("_mr_run_id", "_mr_variant_label")))
+    return(base)
+  }
+
+  # Full-table view: rename system columns to user-facing names.
+  base |>
+    dplyr::rename(
+      run_id        = "_mr_run_id",
+      variant_label = "_mr_variant_label"
+    )
+}
+
 .mr_append_write_lazy <- function(name, value) {
   run_id <- .mr_recording_run_id()
   if (is.null(run_id) || is.na(run_id)) {

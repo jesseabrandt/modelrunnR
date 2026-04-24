@@ -1,9 +1,16 @@
 #' Retrieve a value from the modelrunnR artifact store
 #'
-#' Returns the value stowed under `name`. By default returns the
-#' current latest version. Historical versions can be selected via
-#' `version` (content hash), `from_run` (run id), or `as_of`
+#' Returns the value stowed under `name`. For versioned (Shape A) artifacts,
+#' the default returns the current latest version; historical versions can be
+#' selected via `version` (content hash), `from_run` (run id), or `as_of`
 #' (timestamp), in that precedence order.
+#'
+#' For append tables (Shape B), the default is launch-context aware:
+#' inside a [launch()] block, `grab()` returns only the rows written by the
+#' current run (with system columns stripped); outside a launch it returns the
+#' full table with system columns renamed to user-facing `run_id` and
+#' `variant_label`. Pass `run = "all"` to bypass the launch-context default
+#' and always get the full table.
 #'
 #' Inside a tracked [launch()], the read is recorded as an input
 #' `{name, hash}` pair on the run row. Outside a launch, the read
@@ -18,19 +25,22 @@
 #'
 #' @param name A length-one character vector naming a logical value.
 #' @param version Optional content hash (as returned by [versions()])
-#'   to select a specific stored version.
+#'   to select a specific stored version. Shape A only.
 #' @param from_run Optional run id (as returned by [launch()]'s
 #'   invisibly-returned run row) to select the exact version produced
-#'   by that run.
+#'   by that run. For Shape B tables, filters to rows from that run.
 #' @param as_of Optional `POSIXct` timestamp; returns the version
-#'   that was latest at that time.
+#'   that was latest at that time. Shape A only.
 #' @param source Optional path to a CSV or Parquet file. Triggers an
 #'   implicit [ingest()] when the file hash differs from (or is not
 #'   yet present in) the stored source metadata.
 #' @param variant Optional string; resolves to the latest version produced
 #'   by any run launched with `label = variant`. Mutually exclusive with
-#'   `version`, `from_run`, and `as_of`. See *Variants and swappability*
-#'   in docs/design.md for the full semantics.
+#'   `version`, `from_run`, `as_of`, and `run`. See *Variants and
+#'   swappability* in docs/design.md for the full semantics.
+#' @param run For append tables (Shape B) only: a run id string to filter to
+#'   that run's rows, or `"all"` to return the full table regardless of
+#'   launch context. Overrides the launch-context default.
 #'
 #' @section Security note:
 #' Artifacts stored via [stow()] are deserialized on read with
@@ -48,15 +58,16 @@
 #'   object.
 #' @export
 grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
-                 source = NULL, variant = NULL) {
+                 source = NULL, variant = NULL, run = NULL) {
   .mr_validate_name(name, context = "grab")
   con <- .mr_get_connection()
 
   selectors <- c(!is.null(version), !is.null(from_run),
-                 !is.null(as_of),   !is.null(variant))
+                 !is.null(as_of),   !is.null(variant),
+                 !is.null(run))
   if (sum(selectors) > 1L) {
     stop("grab(): more than one selector passed; specify at most one of ",
-         "`version`, `from_run`, `as_of`, `variant`.",
+         "`version`, `from_run`, `as_of`, `variant`, `run`.",
          call. = FALSE)
   }
 
@@ -64,6 +75,48 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
     .mr_maybe_ingest(con, name, source)
   }
 
+  shape <- .mr_lookup_shape(name)
+
+  if (identical(shape, "B")) {
+    if (!is.null(version) || !is.null(as_of)) {
+      stop(sprintf(
+        "grab(): '%s' is an append table (Shape B). Use `run=`, `variant=`, or `from_run=`; %s does not apply.",
+        name, if (!is.null(version)) "`version`" else "`as_of`"
+      ), call. = FALSE)
+    }
+    if (!is.null(run)) {
+      reading <- .mr_append_read(name, run = run)
+      .mr_record_read(name, NA_character_)
+      return(reading)
+    }
+    if (!is.null(variant)) {
+      reading <- .mr_append_read(name, variant = variant)
+      .mr_record_read(name, NA_character_)
+      return(reading)
+    }
+    if (!is.null(from_run)) {
+      reading <- .mr_append_read(name, run = from_run)
+      .mr_record_read(name, NA_character_)
+      return(reading)
+    }
+    # Default: launch-context aware.
+    current_run <- .mr_recording_run_id()
+    reading <- if (!is.null(current_run) && !is.na(current_run)) {
+      .mr_append_read(name, run = current_run)
+    } else {
+      .mr_append_read(name)
+    }
+    .mr_record_read(name, NA_character_)
+    return(reading)
+  }
+
+  # Shape A — existing path (preserve behavior)
+  if (!is.null(run)) {
+    stop(sprintf(
+      "grab(): `run=` only applies to append tables (Shape B); '%s' is versioned.",
+      name
+    ), call. = FALSE)
+  }
   if (!is.null(variant)) {
     return(.mr_grab_by_variant(name, variant))
   }
