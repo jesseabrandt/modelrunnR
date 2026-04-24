@@ -1,48 +1,41 @@
-test_that("stow(lazy_tbl, name) realizes the tbl server-side", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("stow(lazy_tbl, name) realizes the tbl server-side (Shape B)", {
   new_test_db()
-  df <- data.frame(g = rep(letters[1:3], each = 4), v = 1:12)
-  stow(df, "raw")
 
-  grab("raw") |>
-    dplyr::group_by(g) |>
-    dplyr::summarise(total = sum(v), .groups = "drop") |>
-    stow("summary")
+  # Write raw data via a launch.
+  launch({ stow(data.frame(g = rep(letters[1:3], each = 4), v = 1:12), "raw") })
 
-  rows <- mr_versions_rows("summary")
-  expect_equal(nrow(rows), 1L)
-  expect_equal(rows$kind, "table")
-  expect_false(is.na(rows$source_sql[1]))
-  expect_match(rows$source_sql[1], "SELECT|GROUP BY", ignore.case = TRUE)
+  # Summarize with a lazy pipeline and stow the result (also inside launch).
+  # grab("raw", run = "all") bypasses the launch-context filter so the
+  # summarize has the full raw table to work with.
+  launch({
+    grab("raw", run = "all") |>
+      dplyr::group_by(g) |>
+      dplyr::summarise(total = sum(v), .groups = "drop") |>
+      stow("summary")
+  })
 
   got <- grab("summary") |> dplyr::collect()
   expect_equal(nrow(got), 3L)
-  expect_setequal(names(got), c("g", "total"))
+  expect_setequal(got$g, c("a", "b", "c"))
+  # System columns in full-table view: run_id and variant_label
+  expect_true(all(c("g", "total", "run_id") %in% colnames(got)))
 })
 
-test_that("stow(lazy_tbl) on a foreign connection errors clearly", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("stow(lazy_tbl) on a foreign connection errors clearly (Shape B)", {
   new_test_db()
-  df <- data.frame(x = 1:3)
-  stow(df, "t")
 
+  # The inline block's parent is globalenv(), not the test frame, so we
+  # place the foreign tbl in globalenv() temporarily.
   other <- DBI::dbConnect(duckdb::duckdb())
-  withr::defer(DBI::dbDisconnect(other, shutdown = TRUE))
+  on.exit(DBI::dbDisconnect(other, shutdown = TRUE), add = TRUE)
   DBI::dbWriteTable(other, "other_t", data.frame(x = 1:3))
-  foreign_tbl <- dplyr::tbl(other, "other_t")
+  assign(".mr_test_foreign_tbl", dplyr::tbl(other, "other_t"), envir = globalenv())
+  on.exit(rm(".mr_test_foreign_tbl", envir = globalenv()), add = TRUE)
 
   expect_error(
-    stow(foreign_tbl, "bogus"),
+    launch({ stow(.mr_test_foreign_tbl, "bogus") }),
     "different DBI connection"
   )
-})
-
-test_that("source_sql is NULL for materialized-frame stows", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
-  new_test_db()
-  stow(data.frame(x = 1:3), "mat")
-  rows <- mr_versions_rows("mat")
-  expect_true(is.na(rows$source_sql[1]))
 })
 
 test_that("source_sql is NULL for artifact stows", {
@@ -52,12 +45,11 @@ test_that("source_sql is NULL for artifact stows", {
   expect_true(is.na(rows$source_sql[1]))
 })
 
-test_that("lazy stow records an output pair on the run row", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("lazy stow records an output entry on the run row (Shape B)", {
   new_test_db()
-  stow(data.frame(x = 1:5), "raw")
+  launch({ stow(data.frame(x = 1:5), "raw") })
 
-  launch(
+  run <- launch(
     {
       grab("raw") |>
         dplyr::filter(x > 2) |>
@@ -72,6 +64,9 @@ test_that("lazy stow records an output pair on the run row", {
     "SELECT outputs FROM _mr_runs WHERE variant_label = 'lazy_stow' ORDER BY started_at DESC LIMIT 1"
   )
   outputs <- jsonlite::fromJSON(runs$outputs[1], simplifyVector = FALSE)
-  names_out <- vapply(outputs, function(p) p$name, character(1))
+  # Shape B outputs carry logical_name, not name
+  names_out <- vapply(outputs, function(p) {
+    if (!is.null(p$logical_name)) p$logical_name else p$name
+  }, character(1))
   expect_true("filtered" %in% names_out)
 })

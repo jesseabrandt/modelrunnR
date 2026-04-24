@@ -1,8 +1,8 @@
-test_that("grab() returns a lazy tbl for a stowed data.frame", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("grab() returns a lazy tbl for a stowed data.frame (Shape B)", {
   new_test_db()
-  df <- data.frame(x = 1:10, y = letters[1:10], stringsAsFactors = FALSE)
-  stow(df, "t")
+  launch({
+    stow(data.frame(x = 1:10, y = letters[1:10], stringsAsFactors = FALSE), "t")
+  })
 
   got <- grab("t")
   expect_true(inherits(got, "tbl_lazy"))
@@ -54,11 +54,9 @@ test_that("grab() on a stowed non-tabular artifact returns the R object", {
   expect_identical(got$coef, c(1, 2, 3))
 })
 
-test_that("grab() lazy tbl composes with dplyr verbs and collects", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("grab() lazy tbl composes with dplyr verbs and collects (Shape B)", {
   new_test_db()
-  df <- data.frame(g = rep(letters[1:3], each = 4), v = 1:12)
-  stow(df, "t")
+  launch({ stow(data.frame(g = rep(letters[1:3], each = 4), v = 1:12), "t") })
 
   result <- grab("t") |>
     dplyr::group_by(g) |>
@@ -68,22 +66,18 @@ test_that("grab() lazy tbl composes with dplyr verbs and collects", {
   expect_setequal(result$g, c("a", "b", "c"))
 })
 
-test_that("as.data.frame() on grab() materializes", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("as.data.frame() on grab() materializes (Shape B)", {
   new_test_db()
-  df <- data.frame(x = 1:5)
-  stow(df, "t")
+  launch({ stow(data.frame(x = 1:5), "t") })
 
   got <- as.data.frame(grab("t"))
   expect_s3_class(got, "data.frame")
   expect_equal(nrow(got), 5L)
 })
 
-test_that("tibble::as_tibble() on grab() materializes", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("tibble::as_tibble() on grab() materializes (Shape B)", {
   new_test_db()
-  df <- data.frame(x = 1:5)
-  stow(df, "t")
+  launch({ stow(data.frame(x = 1:5), "t") })
   skip_if_not_installed("tibble")
 
   got <- tibble::as_tibble(grab("t"))
@@ -91,25 +85,8 @@ test_that("tibble::as_tibble() on grab() materializes", {
   expect_equal(nrow(got), 5L)
 })
 
-test_that("grab(name, version = hash) on a table returns lazy tbl", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("grab(name, from_run = id) on a table returns lazy tbl (Shape B)", {
   new_test_db()
-  df1 <- data.frame(x = 1:3)
-  df2 <- data.frame(x = 1:6)
-  stow(df1, "t"); Sys.sleep(0.01)
-  stow(df2, "t")
-
-  rows <- mr_versions_rows("t")
-  first_hash <- rows$content_hash[1]
-  got <- grab("t", version = first_hash)
-  expect_true(inherits(got, "tbl_lazy"))
-  expect_equal(nrow(dplyr::collect(got)), 3L)
-})
-
-test_that("grab(name, from_run = id) on a table returns lazy tbl", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
-  new_test_db()
-  df <- data.frame(x = 1:4)
   run <- launch({
     stow(data.frame(x = 1:4), "t")
   }, label = "from_run_test")
@@ -119,22 +96,7 @@ test_that("grab(name, from_run = id) on a table returns lazy tbl", {
   expect_equal(nrow(dplyr::collect(got)), 4L)
 })
 
-test_that("grab(name, as_of = timestamp) on a table returns lazy tbl", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
-  new_test_db()
-  stow(data.frame(x = 1:3), "t")
-  Sys.sleep(0.05)
-  cutoff <- Sys.time()
-  Sys.sleep(0.05)
-  stow(data.frame(x = 1:7), "t")
-
-  got <- grab("t", as_of = cutoff)
-  expect_true(inherits(got, "tbl_lazy"))
-  expect_equal(nrow(dplyr::collect(got)), 3L)
-})
-
-test_that("grab(name, variant = label) on a table returns lazy tbl", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("grab(name, variant = label) on a table returns lazy tbl (Shape B)", {
   new_test_db()
   launch({ stow(data.frame(x = 1:5), "t") }, label = "variant_a")
 

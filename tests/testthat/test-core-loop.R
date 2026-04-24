@@ -1,5 +1,4 @@
-test_that("launch + stow round-trips a data frame to the next launch's grab", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("launch + stow round-trips a data frame to the next launch's grab (Shape B)", {
   new_test_db()
 
   writer <- write_script(c(
@@ -7,8 +6,11 @@ test_that("launch + stow round-trips a data frame to the next launch's grab", {
     "stow(df, 'out')"
   ))
   reader_path <- tempfile(fileext = ".rds")
+  # Outside a launch grab('out') returns the full append table with run_id
+  # and variant_label columns. Use run = 'all' to make intent explicit and
+  # ensure the full data is available regardless of launch-context default.
   reader <- write_script(c(
-    sprintf("got <- dplyr::collect(grab('out'))"),
+    sprintf("got <- dplyr::collect(grab('out', run = 'all'))"),
     sprintf("saveRDS(got, %s)", deparse(reader_path))
   ))
 
@@ -17,20 +19,10 @@ test_that("launch + stow round-trips a data frame to the next launch's grab", {
 
   got <- readRDS(reader_path)
   expect_equal(nrow(got), 3L)
-  expect_equal(sort(names(got)), c("x", "y"))
+  # run='all' outside launch: user cols + run_id + variant_label
+  expect_true(all(c("x", "y") %in% names(got)))
   expect_equal(got$x, 1:3)
   expect_equal(got$y, letters[1:3])
-})
-
-test_that("stow outside launch writes, grab outside launch reads (no recording)", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
-  new_test_db()
-
-  df <- data.frame(a = c(1, 2, 3))
-  stow(df, "direct")
-
-  got <- grab("direct") |> dplyr::collect()
-  expect_equal(got$a, c(1, 2, 3))
 })
 
 test_that("nested launch() errors instead of clobbering outer state", {
