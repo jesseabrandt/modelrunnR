@@ -60,8 +60,15 @@ launch({
 launch({ ... }, label = "rf")   # appends a row for random forest
 launch({ ... }, label = "gbm")  # appends a row for gradient boost
 
-# Outside any launch, grab() returns the whole table.
+# Outside any launch, grab() returns the latest run's rows by default
+# (see §5.2). Full history is an explicit opt-in.
 grab("metrics") |> collect()
+#> # A tibble: 1 × 3
+#>   model rmse    r2
+#>   <chr> <dbl> <dbl>
+#> 1 gbm   ...   ...
+
+grab("metrics", run = "all") |> collect()
 #> # A tibble: 3 × 5
 #>   model rmse    r2  run_id   variant_label
 #>   <chr> <dbl> <dbl> <chr>    <chr>
@@ -210,11 +217,12 @@ Inside `launch(..., rebind = list(x = ...))`, each ref kind behaves as follows w
 - **`mr_as_of(ts)`** — rows from runs with `started_at ≤ ts`, then the usual "latest run" default collapses to the last run before `ts`.
 - **`mr_hash("abc")`** — ~~errors~~ **(amended 2026-04-23, option Y)** resolves against the chunk_hash of the run that appended that content. Lookup is against `_mr_runs.outputs` scanning for `kind = "append_table"` entries with matching `logical_name` + `chunk_hash`; the resolved run_id drives the same filter as `mr_run()`. Errors if the hash matches no chunk of this name.
 
-Prune:
+Prune (superseded by rev-3 unification, 2026-04-23):
 
-- `prune_versions()` stays exported, Shape A only (invariant 5 — existing signature is a contract).
-- **New export `prune_runs()`** handles Shape B: prunes rows (not whole tables) by `run_id` / `older_than`. Variant protection carries over — rows with a non-null `_mr_variant_label` are protected unless `force = TRUE`. Dropping all rows for a logical name does **not** drop the `_mr_append_tables` registry row; the accumulator exists even when empty.
-- Internally both dispatch into `.mr_prune(by = ...)` — see §12.
+- Single exported `prune(name = NULL, by = c("auto", "version", "run", "age"), older_than = ..., keep = ..., keep_latest = ..., force = ...)` dispatches on the resolved shape. `by = "auto"` (the default) picks `"version"` for Shape A names and `"run"` for Shape B names; `by = "age"` works on both. Invalid combos (`by = "version"` on a Shape B name) error clearly.
+- For Shape B, pruning drops rows (not whole tables) by `run_id` / age. Variant protection carries over — rows with a non-null `_mr_variant_label` are protected unless `force = TRUE`. Dropping all rows for a logical name does **not** drop the `_mr_append_tables` registry row; the accumulator exists even when empty.
+- Internal `.mr_prune(by = ...)` unchanged — see §12.
+- `prune_variants()` stays as a separate export — variants are a different axis from shape.
 
 ## 8. Provenance: `_mr_runs.outputs`
 
@@ -274,32 +282,35 @@ The current `R/` layout organizes by verb (`stow.R`, `grab.R`, `versions.R`). Af
 R/
   shape_versioned.R   # Shape A: insert, lookup-by-hash, list, row-count,
                       # prune-by-lineage. Wraps _mr_versions.
+                      # (status 2026-04-23: deferred — Shape A writer
+                      # logic still lives inline in stow.R; see TODO.md)
   shape_append.R      # Shape B: ensure_table, reconcile_schema,
                       # append_rows (with system columns), query-by-run,
-                      # prune-by-run. Wraps _mr_append_tables.
+                      # prune-by-run. Wraps _mr_append_tables. (landed)
   namespace.R         # .mr_guard_namespace(): one name → one shape.
-                      # .mr_lookup_shape(name) → "A" | "B" | NULL.
+                      # .mr_lookup_shape(name) → "A" | "B" | NULL. (landed)
   stow.R              # Thin: classify value → pick shape → delegate.
   grab.R              # Thin: lookup shape → reader; arg parsing for
                       # run=/variant=/version=; launch-context detection
                       # for the §5.2 default rule.
-  prune.R             # .mr_prune(by = c("run","variant","hash","age"))
-                      # called by exported prune_versions() and prune_runs().
+  prune.R             # Exports unified prune(name, by = ...), dispatches
+                      # on shape. Internal .mr_prune(by = ...) shared.
+                      # (rev 3: replaces prune_versions + prune_runs.)
   schema.R            # unchanged — owns both _mr_versions and
                       # _mr_append_tables migrations.
 ```
 
 Concretely, the restructure touches:
 
-- `stow.R` (286 lines) → ~60 lines of dispatch + `shape_append.R` (new) + `shape_versioned.R` (extracted from existing code).
+- `stow.R` (286 lines) → ~60 lines of dispatch + `shape_append.R` (new) + `shape_versioned.R` (extracted from existing code — **deferred**).
 - `grab.R` (283 lines) → ~80 lines of dispatch + arg handling; readers move to shape modules.
-- `versions.R` → folded into `shape_versioned.R`.
-- `prune_versions.R` (261 lines) → keeps the exported entry point; implementation moves to `prune.R` + shape modules.
+- `versions.R` → folded into `shape_versioned.R` — **deferred** (versions.R still present, dispatches internally).
+- `prune_versions.R` (261 lines) → **removed** (rev 3) — replaced by unified `prune()` in `prune.R`.
 
 **Invariant check for this reorg:**
 
 - Invariant 4 (schema append-only): file moves don't touch schema.
-- Invariant 5 (exported API contract): `stow`, `grab`, `ingest`, `prune_versions`, rebind helpers — no signature changes. New exports: `prune_runs()` (additive). `grab()` gains optional `run =` arg (additive).
+- Invariant 5 (exported API contract): `stow`, `grab`, `ingest`, rebind helpers — no signature changes. `grab()` gains optional `run =` arg (additive). `prune_versions()` removal authorized by rev 3 (2026-04-23 conversation).
 - Invariant 6 (no new Imports): none.
 
 ## Open follow-ups (flagged, not decided)
