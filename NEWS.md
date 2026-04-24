@@ -6,16 +6,19 @@
   logical name (Shape B: run-indexed append log), stamping each row
   with `_mr_run_id` and `_mr_variant_label`. The prior behavior —
   creating one `_mr_versions` row per stow — remains for non-tabular
-  values (Shape A artifact). `grab(name)` inside `launch()` returns
-  the current run's rows only; outside `launch()` it returns the full
-  table with user-facing `run_id` / `variant_label` columns. See
+  values (Shape A artifact). `grab(name)` returns one coherent
+  snapshot by default: inside `launch()` it's the current run's rows;
+  outside `launch()` it's the latest run that wrote to the name, with
+  system columns stripped. Pass `run = "all"` for the full
+  cross-run view with `run_id` + `variant_label` exposed. See
   `docs/superpowers/specs/2026-04-22-append-mode-stow-design.md` for
   the design rationale.
 
 ## New features
 
-* `grab(name, run = ...)` — scope an append-table read to one run id
-  (or `"all"` for the whole table).
+* `grab(name, run = ...)` — scope an append-table read to a specific
+  run id, or pass `run = "all"` for the full-history view (every row
+  with `run_id` and `variant_label` surfaced).
 * `prune_runs(name, run_id, older_than, keep, force)` — garbage
   collect rows from append tables, mirroring `prune_versions()`'s
   policy contract.

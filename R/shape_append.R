@@ -263,16 +263,34 @@
   .mr_hash_bytes(serialize(value[do.call(order, value), , drop = FALSE], NULL))
 }
 
-# Reader for Shape B. Returns a dbplyr lazy tbl filtered per the caller's
-# intent. System columns are stripped / renamed per spec §5.2:
-#   - single run scope -> drop _mr_run_id, _mr_variant_label.
-#   - multi-run scope  -> expose as `run_id` and `variant_label`.
+# Reader for Shape B. Returns a dbplyr lazy tbl filtered per the
+# caller's intent.
+#
+# Filter semantics:
+#   - run = <id>      -> that run only. System cols stripped.
+#   - run = "all"     -> every row, all runs. System cols surfaced as
+#                        user-facing `run_id` / `variant_label`.
+#   - variant = <lbl> -> latest run with that label. System cols stripped.
+#   - (default)       -> latest run that wrote this name. System cols
+#                        stripped. "Latest" = most recent `started_at`
+#                        across runs whose `run_id` appears in the
+#                        physical table. Matches the exploratory
+#                        workflow: grab() pulls one coherent snapshot,
+#                        not the whole cross-run pile.
 .mr_append_read <- function(name, run = NULL, variant = NULL) {
   con <- .mr_get_connection()
   physical <- .mr_append_physical_name(name)
   base <- dplyr::tbl(con, physical)
 
-  if (!is.null(run) && !identical(run, "all")) {
+  if (identical(run, "all")) {
+    return(base |>
+      dplyr::rename(
+        run_id        = "_mr_run_id",
+        variant_label = "_mr_variant_label"
+      ))
+  }
+
+  if (!is.null(run)) {
     base <- base |>
       dplyr::filter(.data[["_mr_run_id"]] == !!run) |>
       dplyr::select(-dplyr::any_of(c("_mr_run_id", "_mr_variant_label")))
@@ -301,12 +319,33 @@
     return(base)
   }
 
-  # Full-table view: rename system columns to user-facing names.
-  base |>
-    dplyr::rename(
-      run_id        = "_mr_run_id",
-      variant_label = "_mr_variant_label"
+  # Default: the latest run that wrote this name. Join the table's
+  # distinct _mr_run_ids against _mr_runs to pick the one with the
+  # largest `started_at`.
+  latest <- DBI::dbGetQuery(
+    con,
+    sprintf(
+      "SELECT r.run_id
+         FROM _mr_runs r
+         JOIN (SELECT DISTINCT _mr_run_id AS rid FROM %s) a
+           ON r.run_id = a.rid
+        ORDER BY r.started_at DESC
+        LIMIT 1",
+      .mr_quote_ident(physical)
     )
+  )
+  if (nrow(latest) == 0L) {
+    # No run has contributed rows yet — return an empty, system-col-
+    # stripped tbl so downstream collect() gives zero rows with the
+    # user schema.
+    return(base |>
+      dplyr::filter(FALSE) |>
+      dplyr::select(-dplyr::any_of(c("_mr_run_id", "_mr_variant_label"))))
+  }
+  rid <- latest$run_id[1]
+  base |>
+    dplyr::filter(.data[["_mr_run_id"]] == !!rid) |>
+    dplyr::select(-dplyr::any_of(c("_mr_run_id", "_mr_variant_label")))
 }
 
 .mr_append_write_lazy <- function(name, value) {

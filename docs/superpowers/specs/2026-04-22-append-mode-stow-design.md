@@ -151,23 +151,23 @@ Insertion uses an explicit `INSERT INTO <physical> (<cols>) SELECT ...` so colum
 
 ### 5.2 Default rule (Shape B)
 
-The default depends on whether `grab()` is called from inside an active `launch()`:
+**Revised 2026-04-23.** Default returns one coherent single-run snapshot, not the full accumulator — the exploratory `grab("metrics") |> collect()` workflow should look like any other `grab()`, not force-dump every prior run as input. The full-history view is an explicit opt-in.
 
 | Context | Default | Rationale |
 |---|---|---|
 | Inside `launch()` (any label or none) | Current run's rows only (`_mr_run_id = <this run>`) | A running step reading its own accumulator wants "what I'm building now", not the whole history. |
-| Outside `launch()` (e.g. at the REPL, post-sweep analysis) | Entire table | The whole point of Shape B is the cross-run view. The accumulator's value is seeing all of it. |
+| Outside `launch()` (e.g. at the REPL, post-sweep analysis) | Latest run's rows only (most recent `started_at` among runs that wrote `name`) | Exploratory reads want a clean snapshot. Pulling the full accumulator as input stacks prior runs' rows into downstream work — usually not desired. Inspecting history is its own workflow. |
 
 Explicit args override the default:
 
 ```r
-grab(name)                     # default per table above
-grab(name, run = "all")        # entire table (explicit)
+grab(name)                     # default: single-run snapshot per table above
+grab(name, run = "all")        # full cross-run view (explicit)
 grab(name, run = run_id)       # one specific run
 grab(name, variant = "fast")   # latest run with that variant_label
 ```
 
-Return type: lazy tbl (matches the post-lazy-grab world). System columns `_mr_run_id` / `_mr_variant_label` are **stripped** when the result is scoped to a single run; they **surface** as user-friendly `run_id` and `variant_label` columns (non-underscored) when the result spans runs.
+Return type: lazy tbl (matches the post-lazy-grab world). System columns `_mr_run_id` / `_mr_variant_label` are **stripped** on every single-run result (default and explicit). On the `run = "all"` cross-run view they **surface** as user-friendly `run_id` and `variant_label` columns (non-underscored).
 
 **Dropped from prior draft:** the `options(modelrunnR.append_grab_hint)` single-row hint. With the rule above, the "why did I only get one row" failure mode doesn't occur at the REPL (default is "all"), and inside `launch()` a one-row default is what the user is actively asking for.
 

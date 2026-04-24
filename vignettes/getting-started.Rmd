@@ -72,9 +72,11 @@ get depends on how the value enters:
 - **Shape B — run-indexed append log.** `stow(df, name)` *inside a
   tracked `launch()`* appends rows to a single growing DuckDB table,
   stamping each with the run's id and variant label. `grab(name)`
-  inside `launch()` returns only the current run's rows; outside
-  `launch()` it returns the whole accumulator with user-facing
-  `run_id` and `variant_label` columns.
+  returns one coherent snapshot by default: inside a launch it's the
+  current run's rows; outside it's the latest run that wrote to the
+  name, with system columns stripped. Pass `run = "all"` for the
+  full cross-run view when you want to inspect history or compare
+  runs.
 
 ## A tracked run with `launch({ ... })`
 
@@ -139,9 +141,10 @@ launch({
   ) |> stow("metrics")
 }, label = "lm")
 
-# Outside any launch, grab() returns the whole accumulator table,
-# with system columns exposed as run_id and variant_label.
-grab("metrics") |> dplyr::collect()
+# Outside any launch, grab() returns the latest run's rows by default —
+# one clean snapshot. To inspect the full sweep across runs, opt into
+# the full-history view:
+grab("metrics", run = "all") |> dplyr::collect()
 ```
 
 ## Inspecting versions

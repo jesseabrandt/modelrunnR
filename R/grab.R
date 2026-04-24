@@ -5,12 +5,19 @@
 #' selected via `version` (content hash), `from_run` (run id), or `as_of`
 #' (timestamp), in that precedence order.
 #'
-#' For append tables (Shape B), the default is launch-context aware:
-#' inside a [launch()] block, `grab()` returns only the rows written by the
-#' current run (with system columns stripped); outside a launch it returns the
-#' full table with system columns renamed to user-facing `run_id` and
-#' `variant_label`. Pass `run = "all"` to bypass the launch-context default
-#' and always get the full table.
+#' For append tables (Shape B), the default returns one coherent snapshot —
+#' the rows from a single run — with system columns (`_mr_run_id`,
+#' `_mr_variant_label`) stripped, so `grab(name)` gives you user columns
+#' only. Which run depends on context: inside a [launch()] block it is the
+#' *current* run (rows this run has written so far); outside a launch it is
+#' the *latest* run that wrote to `name`. The exploratory workflow —
+#' `grab("metrics") |> collect()` at the REPL — thus pulls a clean slice
+#' rather than the accumulated cross-run pile.
+#'
+#' Pass `run = "all"` to opt into the full-history view: every row, with
+#' system columns surfaced as user-facing `run_id` and `variant_label`
+#' columns. That is the right lens for comparing runs (e.g. sweeping
+#' across models and plotting metrics by variant).
 #'
 #' Inside a tracked [launch()], the read is recorded as an input
 #' `{name, hash}` pair on the run row. Outside a launch, the read
@@ -39,8 +46,8 @@
 #'   `version`, `from_run`, `as_of`, and `run`. See *Variants and
 #'   swappability* in docs/design.md for the full semantics.
 #' @param run For append tables (Shape B) only: a run id string to filter to
-#'   that run's rows, or `"all"` to return the full table regardless of
-#'   launch context. Overrides the launch-context default.
+#'   that run's rows, or `"all"` to return every row with `run_id` and
+#'   `variant_label` exposed. Overrides the default single-run snapshot.
 #'
 #' @section Security note:
 #' Artifacts stored via [stow()] are deserialized on read with

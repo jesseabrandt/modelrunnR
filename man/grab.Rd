@@ -37,8 +37,8 @@ by any run launched with \code{label = variant}. Mutually exclusive with
 swappability} in docs/design.md for the full semantics.}
 
 \item{run}{For append tables (Shape B) only: a run id string to filter to
-that run's rows, or \code{"all"} to return the full table regardless of
-launch context. Overrides the launch-context default.}
+that run's rows, or \code{"all"} to return every row with \code{run_id} and
+\code{variant_label} exposed. Overrides the default single-run snapshot.}
 }
 \value{
 For tabular stored values (ingested files, stowed data
@@ -55,12 +55,19 @@ selected via \code{version} (content hash), \code{from_run} (run id), or \code{a
 (timestamp), in that precedence order.
 }
 \details{
-For append tables (Shape B), the default is launch-context aware:
-inside a \code{\link[=launch]{launch()}} block, \code{grab()} returns only the rows written by the
-current run (with system columns stripped); outside a launch it returns the
-full table with system columns renamed to user-facing \code{run_id} and
-\code{variant_label}. Pass \code{run = "all"} to bypass the launch-context default
-and always get the full table.
+For append tables (Shape B), the default returns one coherent snapshot —
+the rows from a single run — with system columns (\verb{_mr_run_id},
+\verb{_mr_variant_label}) stripped, so \code{grab(name)} gives you user columns
+only. Which run depends on context: inside a \code{\link[=launch]{launch()}} block it is the
+\emph{current} run (rows this run has written so far); outside a launch it is
+the \emph{latest} run that wrote to \code{name}. The exploratory workflow —
+\code{grab("metrics") |> collect()} at the REPL — thus pulls a clean slice
+rather than the accumulated cross-run pile.
+
+Pass \code{run = "all"} to opt into the full-history view: every row, with
+system columns surfaced as user-facing \code{run_id} and \code{variant_label}
+columns. That is the right lens for comparing runs (e.g. sweeping
+across models and plotting metrics by variant).
 
 Inside a tracked \code{\link[=launch]{launch()}}, the read is recorded as an input
 \verb{\{name, hash\}} pair on the run row. Outside a launch, the read

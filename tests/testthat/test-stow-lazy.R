@@ -14,10 +14,10 @@ test_that("stow(lazy_tbl, name) realizes the tbl server-side (Shape B)", {
       stow("summary")
   })
 
-  got <- grab("summary") |> dplyr::collect()
+  got <- grab("summary", run = "all") |> dplyr::collect()
   expect_equal(nrow(got), 3L)
   expect_setequal(got$g, c("a", "b", "c"))
-  # System columns in full-table view: run_id and variant_label
+  # run = "all" exposes system columns as user-facing run_id / variant_label.
   expect_true(all(c("g", "total", "run_id") %in% colnames(got)))
 })
 
