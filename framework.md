@@ -60,3 +60,4 @@ ASK/SURFACE post immediately and only block dependent work — see north-star-ex
 - Don't add features, refactor, or introduce abstractions that weren't asked for. (CLAUDE.md.)
 - When adding harness/runner code, check how `panelmodeler` solves the same problem first; generalize rather than copy. (CLAUDE.md.)
 - Vignettes are user-facing onboarding — keep them knittable when touching code they reference.
+- **Survey existing conventions before proposing new ones.** Before introducing a new internal tag, sentinel column value, status string, or state class, grep the package for whether one already exists for the same conceptual slot. If Shape A handles "outside launch" with pattern Y, Shape B uses pattern Y too — don't introduce a parallel name for the same underlying concept without SURFACING why the existing one doesn't fit.
