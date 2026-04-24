@@ -8,3 +8,11 @@
 *.duckdb
 *.duckdb.wal
 modelrunnR_artifacts/
+
+# Build / check artifacts
+*.Rcheck/
+*.tar.gz
+
+# OS / editor metadata
+.DS_Store
+.claude/
