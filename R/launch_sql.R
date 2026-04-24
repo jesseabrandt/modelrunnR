@@ -81,15 +81,56 @@
   # 4. Resolve @inputs to (name, content_hash) pairs and build a
   #    name -> physical_name map for substitution. Names rebound by the
   #    caller resolve to the rebound version; otherwise resolve latest.
+  #    Shape A (versioned) inputs resolve against `_mr_versions`. Shape B
+  #    (append-log) inputs resolve to a per-run filtered view built on
+  #    demand (see .mr_ensure_append_view), so the SQL body can reference
+  #    a name whose identity is run-indexed rather than content-hashed.
   con <- .mr_get_connection()
   inputs_pairs <- list()
   physical_for <- list()
   for (nm in parsed$inputs) {
     .mr_validate_name(nm, context = "launch")
+    target_hash <- rebind[[nm]]
+    shape <- .mr_lookup_shape(nm)
+
+    if (identical(shape, "B")) {
+      rid <- if (!is.null(target_hash)) {
+        found <- .mr_append_run_id_for_chunk_hash(con, nm, target_hash)
+        if (is.na(found)) {
+          stop(sprintf(
+            "launch(): mr_hash('%s') does not match any chunk of '%s'. See versions('%s') for available hashes.",
+            target_hash, nm, nm
+          ), call. = FALSE)
+        }
+        found
+      } else {
+        .mr_append_latest_run_id(con, nm)
+      }
+      if (is.na(rid)) {
+        stop(sprintf(
+          "launch(): @inputs references '%s' but no stowed value exists. Did you stow() or ingest() it first?",
+          nm
+        ), call. = FALSE)
+      }
+      view_name <- .mr_ensure_append_view(con, nm, rid)
+      # For Shape B the "content hash" recorded on the run row is the
+      # chunk_hash of the specific run being read — the same identity
+      # surfaced by versions() and mr_hash().
+      resolved_hash <- if (!is.null(target_hash)) {
+        as.character(target_hash)
+      } else {
+        .mr_append_chunk_hash_for_run(con, nm, rid)
+      }
+      inputs_pairs[[length(inputs_pairs) + 1L]] <-
+        list(name = nm, hash = resolved_hash)
+      physical_for[[nm]] <- view_name
+      next
+    }
+
+    # Shape A path ----------------------------------------------------
     # Existence pre-check with the spec-mandated wording (§6.3) -- the
     # generic resolver error ("no value stowed under '<name>'") is less
     # actionable for the SQL launch path.
-    target_hash <- rebind[[nm]]
     if (is.null(target_hash)) {
       exists_row <- DBI::dbGetQuery(
         con,

@@ -16,6 +16,37 @@ versions <- function(name) {
   .mr_validate_name(name, context = "versions")
   con <- .mr_get_connection()
 
+  # Shape B names don't use `_mr_versions`. Each append's chunk_hash,
+  # recorded in the producing run's outputs JSON, functions as the
+  # version identifier. One row per append, latest first (matches the
+  # convention used by the SQL-batch vignette: content_hash[1] is the
+  # most recent version).
+  if (identical(.mr_lookup_shape(name), "B")) {
+    entries <- .mr_append_chunk_entries(con, name)
+    if (nrow(entries) == 0L) {
+      out <- data.frame(
+        content_hash = character(),
+        first_seen   = as.POSIXct(character()),
+        last_seen    = as.POSIXct(character()),
+        size_bytes   = numeric(),
+        stringsAsFactors = FALSE
+      )
+      out$produced_by_runs <- list()
+      return(out)
+    }
+    ord <- order(entries$started_at, decreasing = TRUE)
+    entries <- entries[ord, , drop = FALSE]
+    out <- data.frame(
+      content_hash = entries$chunk_hash,
+      first_seen   = entries$started_at,
+      last_seen    = entries$started_at,
+      size_bytes   = rep(NA_real_, nrow(entries)),
+      stringsAsFactors = FALSE
+    )
+    out$produced_by_runs <- as.list(entries$run_id)
+    return(out)
+  }
+
   v <- DBI::dbGetQuery(
     con,
     "SELECT content_hash, first_seen, last_seen, size_bytes

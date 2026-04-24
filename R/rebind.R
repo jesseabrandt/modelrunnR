@@ -199,16 +199,28 @@
   row$content_hash[1]
 }
 
-# Shape B rebind resolution. mr_hash() is disallowed; mr_run(),
-# mr_variant(), and mr_as_of() all resolve to a run_id filter that
-# grab() inside the launch will honor.
+# Shape B rebind resolution. mr_run(), mr_variant(), and mr_as_of()
+# all resolve to a run_id filter that grab() inside the launch will
+# honor. mr_hash() resolves against chunk hashes recorded in
+# `_mr_runs.outputs` for append_table entries on this logical name —
+# the hash identifies a specific run's appended chunk, which then maps
+# to that run's run_id for the Shape B filter.
 .mr_resolve_rebind_shape_b <- function(con, name, value) {
   kind <- value$kind
   if (identical(kind, "hash")) {
-    stop(sprintf(
-      "launch(rebind=): mr_hash() addresses content-hashed (Shape A) values; '%s' is an append log (Shape B). Use mr_run() or mr_variant().",
-      name
-    ), call. = FALSE)
+    rid <- .mr_append_run_id_for_chunk_hash(con, name, value$value)
+    if (is.na(rid)) {
+      stop(sprintf(
+        "launch(rebind=): mr_hash('%s') does not match any chunk of '%s'. See versions('%s') for available hashes.",
+        value$value, name, name
+      ), call. = FALSE)
+    }
+    provenance <- list(name = name, source = "hash",
+                       value = as.character(value$value),
+                       hash = as.character(value$value),
+                       shape = "B", filter_kind = "run", filter_value = rid)
+    return(list(hash = as.character(value$value), provenance = provenance,
+                shape_b_filter = list(kind = "run", value = rid)))
   }
   if (identical(kind, "run")) {
     run <- DBI::dbGetQuery(con,

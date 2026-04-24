@@ -489,3 +489,135 @@
   }
   invisible(chunk_hash)
 }
+
+# Scan `_mr_runs.outputs` for append_table entries naming this logical
+# name. Returns a data frame with columns run_id, started_at, chunk_hash,
+# rows_appended — one row per append (i.e. one row per run that wrote
+# to `name`), ordered by started_at ascending. Used by `versions(name)`
+# for Shape B names and by the mr_hash() -> run_id reverse lookup.
+.mr_append_chunk_entries <- function(con, name) {
+  runs <- DBI::dbGetQuery(
+    con,
+    "SELECT run_id, started_at, outputs
+       FROM _mr_runs
+      WHERE outputs IS NOT NULL AND outputs <> '[]'
+      ORDER BY started_at"
+  )
+  if (nrow(runs) == 0L) {
+    return(data.frame(
+      run_id        = character(),
+      started_at    = as.POSIXct(character()),
+      chunk_hash    = character(),
+      rows_appended = integer(),
+      stringsAsFactors = FALSE
+    ))
+  }
+  out <- vector("list", nrow(runs))
+  for (i in seq_len(nrow(runs))) {
+    entries <- tryCatch(
+      jsonlite::fromJSON(runs$outputs[i], simplifyVector = FALSE),
+      error = function(e) list()
+    )
+    rid <- character(); hash <- character(); nrows <- integer()
+    for (e in entries) {
+      if (identical(e$kind, "append_table") &&
+          identical(e$logical_name, name)) {
+        rid   <- c(rid,   runs$run_id[i])
+        hash  <- c(hash,  as.character(e$chunk_hash))
+        nrows <- c(nrows, as.integer(e$rows_appended))
+      }
+    }
+    if (length(rid) > 0L) {
+      out[[i]] <- data.frame(
+        run_id        = rid,
+        started_at    = rep(runs$started_at[i], length(rid)),
+        chunk_hash    = hash,
+        rows_appended = nrows,
+        stringsAsFactors = FALSE
+      )
+    }
+  }
+  out <- out[!vapply(out, is.null, logical(1))]
+  if (length(out) == 0L) {
+    return(data.frame(
+      run_id        = character(),
+      started_at    = as.POSIXct(character()),
+      chunk_hash    = character(),
+      rows_appended = integer(),
+      stringsAsFactors = FALSE
+    ))
+  }
+  do.call(rbind, out)
+}
+
+# Resolve a chunk_hash to the run_id that wrote it, for a given Shape B
+# logical name. Returns NA_character_ if no match. If the same
+# chunk_hash appears for multiple runs (possible when two runs append
+# identical content), the most recent run wins.
+.mr_append_run_id_for_chunk_hash <- function(con, name, chunk_hash) {
+  entries <- .mr_append_chunk_entries(con, name)
+  hits <- entries[entries$chunk_hash == as.character(chunk_hash), , drop = FALSE]
+  if (nrow(hits) == 0L) return(NA_character_)
+  hits <- hits[order(hits$started_at, decreasing = TRUE), , drop = FALSE]
+  hits$run_id[1]
+}
+
+# Latest run_id that wrote to a Shape B logical name, or NA_character_
+# if the name has no appended chunks yet.
+.mr_append_latest_run_id <- function(con, name) {
+  entries <- .mr_append_chunk_entries(con, name)
+  if (nrow(entries) == 0L) return(NA_character_)
+  entries <- entries[order(entries$started_at, decreasing = TRUE), , drop = FALSE]
+  entries$run_id[1]
+}
+
+# chunk_hash of a specific run's append on a Shape B logical name, or
+# NA_character_ if none. Used by the SQL-launch path to record which
+# chunk was read even when the caller didn't pass an explicit mr_hash().
+.mr_append_chunk_hash_for_run <- function(con, name, run_id) {
+  entries <- .mr_append_chunk_entries(con, name)
+  hits <- entries[entries$run_id == run_id, , drop = FALSE]
+  if (nrow(hits) == 0L) return(NA_character_)
+  hits$chunk_hash[1]
+}
+
+# Create (idempotently) a read-only DuckDB view projecting the user
+# columns of a Shape B logical name's physical append table, filtered
+# to a single run's rows. Returns the view's physical name. Used by
+# SQL-launch @inputs substitution so that bodies like `FROM src` can
+# reference a run-filtered slice without R-side dbplyr staging.
+.mr_ensure_append_view <- function(con, name, run_id) {
+  reg <- DBI::dbGetQuery(
+    con,
+    "SELECT physical_name, schema_json FROM _mr_append_tables WHERE logical_name = ?",
+    params = list(name)
+  )
+  if (nrow(reg) == 0L) {
+    stop(sprintf(
+      "modelrunnR internal: no _mr_append_tables row for '%s'.", name
+    ), call. = FALSE)
+  }
+  physical <- reg$physical_name[1]
+  schema   <- jsonlite::fromJSON(reg$schema_json[1], simplifyVector = FALSE)
+  user_cols <- paste(
+    vapply(names(schema), .mr_quote_ident, character(1)),
+    collapse = ", "
+  )
+  # Name the view deterministically: reusable across calls, and the
+  # run_id suffix makes it unique per rebind so the SQL-launch body
+  # hash differs across rebinds (consistent with Shape A's content-hash
+  # physical names driving staleness).
+  view_name <- sprintf("%s__run__%s", name,
+                       gsub("[^0-9A-Za-z_]", "_", run_id))
+  .mr_execute(
+    con,
+    sprintf(
+      "CREATE OR REPLACE VIEW %s AS SELECT %s FROM %s WHERE \"_mr_run_id\" = %s",
+      .mr_quote_ident(view_name),
+      user_cols,
+      .mr_quote_ident(physical),
+      DBI::dbQuoteLiteral(con, run_id)
+    )
+  )
+  view_name
+}

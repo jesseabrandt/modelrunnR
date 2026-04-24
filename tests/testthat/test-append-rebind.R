@@ -16,14 +16,35 @@ test_that("mr_run() rebind on Shape B filters grab() to that run", {
   expect_identical(captured$m, "lm")
 })
 
-test_that("mr_hash() on a Shape B name errors with a clear message", {
+test_that("mr_hash() on a Shape B name with an unknown hash errors clearly", {
   new_test_db()
   launch({ stow(data.frame(m="lm"), "metrics") }, label = "lm")
   expect_error(
     launch({ grab("metrics") }, label = "r",
            rebind = list(metrics = mr_hash("abc"))),
-    "mr_hash.*append log|append.*mr_hash"
+    "does not match any chunk"
   )
+})
+
+test_that("mr_hash() on a Shape B name resolves to the chunk from versions()", {
+  new_test_db()
+  launch({ stow(data.frame(m = "lm", rmse = 0.5), "metrics") }, label = "lm")
+  launch({ stow(data.frame(m = "rf", rmse = 0.4), "metrics") }, label = "rf")
+
+  v <- versions("metrics")
+  expect_equal(nrow(v), 2L)
+
+  e <- new.env(parent = globalenv())
+  assign(".mr_rebind_test_env", e, envir = globalenv())
+  on.exit(rm(".mr_rebind_test_env", envir = globalenv()), add = TRUE)
+
+  launch({
+    .mr_rebind_test_env$captured <- grab("metrics") |> dplyr::collect()
+  }, label = "read", rebind = list(metrics = mr_hash(v$content_hash[2])))  # older
+
+  captured <- e$captured
+  expect_equal(nrow(captured), 1L)
+  expect_equal(captured$m, "lm")
 })
 
 test_that("mr_variant() rebind on Shape B filters to latest run with that label", {
