@@ -61,3 +61,28 @@ test_that("second write appends under existing physical table", {
     "SELECT row_count FROM _mr_append_tables WHERE logical_name = 'metrics'")
   expect_equal(as.integer(reg$row_count), 2L)
 })
+
+test_that("stowing a frame with reserved system columns errors pre-insert", {
+  new_test_db()
+  con <- .mr_get_connection()
+
+  .mr_start_recording(run_id = "run_1", variant_label = "lm")
+  on.exit(.mr_stop_recording(), add = TRUE)
+
+  bad <- data.frame(
+    model      = "lm",
+    `_mr_run_id` = "fake",
+    check.names = FALSE,
+    stringsAsFactors = FALSE
+  )
+  expect_error(
+    .mr_append_write_frame("metrics", bad),
+    "'_mr_run_id' (is|are) reserved"
+  )
+
+  # No physical table created, no registry row written.
+  expect_false(DBI::dbExistsTable(con, "metrics__append"))
+  reg <- DBI::dbGetQuery(con,
+    "SELECT * FROM _mr_append_tables WHERE logical_name = 'metrics'")
+  expect_identical(nrow(reg), 0L)
+})
