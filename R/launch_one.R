@@ -58,7 +58,7 @@
     stop("launch(): nested launches are not supported in v0.1.", call. = FALSE)
   }
 
-  .mr_start_recording()
+  .mr_start_recording(run_id = run_id, variant_label = label)
   .mr_start_helper_tracking()
   .mr_start_rebinding(rebinds_map)
   on.exit(

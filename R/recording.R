@@ -5,17 +5,19 @@
 ## serializes these lists to JSON in `_mr_runs.inputs` and
 ## `_mr_runs.outputs`.
 ##
-## Slice 1 recorded names only; Slice 3 evolved the shape to
-## name/hash pairs once versioning landed. Deduplication is on
-## (name, hash) -- if a script reads the exact same version twice,
-## it is recorded once.
+## Also carries the current run_id and variant_label so Shape B stow
+## can stamp `_mr_run_id` / `_mr_variant_label` system columns on the
+## rows it appends.
 
-.mr_start_recording <- function() {
+.mr_start_recording <- function(run_id = NA_character_,
+                                variant_label = NA_character_) {
   .mr_state$recording <- list(
-    inputs  = list(),
-    outputs = list(),
-    n_grabs = 0L,
-    n_stows = 0L
+    inputs        = list(),
+    outputs       = list(),
+    n_grabs       = 0L,
+    n_stows       = 0L,
+    run_id        = run_id,
+    variant_label = variant_label
   )
   invisible(NULL)
 }
@@ -28,6 +30,19 @@
 
 .mr_is_recording <- function() {
   !is.null(.mr_state$recording)
+}
+
+# Read-only accessors for the current run_id / variant_label. Return
+# NULL when there is no active recording context; otherwise the stored
+# value (which may itself be NA when the caller didn't supply one).
+.mr_recording_run_id <- function() {
+  rec <- .mr_state$recording
+  if (is.null(rec)) NULL else rec$run_id
+}
+
+.mr_recording_variant_label <- function() {
+  rec <- .mr_state$recording
+  if (is.null(rec)) NULL else rec$variant_label
 }
 
 .mr_pair <- function(name, hash) {
@@ -65,5 +80,4 @@
   FALSE
 }
 
-# Local utility: safe default-or-value operator.
 `%||%` <- function(x, y) if (is.null(x)) y else x
