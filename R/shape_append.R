@@ -66,20 +66,24 @@
   physical
 }
 
-# Top-level append for materialized frames. Caller MUST be inside an
-# active recording context (.mr_start_recording) so run_id / variant_label
-# are available.
+# Top-level append for materialized frames. When called inside an active
+# recording context, stamps rows with the launch's run_id / variant_label
+# and records the append as a structured output on the recording. Outside
+# a launch, mints a synthetic `<interactive:TS>` run row (matching the
+# Shape A / ingest pattern in R/interactive.R) so every Shape B row still
+# has a real run_id, grab()'s "latest run" rule stays coherent, and later
+# launches that grab() the value get the same reproducibility warning
+# that artifact / ingest inputs already trigger.
 .mr_append_write_frame <- function(name, value) {
-  run_id <- .mr_recording_run_id()
-  if (is.null(run_id) || is.na(run_id)) {
-    stop(
-      "stow(): append writes require an active launch() context; ",
-      "stow() outside launch() is not supported for data frames in v0.1.",
-      call. = FALSE
-    )
+  run_id      <- .mr_recording_run_id()
+  interactive <- is.null(run_id) || is.na(run_id)
+  if (interactive) {
+    run_id <- .mr_new_run_id()
+    label  <- NA_character_
+  } else {
+    label <- .mr_recording_variant_label()
+    if (is.null(label)) label <- NA_character_
   }
-  label <- .mr_recording_variant_label()
-  if (is.null(label)) label <- NA_character_
 
   .mr_append_guard_reserved_cols(name, value)
 
@@ -143,20 +147,56 @@
         WHERE logical_name = ?",
       params = list(nrow(value), size_bytes, now, name)
     )
+    chunk_hash <- .mr_append_row_hash(value)
+    output_entry <- list(
+      kind          = "append_table",
+      logical_name  = name,
+      rows_appended = nrow(value),
+      chunk_hash    = chunk_hash
+    )
+    if (interactive) {
+      .mr_write_interactive_run_row(con, run_id, list(output_entry), now)
+    }
     DBI::dbCommit(con)
   }, error = function(e) {
     DBI::dbRollback(con)
     stop(e)
   })
 
-  chunk_hash <- .mr_append_row_hash(value)
-  .mr_record_structured_output(list(
-    kind          = "append_table",
-    logical_name  = name,
-    rows_appended = nrow(value),
-    chunk_hash    = chunk_hash
-  ))
+  if (!interactive) {
+    .mr_record_structured_output(output_entry)
+  }
   invisible(chunk_hash)
+}
+
+# Insert a synthetic `<interactive:TS>` _mr_runs row for bare stow()
+# writes of tabular values (i.e. called outside any launch). Mirrors the
+# Shape A / ingest pattern in R/interactive.R so downstream launches
+# that grab() the value get the existing reproducibility warning.
+# Called inside the caller's transaction; outputs JSON is passed in
+# directly since no recording context is active to flush at run end.
+.mr_write_interactive_run_row <- function(con, run_id, outputs_entries,
+                                          started_at = Sys.time()) {
+  outputs_json <- if (length(outputs_entries) == 0L) {
+    "[]"
+  } else {
+    as.character(jsonlite::toJSON(outputs_entries, auto_unbox = TRUE))
+  }
+  step <- sprintf("<interactive:%s>",
+                  format(started_at, "%Y-%m-%d %H:%M:%OS3"))
+  row <- data.frame(
+    step          = step,
+    run_id        = run_id,
+    inputs        = "[]",
+    outputs       = outputs_json,
+    started_at    = started_at,
+    duration_ms   = 0L,
+    status        = "interactive",
+    variant_label = NA_character_,
+    stringsAsFactors = FALSE
+  )
+  DBI::dbAppendTable(con, "_mr_runs", row)
+  invisible(run_id)
 }
 
 .mr_append_guard_reserved_cols <- function(name, value) {
@@ -349,16 +389,15 @@
 }
 
 .mr_append_write_lazy <- function(name, value) {
-  run_id <- .mr_recording_run_id()
-  if (is.null(run_id) || is.na(run_id)) {
-    stop(
-      "stow(): append writes require an active launch() context; ",
-      "stow() outside launch() is not supported for lazy tbls in v0.1.",
-      call. = FALSE
-    )
+  run_id      <- .mr_recording_run_id()
+  interactive <- is.null(run_id) || is.na(run_id)
+  if (interactive) {
+    run_id <- .mr_new_run_id()
+    label  <- NA_character_
+  } else {
+    label <- .mr_recording_variant_label()
+    if (is.null(label)) label <- NA_character_
   }
-  label <- .mr_recording_variant_label()
-  if (is.null(label)) label <- NA_character_
 
   con <- .mr_get_connection()
   remote <- dbplyr::remote_con(value)
@@ -429,18 +468,24 @@
         WHERE logical_name = ?",
       params = list(rows_inserted, now, name)
     )
+    chunk_hash <- .mr_hash_bytes(charToRaw(sql_body))
+    output_entry <- list(
+      kind          = "append_table",
+      logical_name  = name,
+      rows_appended = rows_inserted,
+      chunk_hash    = chunk_hash
+    )
+    if (interactive) {
+      .mr_write_interactive_run_row(con, run_id, list(output_entry), now)
+    }
     DBI::dbCommit(con)
   }, error = function(e) {
     DBI::dbRollback(con)
     stop(e)
   })
 
-  chunk_hash <- .mr_hash_bytes(charToRaw(sql_body))
-  .mr_record_structured_output(list(
-    kind          = "append_table",
-    logical_name  = name,
-    rows_appended = rows_inserted,
-    chunk_hash    = chunk_hash
-  ))
+  if (!interactive) {
+    .mr_record_structured_output(output_entry)
+  }
   invisible(chunk_hash)
 }

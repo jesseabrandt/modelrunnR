@@ -39,6 +39,13 @@
 # Return the `step` of the most recent _mr_runs row that produced
 # `(name, hash)`, or NA if no such row exists. Used by launch() to
 # detect inputs that trace back to interactive writes.
+#
+# Two output entry shapes are recognized:
+#   - Shape A / ingest: {name, hash}. Matched by `name` AND `hash`.
+#   - Shape B append_table: {kind = "append_table", logical_name, ...}.
+#     Matched by `logical_name` only — Shape B grabs record `hash = NA`
+#     because an append table's identity is run-indexed, not hashable
+#     across all rows.
 .mr_last_producer_step <- function(con, name, hash) {
   runs <- DBI::dbGetQuery(
     con,
@@ -48,13 +55,17 @@
   )
   if (nrow(runs) == 0L) return(NA_character_)
   for (i in seq_len(nrow(runs))) {
-    pairs <- tryCatch(
+    entries <- tryCatch(
       jsonlite::fromJSON(runs$outputs[i], simplifyVector = FALSE),
       error = function(e) list()
     )
-    for (p in pairs) {
-      if (identical(p$name, name) && identical(p$hash, hash)) {
-        return(runs$step[i])
+    for (e in entries) {
+      if (identical(e$kind, "append_table")) {
+        if (identical(e$logical_name, name)) return(runs$step[i])
+      } else {
+        if (identical(e$name, name) && identical(e$hash, hash)) {
+          return(runs$step[i])
+        }
       }
     }
   }
