@@ -16,41 +16,56 @@ value.}
 \code{value}, invisibly.
 }
 \description{
-Stores \code{value} under the logical name \code{name}. Writes are
-content-addressed and non-destructive: a new version is created
-whenever the content differs from the current latest, and all
-previous versions remain queryable via \code{\link[=grab]{grab()}} selectors.
+Stores \code{value} under the logical name \code{name}. Dispatches on type.
+The two storage paths are:
 }
 \details{
-Dispatches on type:
 \itemize{
-\item Data frames (including tibbles and data.tables) are stored as
-DuckDB tables via an idempotent physical-table + view pathway.
-\item Any other R object is stored as an \strong{artifact}: serialized
-via \code{qs2}, hashed, and placed in \verb{_mr_artifacts} as a BLOB row
-(when serialized size is below \code{getOption("modelrunnR.blob_threshold")},
-default 10 MB) or written to
-\verb{<db_dir>/modelrunnR_artifacts/<name>__<hash>.qs2} otherwise.
+\item \strong{Append table} (for data frames and lazy DuckDB tbls) — writes
+into a single growing physical table per \code{name}, stamping every
+row with \verb{_mr_run_id} and \verb{_mr_variant_label}. Running 20 models
+that each \verb{stow(<metrics>, "metrics")} produces one 20-row table,
+not 20 disjoint versions. Schema drift across runs reconciles
+losslessly: new columns are added, missing columns are NULL-filled,
+type conflicts coerce to TEXT (never drops a row).
+\item \strong{Versioned artifact} (for any other R object) — serialized via
+\code{qs2}, hashed, and placed in \verb{_mr_artifacts} as a BLOB row when
+serialized size is below \code{getOption("modelrunnR.blob_threshold")}
+(default 10 MB) or written to
+\verb{<db_dir>/modelrunnR_artifacts/<name>__<hash>.qs2} otherwise. One
+version per distinct value; all previous versions stay queryable
+via \code{\link[=grab]{grab()}} selectors.
 }
 
-Table and artifact names share a single logical namespace. A name
-cannot refer to both -- \code{stow("x", df)} after \code{stow("x", model)}
-errors, and vice versa.
+A logical name is tied to one shape on first write. Changing shape
+later (e.g. \code{stow(df, "x")} then \code{stow(model, "x")}) errors.
 
-Inside a tracked \code{\link[=launch]{launch()}}, the write is recorded as an output
-\verb{\{name, hash\}} pair on the run row.
+Inside a tracked \code{\link[=launch]{launch()}}, each write is recorded on the run row:
+for append-table writes, as an \code{append_table} entry keyed by
+\code{chunk_hash} (the hash of the rows this run contributed); for
+artifacts, as a \verb{\{name, hash\}} pair.
 
-Note on serialization: the design commits to \code{qs}; \code{qs} is no
-longer maintained for recent R versions, so modelrunnR uses its
-successor \code{qs2}, which provides the same fast/compact format.
+Calling \code{stow()} outside any \code{launch()} is supported: it mints an
+\verb{<interactive:TS>} synthetic run row (matching the \code{\link[=ingest]{ingest()}}
+convention) and stamps the written rows / metadata with that run_id.
+Downstream launches that \code{\link[=grab]{grab()}} an interactively-stowed value
+receive the same reproducibility warning that applies to artifact
+/ ingest inputs.
+
+Note on serialization: \code{qs} is no longer maintained for recent R
+versions, so modelrunnR uses its successor \code{qs2} (same fast/compact
+format).
 }
 \section{Hashing contract}{
 
-The content hash for data frames is computed from the data as
-stored in DuckDB, which is \strong{type-sensitive}: an \code{integer} column
-and a \code{double} column holding the same values produce different
-hashes. Round-tripping a frame through CSV (where \code{read_csv_auto}
-infers types) can therefore produce a new version even when the
-values are numerically identical. Row names are not persisted.
+For versioned artifacts, the hash is the serialized-bytes digest.
+For append tables, the per-call \code{chunk_hash} is computed over the
+rows this call contributed (order-independent for the eager frame
+path; SQL-text-level for the lazy-tbl path — the two hash bases
+differ, so round-tripping an identical frame through lazy vs eager
+writes will show distinct chunks in \code{\link[=versions]{versions()}}). Hashing for
+DuckDB tables is type-sensitive: integer vs. double columns holding
+the same values produce different hashes. Row names are not
+persisted.
 }
 

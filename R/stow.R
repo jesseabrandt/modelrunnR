@@ -1,37 +1,52 @@
 #' Persist a value to the modelrunnR artifact store
 #'
-#' Stores `value` under the logical name `name`. Writes are
-#' content-addressed and non-destructive: a new version is created
-#' whenever the content differs from the current latest, and all
-#' previous versions remain queryable via [grab()] selectors.
+#' Stores `value` under the logical name `name`. Dispatches on type.
+#' The two storage paths are:
 #'
-#' Dispatches on type:
-#' - Data frames (including tibbles and data.tables) are stored as
-#'   DuckDB tables via an idempotent physical-table + view pathway.
-#' - Any other R object is stored as an **artifact**: serialized
-#'   via `qs2`, hashed, and placed in `_mr_artifacts` as a BLOB row
-#'   (when serialized size is below `getOption("modelrunnR.blob_threshold")`,
-#'   default 10 MB) or written to
-#'   `<db_dir>/modelrunnR_artifacts/<name>__<hash>.qs2` otherwise.
+#' - **Append table** (for data frames and lazy DuckDB tbls) — writes
+#'   into a single growing physical table per `name`, stamping every
+#'   row with `_mr_run_id` and `_mr_variant_label`. Running 20 models
+#'   that each `stow(<metrics>, "metrics")` produces one 20-row table,
+#'   not 20 disjoint versions. Schema drift across runs reconciles
+#'   losslessly: new columns are added, missing columns are NULL-filled,
+#'   type conflicts coerce to TEXT (never drops a row).
+#' - **Versioned artifact** (for any other R object) — serialized via
+#'   `qs2`, hashed, and placed in `_mr_artifacts` as a BLOB row when
+#'   serialized size is below `getOption("modelrunnR.blob_threshold")`
+#'   (default 10 MB) or written to
+#'   `<db_dir>/modelrunnR_artifacts/<name>__<hash>.qs2` otherwise. One
+#'   version per distinct value; all previous versions stay queryable
+#'   via [grab()] selectors.
 #'
-#' Table and artifact names share a single logical namespace. A name
-#' cannot refer to both -- `stow("x", df)` after `stow("x", model)`
-#' errors, and vice versa.
+#' A logical name is tied to one shape on first write. Changing shape
+#' later (e.g. `stow(df, "x")` then `stow(model, "x")`) errors.
 #'
-#' Inside a tracked [launch()], the write is recorded as an output
-#' `{name, hash}` pair on the run row.
+#' Inside a tracked [launch()], each write is recorded on the run row:
+#' for append-table writes, as an `append_table` entry keyed by
+#' `chunk_hash` (the hash of the rows this run contributed); for
+#' artifacts, as a `{name, hash}` pair.
 #'
-#' Note on serialization: the design commits to `qs`; `qs` is no
-#' longer maintained for recent R versions, so modelrunnR uses its
-#' successor `qs2`, which provides the same fast/compact format.
+#' Calling `stow()` outside any `launch()` is supported: it mints an
+#' `<interactive:TS>` synthetic run row (matching the [ingest()]
+#' convention) and stamps the written rows / metadata with that run_id.
+#' Downstream launches that [grab()] an interactively-stowed value
+#' receive the same reproducibility warning that applies to artifact
+#' / ingest inputs.
+#'
+#' Note on serialization: `qs` is no longer maintained for recent R
+#' versions, so modelrunnR uses its successor `qs2` (same fast/compact
+#' format).
 #'
 #' @section Hashing contract:
-#' The content hash for data frames is computed from the data as
-#' stored in DuckDB, which is **type-sensitive**: an `integer` column
-#' and a `double` column holding the same values produce different
-#' hashes. Round-tripping a frame through CSV (where `read_csv_auto`
-#' infers types) can therefore produce a new version even when the
-#' values are numerically identical. Row names are not persisted.
+#' For versioned artifacts, the hash is the serialized-bytes digest.
+#' For append tables, the per-call `chunk_hash` is computed over the
+#' rows this call contributed (order-independent for the eager frame
+#' path; SQL-text-level for the lazy-tbl path — the two hash bases
+#' differ, so round-tripping an identical frame through lazy vs eager
+#' writes will show distinct chunks in [versions()]). Hashing for
+#' DuckDB tables is type-sensitive: integer vs. double columns holding
+#' the same values produce different hashes. Row names are not
+#' persisted.
 #'
 #' @param value Any R value. First, so `df |> stow("name")` works.
 #' @param name A length-one character vector. Logical name for the
