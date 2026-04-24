@@ -97,13 +97,25 @@
     )
     if (nrow(registered) == 0L) {
       .mr_append_ensure_table(con, name, frame_types)
+      schema <- frame_types
     } else {
-      .mr_append_reconcile_schema(con, name, registered, value)
+      schema <- .mr_append_reconcile_schema(con, name, registered, value)
     }
 
-    # Stamp system columns and insert. `dbAppendTable` matches by name
-    # so column order in `value` is irrelevant.
+    # Apply coercion for any columns where the stored type was cast to TEXT.
     to_insert <- value
+    coerce <- attr(schema, "coerce_to_text")
+    if (!is.null(coerce)) {
+      for (col in coerce) {
+        to_insert[[col]] <- as.character(to_insert[[col]])
+      }
+    }
+    # Fill any schema-known cols missing on incoming with NA (defensive shim).
+    for (col in setdiff(names(schema), names(to_insert))) {
+      to_insert[[col]] <- NA
+    }
+    # Stamp system columns and insert. `dbAppendTable` matches by name
+    # so column order in `to_insert` is irrelevant.
     to_insert[["_mr_run_id"]]         <- run_id
     to_insert[["_mr_variant_label"]]  <- label
     DBI::dbAppendTable(con, physical, to_insert)
@@ -184,7 +196,38 @@
     ))
   }
 
-  if (length(added) > 0L) {
+  # Type-conflict resolution — coerce offending column to TEXT
+  # (spec §4.1 option a). Cast the stored column and coerce the
+  # incoming column; update schema_json.
+  common <- intersect(names(schema), names(incoming_types))
+  conflicts <- common[vapply(common,
+    function(c) !identical(schema[[c]], incoming_types[[c]]),
+    logical(1))]
+
+  for (col in conflicts) {
+    warning(sprintf(
+      "stow('%s'): type conflict on column '%s' (stored %s, incoming %s); coercing column to TEXT.",
+      name, col, schema[[col]], incoming_types[[col]]
+    ), call. = FALSE)
+    .mr_execute(
+      con,
+      sprintf(
+        "ALTER TABLE %s ALTER COLUMN %s SET DATA TYPE TEXT USING CAST(%s AS TEXT)",
+        .mr_quote_ident(physical),
+        .mr_quote_ident(col),
+        .mr_quote_ident(col)
+      )
+    )
+    schema[[col]] <- "TEXT"
+  }
+
+  # Attach conflicts as an attribute so the caller can coerce the
+  # incoming data frame before insert.
+  if (length(conflicts) > 0L) {
+    attr(schema, "coerce_to_text") <- conflicts
+  }
+
+  if (length(added) > 0L || length(conflicts) > 0L) {
     schema_json <- jsonlite::toJSON(schema, auto_unbox = TRUE)
     DBI::dbExecute(
       con,
