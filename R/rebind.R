@@ -89,11 +89,11 @@
     # class/size); the hash links back to the just-stowed version so a
     # join against `_mr_versions` always works.
     if (is.data.frame(value)) {
-      .mr_guard_namespace(name, "table")
+      .mr_guard_namespace(name, shape = "A", new_kind = "table")
       hash <- .mr_stow_table(name, value)
       value_str <- sprintf("data.frame[%dx%d]", nrow(value), ncol(value))
     } else {
-      .mr_guard_namespace(name, "artifact")
+      .mr_guard_namespace(name, shape = "A", new_kind = "artifact")
       hash <- .mr_stow_artifact(name, value)
       value_str <- .mr_format_literal_rebind(value)
     }

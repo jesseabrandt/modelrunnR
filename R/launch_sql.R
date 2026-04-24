@@ -176,7 +176,7 @@
 
   # 9. Namespace guard for the chosen kind, then register.
   new_kind <- if (isTRUE(materialize)) "table" else "view"
-  .mr_guard_namespace(output_name, new_kind, context = "launch")
+  .mr_guard_namespace(output_name, shape = "A", new_kind = new_kind, context = "launch")
 
   status  <- "success"
   err_obj <- NULL

@@ -50,13 +50,13 @@ stow <- function(value, name) {
   .mr_validate_name(name, context = "stow")
 
   if (inherits(value, "tbl_lazy")) {
-    .mr_guard_namespace(name, "table")
+    .mr_guard_namespace(name, shape = "A", new_kind = "table")
     .mr_stow_lazy(name, value)
   } else if (is.data.frame(value)) {
-    .mr_guard_namespace(name, "table")
+    .mr_guard_namespace(name, shape = "A", new_kind = "table")
     .mr_stow_table(name, value)
   } else {
-    .mr_guard_namespace(name, "artifact")
+    .mr_guard_namespace(name, shape = "A", new_kind = "artifact")
     .mr_stow_artifact(name, value)
   }
   invisible(value)
@@ -266,21 +266,3 @@ stow <- function(value, name) {
   invisible(NULL)
 }
 
-# Error if `name` already exists under a different kind (e.g. an
-# attempt to overwrite a table with an artifact, or to register a
-# SQL view under a name that already holds a stowed table).
-.mr_guard_namespace <- function(name, new_kind, context = "stow") {
-  con <- .mr_get_connection()
-  existing_kinds <- DBI::dbGetQuery(
-    con,
-    "SELECT DISTINCT kind FROM _mr_versions WHERE logical_name = ?",
-    params = list(name)
-  )$kind
-  if (length(existing_kinds) > 0L && !all(existing_kinds == new_kind)) {
-    stop(sprintf(
-      "%s(): '%s' already exists as a %s; refusing to register it as a %s. Use a different name or prune the existing versions first.",
-      context, name, existing_kinds[1], new_kind
-    ), call. = FALSE)
-  }
-  invisible(NULL)
-}
