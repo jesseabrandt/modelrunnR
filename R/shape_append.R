@@ -106,11 +106,15 @@
     to_insert <- value
     coerce <- attr(schema, "coerce_to_text")
     if (!is.null(coerce)) {
+      # NOTE: as.character() on POSIXct is session-TZ-dependent; coercion
+      # result depends on Sys.timezone() at stow() call time. Other types
+      # (Date, logical, numeric) are TZ-independent.
       for (col in coerce) {
         to_insert[[col]] <- as.character(to_insert[[col]])
       }
     }
-    # Fill any schema-known cols missing on incoming with NA (defensive shim).
+    # Task 6 path: fill schema-known columns absent from incoming frame
+    # with NA. Independent of the coercion loop above.
     for (col in setdiff(names(schema), names(to_insert))) {
       to_insert[[col]] <- NA
     }

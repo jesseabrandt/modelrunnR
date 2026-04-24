@@ -2,6 +2,17 @@
 
 ## Surfaced 2026-04-23 (from append-mode stow plan)
 
+### Consider structured return from `.mr_append_reconcile_schema`
+
+The reconciler currently returns the extended `schema` list with
+`attr(, "coerce_to_text")` set when type conflicts were resolved. The
+attribute is an implicit contract between the reconciler and its
+writer caller. A structured return (`list(schema, coerce)`) would
+make the contract explicit and survive future refactors (lazy-tbl
+path, additional diff categories) without relying on the attribute
+channel. Low priority; the attribute pattern works for v0.1. Flagged
+by Task 7's code-quality review.
+
 ### Update `../practicum_repos/final_practicum` post-implementation
 
 Invariant 1 is explicitly relaxed for the append-mode stow plan — the
