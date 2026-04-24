@@ -136,6 +136,92 @@ test_that("SQL batch fans out one envelope per version of a rebound input", {
   expect_equal(nrow(out_rows), 2L)
 })
 
+test_that("batch_id groups every envelope of one launch() and differs across calls", {
+  new_test_db()
+  binds <- mr_binds(x = 1:3)
+  body <- function() launch({
+    stow(list(v = grab("x")), "out")
+  }, rebind = binds, force = TRUE)
+
+  res1 <- body()
+  res2 <- body()
+
+  # Same batch -> same id on every row.
+  expect_length(unique(res1$batch_id), 1L)
+  expect_false(is.na(res1$batch_id[1]))
+  expect_length(unique(res2$batch_id), 1L)
+
+  # Different launch() calls -> different ids, so a downstream consumer
+  # can disambiguate two interleaved batches with the same labels.
+  expect_false(identical(res1$batch_id[1], res2$batch_id[1]))
+})
+
+test_that("single (non-batch) launch leaves batch_id NA", {
+  new_test_db()
+  res <- launch({ stow(list(v = 1), "out") })
+  expect_true(is.na(res$batch_id))
+})
+
+test_that("SQL batch shares a single batch_id across envelopes", {
+  new_test_db()
+  stow(data.frame(x = 1:3), "src")
+  v1 <- mr_versions_rows("src")$content_hash[1]
+  stow(data.frame(x = 100:103), "src")
+  v2 <- mr_versions_rows("src")$content_hash[2]
+
+  binds <- mr_envelopes(
+    list(.label = "v1_count", src = mr_hash(v1)),
+    list(.label = "v2_count", src = mr_hash(v2))
+  )
+  result <- launch(
+    mr_sql("-- @inputs: src\n-- @output: counted\nSELECT COUNT(*) AS n FROM src"),
+    rebind = binds
+  )
+  expect_length(unique(result$batch_id), 1L)
+  expect_false(is.na(result$batch_id[1]))
+})
+
+test_that("batch_id is set even for envelopes that error or skip-fresh", {
+  new_test_db()
+
+  # First batch: one envelope errors. The errored row still belongs to
+  # the same batch and must carry the same batch_id as its siblings.
+  binds <- mr_binds(x = c("ok1", "boom", "ok3"))
+  expect_error(
+    launch({
+      v <- grab("x")
+      if (identical(v, "boom")) stop("explosion")
+      stow(list(v = v), "out")
+    }, rebind = binds),
+    "1/3 errored"
+  )
+
+  con <- .mr_get_connection()
+  rows <- DBI::dbGetQuery(con,
+    "SELECT status, batch_id FROM _mr_runs ORDER BY started_at"
+  )
+  expect_length(unique(rows$batch_id), 1L)
+  expect_true("error" %in% rows$status)
+
+  # Re-run the first batch with the same envelopes + label so the
+  # successful envelopes record as skipped_fresh on the second pass.
+  # The skip rows must also carry the new batch_id (not NA, not the
+  # old batch's id).
+  binds_ok <- mr_binds(x = c("ok1", "ok3"))
+  res_seed <- launch({
+    stow(list(v = grab("x")), "out")
+  }, rebind = binds_ok, label = "rerun")
+  expect_setequal(res_seed$status, "success")
+
+  res_skip <- launch({
+    stow(list(v = grab("x")), "out")
+  }, rebind = binds_ok, label = "rerun")
+  expect_setequal(res_skip$status, "skipped_fresh")
+  expect_length(unique(res_skip$batch_id), 1L)
+  expect_false(is.na(res_skip$batch_id[1]))
+  expect_false(identical(res_skip$batch_id[1], res_seed$batch_id[1]))
+})
+
 test_that("SQL batch with one bad rebind still records the others", {
   new_test_db()
   stow(data.frame(x = 1:3), "src")

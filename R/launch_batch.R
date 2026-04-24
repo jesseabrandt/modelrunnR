@@ -35,6 +35,8 @@
   .mr_state$batch_active <- TRUE
   on.exit(.mr_state$batch_active <- prior_flag, add = TRUE)
 
+  batch_id <- .mr_new_batch_id()
+
   message(sprintf("modelrunnR: batch of %d runs", n))
 
   rows   <- vector("list", n)
@@ -58,7 +60,8 @@
         label           = env_label,
         external_inputs = external_inputs,
         force           = force,
-        duckdb_seed     = duckdb_seed
+        duckdb_seed     = duckdb_seed,
+        batch_id        = batch_id
       ),
       error = function(e) {
         errors[[k]] <<- e
@@ -94,6 +97,8 @@
   external_inputs_resolved <- .mr_resolve_external_inputs(external_inputs)
   skip_on_fresh <- isTRUE(getOption("modelrunnR.skip_if_fresh", TRUE))
 
+  batch_id <- .mr_new_batch_id()
+
   message(sprintf("modelrunnR: batch of %d SQL runs", n))
 
   rows   <- vector("list", n)
@@ -119,7 +124,8 @@
         label                    = env_label,
         force                    = force,
         duckdb_seed              = duckdb_seed,
-        skip_on_fresh            = skip_on_fresh
+        skip_on_fresh            = skip_on_fresh,
+        batch_id                 = batch_id
       )
     },
     error = function(e) {

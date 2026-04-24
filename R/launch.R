@@ -334,6 +334,12 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
   sprintf("run_%s_%s", gsub("[^0-9A-Za-z_]", "", ts), suf)
 }
 
+.mr_new_batch_id <- function() {
+  ts  <- format(Sys.time(), "%Y%m%d_%H%M%OS3")
+  suf <- paste(sample(c(0:9, letters[1:6]), 6, replace = TRUE), collapse = "")
+  sprintf("batch_%s_%s", gsub("[^0-9A-Za-z_]", "", ts), suf)
+}
+
 .mr_source_script <- function(path) {
   envir <- new.env(parent = globalenv())
   # Inject grab/stow so scripts can call them without library(modelrunnR),
@@ -422,7 +428,8 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
                               variant_label = NA_character_,
                               code_body = NA_character_,
                               duckdb_seed = NA_real_,
-                              rebinds = list()) {
+                              rebinds = list(),
+                              batch_id = NA_character_) {
   con <- .mr_get_connection()
   row <- data.frame(
     step            = step,
@@ -439,6 +446,7 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
     code_body       = code_body,
     duckdb_seed     = duckdb_seed,
     rebinds         = .mr_pairs_to_json(rebinds),
+    batch_id        = batch_id,
     stringsAsFactors = FALSE
   )
   DBI::dbAppendTable(con, "_mr_runs", row)
@@ -507,7 +515,8 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 .mr_record_skipped_fresh <- function(step, run_id, started_at,
                                      resolved_ext, code_body, label,
                                      rebinds = list(),
-                                     duckdb_seed = NULL) {
+                                     duckdb_seed = NULL,
+                                     batch_id = NA_character_) {
   con <- .mr_get_connection()
   if (is.na(label)) {
     prior <- DBI::dbGetQuery(
@@ -544,6 +553,7 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
     variant_label   = label,
     code_body       = code_body,
     duckdb_seed     = if (is.null(duckdb_seed)) NA_real_ else duckdb_seed,
-    rebinds         = rebinds
+    rebinds         = rebinds,
+    batch_id        = batch_id
   )
 }
