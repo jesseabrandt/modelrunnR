@@ -1,5 +1,181 @@
 # modelrunnR TODO
 
+## Surfaced 2026-04-23 (from consolidated-branch audit)
+
+### Shape B non-interactive provenance gap
+
+Inside a `launch()`, `stow(df, name)` commits the data row + the
+registry update in a DuckDB transaction, but the `_mr_runs.outputs`
+entry (which records the `chunk_hash` for the run) is written later
+by `.mr_write_run_row` outside that transaction. A process crash
+between the stow commit and the run-row write leaves the rows
+committed but the chunk_hash untracked in `outputs`. The data is still
+queryable via `grab()` (the row's `_mr_run_id` is stamped in the
+table), but `versions(name)` will omit that chunk and `mr_hash()`
+rebinds against the orphaned hash can't resolve. Fix probably needs
+either (a) passing `run_id` into `.mr_append_write_frame` / `_write_lazy`
+and appending the output entry to `_mr_runs.outputs` inside the same
+transaction, or (b) a dedicated `_mr_append_chunks` table populated
+at commit time. Interacts with the chunk-entries scan performance
+below — doing both at once may be cleaner.
+
+### `.mr_append_chunk_entries` is O(n_runs) per call — full `_mr_runs` scan
+
+Currently scans every `_mr_runs` row with a non-empty `outputs` column
+and JSON-parses each one, for every Shape B grab / versions() /
+mr_hash() resolution / SQL `@inputs` on a Shape B name. Acceptable
+today; hits a wall once a store accumulates thousands of runs.
+Cleanest fix is a dedicated `_mr_append_chunks (run_id, logical_name,
+chunk_hash, rows_appended, started_at)` populated at stow commit time
+and scanned by keyed query. Also resolves the "ghost chunk_hashes
+after prune" issue below in the same refactor.
+
+### Ghost chunk_hashes after `prune(name, by = "run")`
+
+Pruning rows from a Shape B physical table doesn't remove the
+`append_table` entries from `_mr_runs.outputs` JSON. `versions(name)`
+afterward still lists the pruned chunk's hash; `grab(run = pruned_id)`
+returns zero rows silently; `mr_hash(<pruned_hash>)` rebinds resolve
+to a run whose rows no longer exist. Fix alongside the
+chunk-entries lookup table above — prune both in one pass.
+
+### DDL auto-commit around `_mr_append_tables` first-write
+
+`CREATE TABLE IF NOT EXISTS <physical>__append` in `.mr_append_ensure_table`
+runs inside the outer `dbBegin`/`dbCommit` fence in `.mr_append_write_frame`.
+DuckDB auto-commits DDL in standard mode, so the CREATE TABLE is not
+actually rolled back if the subsequent registry INSERT or the row
+INSERT fails. Next call sees the physical table but no registry row,
+ensures-table is a no-op (exists), and inserts a fresh registry row
+with wrong `row_count` / `first_seen`. Needs a test against DuckDB's
+actual DDL rollback behavior and, if auto-commit confirmed, a
+restructure: create the physical table pre-transaction and fence only
+the registry INSERT + row INSERT.
+
+### Lazy-path vs frame-path chunk_hash semantic mismatch
+
+`.mr_append_write_frame` hashes row contents
+(`serialize(value[order(value), ], NULL)`); `.mr_append_write_lazy`
+hashes the SQL body text. Two runs that produce identical rows via
+different SQL get different chunk_hashes; two runs that render to the
+same SQL against different upstream data get the same chunk_hash.
+`versions()` surfaces these as Shape B versions but the identity
+meaning isn't uniform. Pick one: either always materialize and hash
+rows (temp-table + `.mr_hash_duckdb_table`), or document that lazy
+chunk_hash is SQL-level and frame chunk_hash is row-level. Design
+decision, not a bug — flag before v0.1.
+
+### SQL-launch records Shape B chunk_hash on `_mr_runs.inputs`; R-launch records `NA`
+
+`R/launch_sql.R:120-126` resolves Shape B inputs to their chunk_hash
+and records it on `_mr_runs.inputs`. `R/grab.R:125` (R-launch path)
+records `NA_character_` for the same Shape B grab. `.mr_check_inputs`
+treats NA-hash entries as "always fresh" — so an R-mode consumer of a
+Shape B input never goes stale when the upstream changes, while a
+SQL-mode consumer does. Pick one convention per the
+shape-invisibility principle; matching the SQL-mode behavior on R
+would give real upstream-change detection for Shape B inputs.
+
+### `serialize()`-based chunk_hash is not R-version-stable
+
+Frame-path chunk_hash uses R's `serialize()` format, which may change
+with major R upgrades. A Shape B `chunk_hash` recorded on R 4.x may
+differ on R 5.x for identical content. Pre-1.0 is fine to leave; fix
+pre-release by hashing a canonical representation
+(`digest::digest(x, algo = "xxhash64")` on a column-wise sort) or
+DuckDB-side via `.mr_hash_duckdb_table` after insert.
+
+### Type-coerce-to-TEXT is session-TZ-dependent for POSIXct
+
+`R/shape_append.R:122-127` — `as.character(POSIXct)` renders in the
+session's TZ. Two runs in different TZs with the same instant coerce
+to different TEXT values, breaking reproducibility for schema drift
+involving timestamps. Fix: for POSIXct specifically, use
+`format(x, "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC")`.
+
+### `schema_json` column order depends on jsonlite key preservation
+
+`fromJSON(..., simplifyVector = FALSE)` returns a named list; JSON
+object key order is not guaranteed across library versions. `names(schema)`
+is used to drive INSERT column order on the lazy-write path, so a
+jsonlite upgrade that reorders keys could silently misalign
+`INSERT ... SELECT`. Fix: align incoming columns to DuckDB physical
+column order via `PRAGMA table_info(...)` rather than relying on
+parsed JSON order.
+
+### `prune(by = "run")` builds SQL `IN (...)` lists inline
+
+`R/prune.R` uses `quote_list(ids)` to embed run ids as literals in
+`IN (...)` clauses. Today's run_id format is alphanumeric (package-
+generated) so no injection path, but the SQL body grows unbounded for
+large prune lists. Fix: build a DuckDB temp table of ids and
+`DELETE ... WHERE _mr_run_id IN (SELECT id FROM tmp)`.
+
+### `.mr_validate_name` allowlist is permissive
+
+`R/validate.R:29` blocks `/`, `\`, `..`, and control chars. Permits
+spaces, `$`, `@`, commas, most punctuation. Combined with `gsub`
+replacement in `launch_sql.R`, behavior under undefined PCRE
+backreferences (`$1`, `\1`) is technically unspecified. Current R
+is benign; defensive tighten to `^[A-Za-z_][A-Za-z0-9_]*$` plus
+`gsub(..., fixed = TRUE)` on the substitution.
+
+### Staging-table orphan on commit failure
+
+`R/launch_sql.R:406` (and adjacent in `R/ingest.R`) set
+`staging_alive <<- FALSE` before `DBI::dbCommit`. If commit fails,
+the on.exit handler doesn't drop the staging table. Move the flag
+flip to after the `dbCommit` returns. Pre-existing pattern, not new
+to the append-mode branch.
+
+### Shape A extraction to `shape_versioned.R`
+
+Spec §12 calls for `R/shape_versioned.R` to absorb Shape A writer
+logic currently sitting inline in `R/stow.R` (.mr_stow_table,
+.mr_stow_artifact) and `R/versions.R`. Deferred — touches a lot of
+surface and pairs naturally with the `_mr_append_chunks` refactor.
+
+### `R/shape_append.R` (623 lines) likely wants splitting
+
+Holds physical-name helper, type mapping, ensure-table, both write
+paths (frame + lazy), reserved-cols guard, schema reconciliation,
+row hash, reader, interactive-run-row writer, chunk-entry lookup,
+run_id-for-hash, latest-run-id, chunk-hash-for-run, SQL view
+materializer. Convention is one function per file; the shape-module
+layout is an intentional exception but it's at the edge. Candidates:
+`shape_append_write.R` / `shape_append_read.R` / `shape_append_meta.R`,
+or update CLAUDE.md to name "shape modules" as an explicit exception.
+
+### Helper dedup: `.mr_new_run_id` / `.mr_new_batch_id`
+
+`R/launch.R:332-342` — six-line near-duplicates differing only in
+prefix. One helper: `.mr_new_id(prefix)`.
+
+### `_mr_runs.outputs` shape-discriminator duplicated across files
+
+Five files (`propagation.R`, `staleness.R`, `interactive.R`,
+`variants.R`, `versions.R`) each switch on `{kind, logical_name}` vs
+`{name, hash}`. Centralize in a `.mr_output_matches_name(entry, name)`
+helper returning TRUE for either shape.
+
+### SQL-launch `\bname\b` substitution can chain-collide
+
+`R/launch_sql.R:171-174` applies rebind substitutions iteratively via
+word-boundary regex. If an earlier substitution produces a physical
+name that matches a later logical name's word boundary, subsequent
+passes can double-rewrite. Edge case; real SQL with `name__hex_hash`
+physical names won't collide in practice. Consider placeholder
+replacement (two-pass: name -> UUID -> physical) for defense.
+
+### Batch vignette reads like Shape A semantics
+
+`vignettes/batch-launches.Rmd:164-178` uses `stow(data.frame(), "src")`
+producing "versions" — under the new contract this is Shape B, so the
+per-call chunks are surfaced as versions via the Option Y amendment,
+but the vignette narrative still describes it in Shape A terms. Fix:
+either switch the vignette source to `ingest()` (keeps Shape A) or
+rewrite the surrounding prose to name the chunk-per-append model.
+
 ## Surfaced 2026-04-23 (from feat/batch-id merge)
 
 ### SQL-mode batch_id coverage dropped in merge — needs Shape-B-friendly rewrite
