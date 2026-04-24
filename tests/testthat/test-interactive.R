@@ -1,7 +1,8 @@
-test_that("stow() outside launch writes a run row with a synthetic interactive step id", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("stow() of a non-df artifact outside launch writes a synthetic interactive step id", {
+  # Shape B (data frames) requires launch(); artifacts (Shape A) still work
+  # outside launch and generate an interactive run row.
   new_test_db()
-  stow(data.frame(n = 1:3), "x")
+  stow(list(n = 1:3), "x_artifact")
 
   con <- .mr_get_connection()
   runs <- DBI::dbGetQuery(con, "SELECT step, status, outputs FROM _mr_runs")
@@ -11,44 +12,26 @@ test_that("stow() outside launch writes a run row with a synthetic interactive s
 
   outs <- jsonlite::fromJSON(runs$outputs[1], simplifyVector = FALSE)
   names_produced <- vapply(outs, function(p) p$name, character(1))
-  expect_equal(names_produced, "x")
+  expect_equal(names_produced, "x_artifact")
 })
 
-test_that("grab() outside launch does not write a _mr_runs row", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("grab() outside launch does not write a _mr_runs row (Shape B)", {
   new_test_db()
-  stow(data.frame(n = 1:3), "x")
+  launch({ stow(data.frame(n = 1:3), "x") })
   before <- DBI::dbGetQuery(.mr_get_connection(), "SELECT COUNT(*) AS c FROM _mr_runs")$c
   invisible(grab("x"))
   after <- DBI::dbGetQuery(.mr_get_connection(), "SELECT COUNT(*) AS c FROM _mr_runs")$c
   expect_equal(after, before)
 })
 
-test_that("launch emits a reproducibility warning when an input was last stowed interactively", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
-  new_test_db()
-  # Interactive write of 'x'.
-  stow(data.frame(n = 1:3), "x")
-  # Script that grabs 'x'.
-  s <- write_script(c(
-    "v <- grab('x') |> dplyr::collect()",
-    "stow(data.frame(n = nrow(v)), 'y')"
-  ))
-  expect_warning(
-    launch(s),
-    regexp = "grabs 'x'.*interactively.*not fully reproducible"
-  )
-})
-
-test_that("launch does NOT warn when all inputs were produced by tracked runs", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("launch does NOT warn when all inputs were produced by tracked runs (Shape B)", {
   new_test_db()
   # Write 'x' inside a tracked launch so its producer is a real script step.
   writer <- write_script("stow(data.frame(n = 1:3), 'x')")
   launch(writer)
 
   reader <- write_script(c(
-    "v <- grab('x') |> dplyr::collect()",
+    "v <- grab('x', run = 'all') |> dplyr::collect()",
     "stow(data.frame(n = nrow(v)), 'y')"
   ))
   expect_no_warning(launch(reader))
