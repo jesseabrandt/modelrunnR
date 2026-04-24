@@ -210,7 +210,7 @@ stow <- function(value, name) {
   )$c[1]
   if (count > threshold) {
     warning(sprintf(
-      "'%s' has %d versions (threshold: %d). Consider running prune_versions('%s', ...) to reclaim storage.",
+      "'%s' has %d versions (threshold: %d). Consider running prune('%s', ...) to reclaim storage.",
       name, count, threshold, name
     ), call. = FALSE)
   }

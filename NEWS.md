@@ -19,9 +19,14 @@
 * `grab(name, run = ...)` — scope an append-table read to a specific
   run id, or pass `run = "all"` for the full-history view (every row
   with `run_id` and `variant_label` surfaced).
-* `prune_runs(name, run_id, older_than, keep, force)` — garbage
-  collect rows from append tables, mirroring `prune_versions()`'s
-  policy contract.
+* **`prune()` replaces `prune_versions()` and `prune_runs()`** as the
+  single exported pruner. Works on both storage shapes: the default
+  `by = "auto"` dispatches on the name's shape; explicit `by = "version"`
+  / `"run"` / `"age"` pin behavior. Invalid combinations (`by = "version"`
+  on a Shape B name, etc.) error clearly. `prune_variants()` stays
+  separate — variants are a different axis from shape. This honors the
+  rev-3 "shapes should be invisible to the user" amendment of the
+  append-mode spec.
 * **`stow(df, name)` outside `launch()` is supported.** Mints an
   `<interactive:TS>` run row (matching the existing Shape A / `ingest()`
   convention) and stamps the appended rows with that run_id. Bare stows

@@ -4,7 +4,7 @@
 #' matches `label`. Versions the deleted runs produced fall back
 #' under the normal "referenced by recent runs" protection — if a
 #' downstream plain run consumed one of them, it stays; otherwise,
-#' the next `prune_versions()` call is free to collect it.
+#' the next `prune()` call is free to collect it.
 #'
 #' Downstream labeled variants are left alone. Tearing down a whole
 #' labeled pipeline requires calling `prune_variants()` at each

@@ -212,8 +212,8 @@ and the edited iteration. Every `launch()` writes a `_mr_runs` row
 (even skipped ones), and the row's `step` column keys on the
 expression bytes — so the table shows two distinct inline steps
 under the same label. When you're confident an older iteration
-isn't worth keeping, `prune_variants()` and `prune_versions()` can
-clear the history (see `?prune_variants`, `?prune_versions`).
+isn't worth keeping, `prune_variants()` and `prune()` can
+clear the history (see `?prune_variants`, `?prune`).
 
 ## Re-running a pipeline by label
 

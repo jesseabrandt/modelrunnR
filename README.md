@@ -35,43 +35,43 @@ source("model.R")
 ```r
 library(modelrunnR)
 
-# Run your script as a tracked step. `stow()` calls inside the script
-# are recorded; inputs and outputs are captured on a run row.
-run <- launch("model.R")
+# A sweep across three models, each labeled so variants are tracked.
+for (spec in list(lm_spec, rf_spec, gbm_spec)) {
+  launch({
+    fit <- fit_model(spec, grab("train_data"))
+    stow(data.frame(model = spec$name, rmse = rmse(fit)), "metrics")
+  }, label = spec$name)
+}
 
-# Read the latest version of any stored value.
-latest  <- grab("predictions")
+# `metrics` is one growing table, one row per run. Default: latest run's rows.
+grab("metrics")                     # -> last-run snapshot
+grab("metrics", run = "all")        # -> all 3 rows with run_id + variant_label
 
-# Or a specific historical version.
-pinned  <- grab("predictions", version = "a3f2...")
-at_run  <- grab("predictions", from_run = run$run_id)
-past    <- grab("predictions", as_of = "2026-04-01 00:00:00")
+# Non-tabular artifacts (e.g. a fitted model object) remain content-addressed:
+# stow(fit, "model") -> one version per distinct fit.
+grab("model")                       # latest content
+grab("model", version = "a3f2...")  # pinned by hash
 
-# See every stored version.
-versions("predictions")
+# See every stored version / append chunk (works on both shapes).
+versions("metrics")
+versions("model")
 
-# Garbage-collect older versions when you're confident you don't need them.
-prune_versions("predictions", keep = 3)
-```
-
-A `script.R` looks like this:
-
-```r
-# Inside model.R -- no library() needed; grab/stow are injected.
-train <- grab("train_data")
-fit   <- lm(y ~ x, data = train)
-stow(fit,       "model")        # serialized via qs2
-stow(predict(fit, train), "predictions")
+# Garbage-collect older data. Dispatches on shape.
+prune("model",   keep = 3)          # keep 3 latest versions (Shape A)
+prune("metrics", keep = 3)          # keep 3 latest runs' rows  (Shape B)
+prune(older_than = "30d", by = "age")  # shape-agnostic
 ```
 
 ## Key features
 
-- **Content-addressed storage.** Stowing the same frame twice creates one
-  physical table and one `_mr_versions` row. The hash is row- and
-  column-order invariant.
-- **Unified read/write API.** `grab()` and `stow()` work for both data frames
-  (stored as DuckDB tables) and arbitrary R objects (stored as `qs2`
-  artifacts, either as BLOBs or on disk above a size threshold).
+- **Two storage shapes, one API.** Data frames you `stow()` inside runs
+  append to a single growing table per name (run-indexed). Non-tabular
+  artifacts and ingested reference data are content-addressed by hash.
+  `grab()`, `versions()`, and `prune()` work on both without you needing
+  to know which is which.
+- **Unified read/write API.** `grab()` and `stow()` cover data frames,
+  lazy DuckDB tbls (materialized server-side), and arbitrary R objects
+  (serialized via `qs2`).
 - **Staleness diagnostics.** On `launch()`, modelrunnR compares the current
   script + helper bytes, recorded input hashes, and declared external inputs
   against the most recent run. Advisory only -- it never auto-skips.
@@ -79,8 +79,8 @@ stow(predict(fit, train), "predictions")
   via `launch(..., external_inputs = list(files = ..., env = ...))` and their
   hashes land on the run row.
 - **Swappability — `rebind` and labeled variants.** `launch(..., rebind = list(features = my_df), label = "fast")` reruns the same script against different inputs and marks the run as a tracked variant. The `rebind` argument accepts bare R values (stowed inline) or reference constructors — `mr_hash()`, `mr_run()`, `mr_variant()`, `mr_as_of()` — that resolve to existing versions without round-tripping through R memory. Downstream scripts that grab a labeled variant's outputs auto-inherit the label. See [`docs/design.md`](docs/design.md) *Variants and swappability*.
-- **Garbage collection.** `prune_versions()` removes versions by age, count,
-  or "keep latest", with run-history protection.
+- **Garbage collection.** `prune()` removes versions / runs by age, count,
+  or "keep latest", with run-history and variant protection by default.
 
 ## Documentation
 

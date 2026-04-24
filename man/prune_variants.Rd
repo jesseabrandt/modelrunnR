@@ -23,7 +23,7 @@ Removes all \verb{_mr_runs} rows for \code{script} whose \code{variant_label}
 matches \code{label}. Versions the deleted runs produced fall back
 under the normal "referenced by recent runs" protection — if a
 downstream plain run consumed one of them, it stays; otherwise,
-the next \code{prune_versions()} call is free to collect it.
+the next \code{prune()} call is free to collect it.
 }
 \details{
 Downstream labeled variants are left alone. Tearing down a whole
