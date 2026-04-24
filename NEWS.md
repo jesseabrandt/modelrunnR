@@ -1,5 +1,30 @@
 # modelrunnR 0.0.0.9000
 
+## Breaking semantic changes
+
+* `stow(df, name)` now appends to a single growing DuckDB table per
+  logical name (Shape B: run-indexed append log), stamping each row
+  with `_mr_run_id` and `_mr_variant_label`. The prior behavior —
+  creating one `_mr_versions` row per stow — remains for non-tabular
+  values (Shape A artifact). `grab(name)` inside `launch()` returns
+  the current run's rows only; outside `launch()` it returns the full
+  table with user-facing `run_id` / `variant_label` columns. See
+  `docs/superpowers/specs/2026-04-22-append-mode-stow-design.md` for
+  the design rationale.
+
+## New features
+
+* `grab(name, run = ...)` — scope an append-table read to one run id
+  (or `"all"` for the whole table).
+* `prune_runs(name, run_id, older_than, keep, force)` — garbage
+  collect rows from append tables, mirroring `prune_versions()`'s
+  policy contract.
+
+## Storage
+
+* New metadata table `_mr_append_tables` is created on connect. No
+  changes to `_mr_versions` (invariant 4: additive only).
+
 ## Deprecations
 
 * **`launch()` first argument renamed from `script_path` to `code`.** The

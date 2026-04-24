@@ -40,27 +40,41 @@ df$y <- 1 + df$x1 + 2 * df$x2 + rnorm(n, sd = 0.5)
 head(df)
 ```
 
-## Stowing and grabbing at the REPL
+## Registering input data with `ingest()`
 
-`stow()` parks a value in the modelrunnR store under a logical name.
-It's content-addressed: writing the same frame twice creates one
-version row, not two. `grab()` is the other half — retrieve the latest
-version (or a specific one) by name.
+Before a tracked run can read input data, we need to register it with
+the store. `ingest(name, path)` reads a CSV or Parquet file and
+creates a content-addressed Shape A version — reproducible across
+sessions because the file's byte hash is tracked.
 
-Even when called at the REPL, `stow()` records a row in `_mr_runs`
-tagged as an interactive write so later tracked runs can flag inputs
-that trace back to ad-hoc keyboard activity.
-
-```{r stow-grab}
-stow(df, "training")
+```{r ingest}
+train_csv <- tempfile(fileext = ".csv")
+write.csv(df, train_csv, row.names = FALSE)
+ingest("training", train_csv)
 
 # grab() returns a dbplyr lazy tbl for tabular data.
 grab("training")
 
-# collect() to materialize; DuckDB returns a tibble, so all.equal() checks values.
+# collect() to materialize.
 training_local <- grab("training") |> dplyr::collect()
-all.equal(as.data.frame(training_local), df)
+head(training_local)
 ```
+
+## Shape A vs. Shape B
+
+The store has two storage shapes for tabular data, and which one you
+get depends on how the value enters:
+
+- **Shape A — content-addressed versions.** `ingest()` writes input
+  reference data as Shape A. Every distinct content gets its own
+  version row; `grab()` returns the latest. Non-tabular values stowed
+  via `stow(model, "fit")` also take this path (as artifacts).
+- **Shape B — run-indexed append log.** `stow(df, name)` *inside a
+  tracked `launch()`* appends rows to a single growing DuckDB table,
+  stamping each with the run's id and variant label. `grab(name)`
+  inside `launch()` returns only the current run's rows; outside
+  `launch()` it returns the whole accumulator with user-facing
+  `run_id` and `variant_label` columns.
 
 ## A tracked run with `launch({ ... })`
 
@@ -105,10 +119,40 @@ run$inputs
 run$outputs
 ```
 
+## Accumulating results across a sweep
+
+A common pattern is sweeping a set of models and collecting their
+metrics into a single, run-indexed table. `stow(df, name)` inside
+`launch()` appends the data frame's rows to a Shape B accumulator
+rather than creating a separate version per run — so every sweep run
+contributes to one growing table you can compare all at once.
+
+```{r sweep}
+# A sweep across three models, all stowing "metrics" into the same
+# Shape B accumulator.
+launch({
+  fit <- lm(mpg ~ wt + hp, data = mtcars)
+  tibble::tibble(
+    model = "lm",
+    rmse  = sqrt(mean(resid(fit)^2)),
+    r2    = summary(fit)$r.squared
+  ) |> stow("metrics")
+}, label = "lm")
+
+# Outside any launch, grab() returns the whole accumulator table,
+# with system columns exposed as run_id and variant_label.
+grab("metrics") |> dplyr::collect()
+```
+
 ## Inspecting versions
 
+`versions()` walks the Shape A version history — one row per distinct
+content hash. It works for ingested tables, SQL views, and stowed
+artifacts. For Shape B names, rows live in the append table itself
+(query it directly or use `grab()` outside `launch()`).
+
 ```{r versions}
-versions("predictions")
+versions("model")
 ```
 
 Run the same block a second time and modelrunnR will *skip it*.
