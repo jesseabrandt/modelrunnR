@@ -22,6 +22,21 @@
 * `prune_runs(name, run_id, older_than, keep, force)` — garbage
   collect rows from append tables, mirroring `prune_versions()`'s
   policy contract.
+* **`stow(df, name)` outside `launch()` is supported.** Mints an
+  `<interactive:TS>` run row (matching the existing Shape A / `ingest()`
+  convention) and stamps the appended rows with that run_id. Bare stows
+  no longer error; downstream launches that `grab()` the value get the
+  same reproducibility warning already emitted for artifact and ingest
+  inputs.
+* **`versions(name)` works for Shape B names.** Returns one row per
+  appended chunk, keyed by its `chunk_hash`, latest-first; each row's
+  `produced_by_runs` lists the run_id that wrote that chunk. (Shape A
+  semantics unchanged.) Amends the original append-mode spec.
+* **`mr_hash()` rebinds work on Shape B names.** Resolves against the
+  chunk_hashes surfaced by `versions()`, mapping the hash to the
+  producing run_id and using the same Shape B run-filter path as
+  `mr_run()`. SQL-launch `@inputs` on Shape B names are also supported
+  via on-demand filtered views.
 
 ## Storage
 

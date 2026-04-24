@@ -99,6 +99,8 @@ stow(value, name)
 
 The data-frame / lazy-tbl branch unconditionally goes to Shape B. There is no versioned-tabular kind under the new contract; users who want a one-shot immutable tabular value should use an artifact (`stow(as.list(df), "snapshot")`) or rely on Shape B's `run_id` filter.
 
+> **Amendment 2026-04-23 (option Y).** The original draft said Shape B has no content-hash identity — but the chunk_hash computed per append already functions as one, at the *chunk level* (one run's contribution = one "version"). This spec's §5 / §6 originally disallowed `versions()` and `mr_hash()` on Shape B names; in practice the `batch-launches.Rmd` SQL-batch example relied on exactly those, so the implementation now surfaces per-append chunk_hashes as versions and lets `mr_hash()` resolve against them. See "Amendment §5 / §6" below.
+
 Lazy-tbl stow materializes server-side via `INSERT INTO <physical> SELECT * FROM (<lazy body>)`, same shape as eager stow — no special path.
 
 **`ingest()` is unchanged.** `ingest()` loads reference data into Shape A (`kind = "table"` in `_mr_versions`) — it's for immutable source data, not per-run outputs. Only `stow()`'s data-frame / lazy-tbl path changes.
@@ -171,6 +173,10 @@ Return type: lazy tbl (matches the post-lazy-grab world). System columns `_mr_ru
 
 **Dropped from prior draft:** the `options(modelrunnR.append_grab_hint)` single-row hint. With the rule above, the "why did I only get one row" failure mode doesn't occur at the REPL (default is "all"), and inside `launch()` a one-row default is what the user is actively asking for.
 
+> **Amendment 2026-04-23 (option Y).** `versions(name)` was originally scoped to Shape A only; implementation now returns one row per appended chunk for Shape B names, reading from `_mr_runs.outputs` entries with `kind = "append_table"`. `content_hash` on each row is the chunk_hash; `produced_by_runs` lists the producing run_id. This makes `versions()` + `mr_hash()` round-trip through Shape B, matching the `batch-launches.Rmd` SQL-batch pattern. Ordering for Shape B is latest-first (divergent from Shape A's ascending — tracked in `TODO.md`).
+
+> **Amendment 2026-04-23 (interactive writes for Shape B).** `stow(df, name)` and `stow(<lazy tbl>, name)` outside `launch()` no longer error. Implementation mints an `<interactive:TS>` `_mr_runs` row with `status = "interactive"` (matching the Shape A / `ingest()` convention in `R/interactive.R`) and stamps appended rows with that synthetic run_id. Downstream launches that `grab()` an interactively-stowed value get the same reproducibility warning already emitted for artifact / ingest inputs. This preserves grab's "latest run" rule without requiring users to wrap one-off stows in an empty `launch({})`.
+
 ## 6. Staleness and run-transaction semantics
 
 Driven by the existing launch() machinery — code hash + input hashes + external inputs. No new staleness logic for Shape B contents.
@@ -187,7 +193,7 @@ Inside `launch(..., rebind = list(x = ...))`, each ref kind behaves as follows w
 - **`mr_run(id)`** — subsequent `grab("x")` inside the block filters rows to that `run_id` (overrides the §5.2 default).
 - **`mr_variant(label)`** — `grab("x")` filters rows to the latest run with that variant.
 - **`mr_as_of(ts)`** — rows from runs with `started_at ≤ ts`, then the usual "latest run" default collapses to the last run before `ts`.
-- **`mr_hash("abc")`** — **errors**: "mr_hash() addresses content-hashed (Shape A) values; 'x' is an append log (Shape B). Use mr_run() or mr_variant()." `mr_hash()`'s identity model doesn't exist for Shape B.
+- **`mr_hash("abc")`** — ~~errors~~ **(amended 2026-04-23, option Y)** resolves against the chunk_hash of the run that appended that content. Lookup is against `_mr_runs.outputs` scanning for `kind = "append_table"` entries with matching `logical_name` + `chunk_hash`; the resolved run_id drives the same filter as `mr_run()`. Errors if the hash matches no chunk of this name.
 
 Prune:
 

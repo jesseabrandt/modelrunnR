@@ -1,5 +1,19 @@
 # modelrunnR TODO
 
+## Surfaced 2026-04-23 (from R CMD check session — option Y follow-ups)
+
+### `versions()` row ordering inconsistent between Shape A and Shape B
+
+Shape A `versions(name)` orders rows ascending by `first_seen` (per
+the Rd docs); Shape B `versions(name)` — added in the Y implementation
+— orders descending (latest first) because the SQL-batch vignette
+indexes `src_versions$content_hash[1]` as the latest. Both orderings
+have callers; the Rd docs describe only the Shape A convention, and
+the vignette comment ("latest first") describes only the Shape B /
+batch-launches convention. Pick one, update the other path + docs +
+vignettes to match. Low urgency — no breakage today, just a
+cross-shape inconsistency a careful reader will notice.
+
 ## Surfaced 2026-04-23 (from append-mode stow plan)
 
 ### `.mr_stow_lazy` is dead code after Task 9
