@@ -13,6 +13,21 @@
 - **Internal API is re-sketched around shapes, not verbs** (§12). `stow.R` and `grab.R` become thin dispatchers; the hard work lives in `shape_versioned.R` and `shape_append.R`.
 - **Prune is unified internally; exports are unchanged.** `prune_versions()` stays exported (invariant 5); a new `prune_runs()` export handles Shape B. Both call a shared internal `.mr_prune(by = ...)`.
 
+## Amendments 2026-04-23 (rev 3 — shape-invisibility principle)
+
+Organizing principle going forward: **shapes should be invisible to the user.** The two storage shapes are an internals concern; a user shouldn't need to know which shape a logical name is in to decide which function to call. All user-facing operations should work on both shapes (with sensibly different *meaning*, but identical calls and — where possible — identical return schemas). Earlier amendments (option Y: `versions()` / `mr_hash()` extended to Shape B) were instances of this principle; this rev names it and closes the remaining gaps.
+
+Concrete decisions from this pass:
+
+- **One unified `prune()` export (shape axis).** Replaces the split `prune_versions()` + planned `prune_runs()` with a single `prune(name, by = c("version", "run", "age"), older_than = ..., keep = ..., keep_latest = ..., force = ...)` that dispatches on the name's shape. Invalid `by` for the resolved shape errors clearly (`by = "version"` on a Shape B name, etc.); `by = "age"` works on both. Internal `.mr_prune()` stays (§12). **`prune_variants()` is out of scope** of this unification — variants are a separate axis from shape, so that export is unaffected. **Invariant 5 impact:** `prune_versions()` is a pre-existing export on `main`; removal is authorized in conversation (2026-04-23). No deprecation shim — pre-1.0.
+- **`grab(name, run = "all")` is meaningful on both shapes.** On Shape B it already stacks all runs' rows with `run_id` / `variant_label` surfaced (existing §5.2). On Shape A it returns a **list** of versions (one element per version, in `versions()` row order), with each element the materialized value and names taken from `content_hash`. Makes the cross-history knob work regardless of shape, at the cost of Shape A returning a list rather than a tbl — acceptable because the user asked for "all" on an inherently non-tbl-shaped history.
+- **`versions()` ordering is latest-first for both shapes.** Shape A currently returns ascending; changed to descending by `first_seen` (and `created_at` where that's the per-row timestamp) to match Shape B. Rd docs and any callers that indexed `[1]` expecting oldest are updated. Closes `TODO.md`'s "versions() row ordering inconsistent" item.
+
+Downstream spec sections to re-read under this principle:
+- §5 (`grab()` semantics) — `run = "all"` Shape A behavior is the new addition.
+- §7 (composition with rebind / variants / prune) — "Prune" bullet list is superseded by the unified export above.
+- §12 (internal API sketch) — `prune.R`'s exported entry point is now `prune()` not `prune_versions()` / `prune_runs()`; `.mr_prune(by = ...)` is unchanged.
+
 ## Motivation
 
 Today every `stow(df, "metrics")` call creates a new *version* under a fresh `metrics__<hash>` physical table. Running 20 models produces 20 disjoint one-row versions and `grab("metrics")` returns only the last. What users actually want is one 20-row table they can analyze across runs.
