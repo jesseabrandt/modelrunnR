@@ -1,23 +1,30 @@
 #' Retrieve a value from the modelrunnR artifact store
 #'
-#' Returns the value stowed under `name`. For versioned (Shape A) artifacts,
-#' the default returns the current latest version; historical versions can be
+#' modelrunnR stores tabular values two ways — as **versioned** snapshots
+#' (one row per distinct content) and as **append tables** (one growing
+#' table, row-stamped per run). `grab()` dispatches on which shape `name`
+#' was stored as, so the same call works regardless. The distinction is
+#' explained in the Getting Started vignette.
+#'
+#' **Versioned (Shape A)** — data the package treats as immutable: ingested
+#' reference data, non-tabular artifacts (models, lists, results). The
+#' default returns the current latest version; historical versions can be
 #' selected via `version` (content hash), `from_run` (run id), or `as_of`
-#' (timestamp), in that precedence order.
+#' (timestamp), in that precedence order. Pass `run = "all"` to get a
+#' **named list** of every stored version (one element per content hash,
+#' ordered oldest -> newest).
 #'
-#' For append tables (Shape B), the default returns one coherent snapshot —
-#' the rows from a single run — with system columns (`_mr_run_id`,
-#' `_mr_variant_label`) stripped, so `grab(name)` gives you user columns
-#' only. Which run depends on context: inside a [launch()] block it is the
-#' *current* run (rows this run has written so far); outside a launch it is
-#' the *latest* run that wrote to `name`. The exploratory workflow —
-#' `grab("metrics") |> collect()` at the REPL — thus pulls a clean slice
-#' rather than the accumulated cross-run pile.
-#'
+#' **Append (Shape B)** — data frames you `stow()` inside runs. The default
+#' returns one coherent snapshot — the rows from a single run — with system
+#' columns (`_mr_run_id`, `_mr_variant_label`) stripped, so `grab(name)`
+#' gives you user columns only. Which run depends on context: inside a
+#' [launch()] block it is the *current* run (rows this run has written so
+#' far); outside a launch it is the *latest* run that wrote to `name`. The
+#' exploratory workflow — `grab("metrics") |> collect()` at the REPL —
+#' thus pulls a clean slice rather than the accumulated cross-run pile.
 #' Pass `run = "all"` to opt into the full-history view: every row, with
 #' system columns surfaced as user-facing `run_id` and `variant_label`
-#' columns. That is the right lens for comparing runs (e.g. sweeping
-#' across models and plotting metrics by variant).
+#' columns — the right lens for comparing runs.
 #'
 #' Inside a tracked [launch()], the read is recorded as an input
 #' `{name, hash}` pair on the run row. Outside a launch, the read
@@ -45,9 +52,11 @@
 #'   by any run launched with `label = variant`. Mutually exclusive with
 #'   `version`, `from_run`, `as_of`, and `run`. See *Variants and
 #'   swappability* in docs/design.md for the full semantics.
-#' @param run For append tables (Shape B) only: a run id string to filter to
-#'   that run's rows, or `"all"` to return every row with `run_id` and
-#'   `variant_label` exposed. Overrides the default single-run snapshot.
+#' @param run Cross-history selector. On Shape B (append tables), a run id
+#'   string filters to that run's rows, or `"all"` returns every row with
+#'   `run_id` and `variant_label` exposed. On Shape A (versioned), only
+#'   `"all"` is accepted and returns a named list of every stored version
+#'   keyed by `content_hash`.
 #'
 #' @section Security note:
 #' Artifacts stored via [stow()] are deserialized on read with
@@ -128,8 +137,31 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
 
   # Shape A — existing path (preserve behavior)
   if (!is.null(run)) {
+    # Shape-invisibility: `run = "all"` on Shape A returns a named list
+    # of every stored version (oldest -> newest), using content_hash as
+    # the list name. Mirrors the "stack everything" spirit of Shape B's
+    # `run = "all"` but surfaces content hashes where Shape B surfaces
+    # run_ids. Other `run=` values error — there is no run-level
+    # identity for a content-addressed value.
+    if (identical(run, "all")) {
+      v <- DBI::dbGetQuery(
+        con,
+        "SELECT * FROM _mr_versions WHERE logical_name = ? ORDER BY first_seen",
+        params = list(name)
+      )
+      if (nrow(v) == 0L) {
+        stop(sprintf("grab(): no versions of '%s' found", name), call. = FALSE)
+      }
+      out <- vector("list", nrow(v))
+      for (i in seq_len(nrow(v))) {
+        out[[i]] <- .mr_read_value(con, v[i, , drop = FALSE])
+      }
+      names(out) <- v$content_hash
+      .mr_record_read(name, NA_character_)
+      return(out)
+    }
     stop(sprintf(
-      "grab(): `run=` only applies to append tables (Shape B); '%s' is versioned.",
+      "grab(): `run=` on versioned name '%s' only accepts \"all\"; for a specific historical value use `version=` (content hash) or `from_run=` (run id).",
       name
     ), call. = FALSE)
   }

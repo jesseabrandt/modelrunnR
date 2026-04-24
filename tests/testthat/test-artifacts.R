@@ -91,3 +91,29 @@ test_that("artifacts are recorded in run outputs and addressable via from_run", 
   refit <- grab("fit", from_run = run$run_id)
   expect_s3_class(refit, "lm")
 })
+
+test_that("grab(name, run = 'all') on Shape A returns a named list of all versions", {
+  new_test_db()
+  stow(list(v = 1), "t")
+  stow(list(v = 2), "t")
+  stow(list(v = 3), "t")
+
+  all <- grab("t", run = "all")
+  expect_type(all, "list")
+  expect_length(all, 3L)
+  # Keys are the content hashes from versions(); ordering is oldest -> newest.
+  # Values are the deserialized artifacts.
+  expect_setequal(vapply(all, function(x) x$v, numeric(1)), c(1, 2, 3))
+  hashes <- names(all)
+  expect_true(all(nzchar(hashes)))
+  expect_equal(length(unique(hashes)), 3L)
+})
+
+test_that("grab(name, run = <id>) on Shape A errors with guidance", {
+  new_test_db()
+  stow(list(v = 1), "t")
+  expect_error(
+    grab("t", run = "r_bogus"),
+    "only accepts \\\"all\\\""
+  )
+})

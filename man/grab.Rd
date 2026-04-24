@@ -36,9 +36,11 @@ by any run launched with \code{label = variant}. Mutually exclusive with
 \code{version}, \code{from_run}, \code{as_of}, and \code{run}. See \emph{Variants and
 swappability} in docs/design.md for the full semantics.}
 
-\item{run}{For append tables (Shape B) only: a run id string to filter to
-that run's rows, or \code{"all"} to return every row with \code{run_id} and
-\code{variant_label} exposed. Overrides the default single-run snapshot.}
+\item{run}{Cross-history selector. On Shape B (append tables), a run id
+string filters to that run's rows, or \code{"all"} returns every row with
+\code{run_id} and \code{variant_label} exposed. On Shape A (versioned), only
+\code{"all"} is accepted and returns a named list of every stored version
+keyed by \code{content_hash}.}
 }
 \value{
 For tabular stored values (ingested files, stowed data
@@ -49,25 +51,32 @@ to materialize. For non-tabular artifacts, the deserialized R
 object.
 }
 \description{
-Returns the value stowed under \code{name}. For versioned (Shape A) artifacts,
-the default returns the current latest version; historical versions can be
-selected via \code{version} (content hash), \code{from_run} (run id), or \code{as_of}
-(timestamp), in that precedence order.
+modelrunnR stores tabular values two ways — as \strong{versioned} snapshots
+(one row per distinct content) and as \strong{append tables} (one growing
+table, row-stamped per run). \code{grab()} dispatches on which shape \code{name}
+was stored as, so the same call works regardless. The distinction is
+explained in the Getting Started vignette.
 }
 \details{
-For append tables (Shape B), the default returns one coherent snapshot —
-the rows from a single run — with system columns (\verb{_mr_run_id},
-\verb{_mr_variant_label}) stripped, so \code{grab(name)} gives you user columns
-only. Which run depends on context: inside a \code{\link[=launch]{launch()}} block it is the
-\emph{current} run (rows this run has written so far); outside a launch it is
-the \emph{latest} run that wrote to \code{name}. The exploratory workflow —
-\code{grab("metrics") |> collect()} at the REPL — thus pulls a clean slice
-rather than the accumulated cross-run pile.
+\strong{Versioned (Shape A)} — data the package treats as immutable: ingested
+reference data, non-tabular artifacts (models, lists, results). The
+default returns the current latest version; historical versions can be
+selected via \code{version} (content hash), \code{from_run} (run id), or \code{as_of}
+(timestamp), in that precedence order. Pass \code{run = "all"} to get a
+\strong{named list} of every stored version (one element per content hash,
+ordered oldest -> newest).
 
+\strong{Append (Shape B)} — data frames you \code{stow()} inside runs. The default
+returns one coherent snapshot — the rows from a single run — with system
+columns (\verb{_mr_run_id}, \verb{_mr_variant_label}) stripped, so \code{grab(name)}
+gives you user columns only. Which run depends on context: inside a
+\code{\link[=launch]{launch()}} block it is the \emph{current} run (rows this run has written so
+far); outside a launch it is the \emph{latest} run that wrote to \code{name}. The
+exploratory workflow — \code{grab("metrics") |> collect()} at the REPL —
+thus pulls a clean slice rather than the accumulated cross-run pile.
 Pass \code{run = "all"} to opt into the full-history view: every row, with
 system columns surfaced as user-facing \code{run_id} and \code{variant_label}
-columns. That is the right lens for comparing runs (e.g. sweeping
-across models and plotting metrics by variant).
+columns — the right lens for comparing runs.
 
 Inside a tracked \code{\link[=launch]{launch()}}, the read is recorded as an input
 \verb{\{name, hash\}} pair on the run row. Outside a launch, the read
