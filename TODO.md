@@ -44,6 +44,37 @@ Not urgent. The cookbook pattern (`vignettes/nested-sweeps.Rmd`) works
 today with the explicit stow; this removes three lines of boilerplate
 from sweep code once the design questions are answered.
 
+### Skip-on-fresh collapses batch envelopes with identical grabs but different rebinds
+
+Staleness is keyed on `(step, label)` plus the recorded `inputs` hash
+(from grabs). Rebind values are recorded on `_mr_runs.rebinds` but do
+not enter the staleness hash. Consequence: a batch where every
+envelope grabs the same upstream names and shares one label runs
+envelope 1, then marks envelopes 2..N as `skipped_fresh` because each
+check finds a prior run under the same `(step, label)` with the same
+input hashes — the differing rebinds are invisible to the check.
+
+Surfaced while building `vignettes/nested-sweeps.Rmd`: a 15-envelope
+`mr_binds(alpha = ..., fold = ..., mode = "cross")` sweep ran envelope 1
+and skipped envelopes 2..15. Vignette works around it by passing
+unique `.labels` per envelope so staleness becomes per-envelope. A
+user who doesn't set `.labels` gets a batch-of-1 with 14 silent skips.
+
+Related to the existing "SQL-launch records append-shape chunk_hash on
+`_mr_runs.inputs`; R-launch records `NA`" item but distinct — that one
+is about grab freshness detection; this is about rebind identity
+participating in freshness.
+
+Fix candidates:
+
+- Include the resolved rebind hashes (already in `_mr_runs.rebinds`)
+  in the staleness hash. Per-envelope rebinds → per-envelope identity,
+  no workaround needed.
+- Auto-derive a per-envelope variant label from the sweep values when
+  `.labels` is `NULL`. Spec explicitly rejected this path (2026-04-19
+  batch-launch spec §Labels) — rebinds column is the preferred
+  provenance surface. If fixed via option 1, this rejection stands.
+
 ### Test comments still reference `Shape A` / `Shape B`
 
 The 2026-04-24 rename to `versioned-shape` / `append-shape` covered
