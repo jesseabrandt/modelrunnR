@@ -27,12 +27,14 @@ test_that("launch() errors if both `code` and `script_path` are passed", {
   )
 })
 
-test_that("launch(script_path = { ... }) still dispatches to inline mode", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("launch(script_path = { ... }) still dispatches to inline mode (Shape B)", {
   new_test_db()
 
+  # Use an artifact stow (Shape A) so the block evaluates without a launch
+  # context (deprecated script_path shim evaluates the block eagerly when
+  # building dots; data-frame stow requires an active recording context).
   run <- suppressWarnings(launch(script_path = {
-    stow(data.frame(a = 1), "x")
+    stow(list(a = 1), "x")
   }))
 
   expect_equal(run$status, "success")
@@ -49,16 +51,17 @@ test_that("deprecation shim strips `script_path` before the unknown-args check",
   )
 })
 
-test_that("launch(script_path = { ... }) and launch(code = { ... }) produce the same step hash", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("launch(script_path = { ... }) and launch(code = { ... }) produce the same step hash (Shape B)", {
   new_test_db()
+  # Use artifact stow (Shape A) — script_path shim evaluates the block
+  # eagerly in dots; data-frame stow requires an active recording context.
   run_old <- suppressWarnings(launch(script_path = {
-    stow(data.frame(a = 1), "x")
+    stow(list(a = 1), "x")
   }))
 
   new_test_db()
   run_new <- launch(code = {
-    stow(data.frame(a = 1), "x")
+    stow(list(a = 1), "x")
   })
 
   expect_equal(run_old$step, run_new$step)

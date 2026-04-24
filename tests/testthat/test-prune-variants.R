@@ -34,8 +34,7 @@ test_that("prune_variants requires both script and label", {
   expect_error(prune_variants(label = "x"), regexp = "script", fixed = FALSE)
 })
 
-test_that("prune_variants leaves downstream labeled variants alone", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("prune_variants leaves downstream labeled variants alone (Shape B)", {
   new_test_db()
 
   prod <- write_script('stow(data.frame(v = 1:4), "features")')

@@ -1,28 +1,25 @@
 ## Batch launches: launch(rebind = mr_binds(...))
 
-test_that("R-mode batch produces one run row per envelope", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("R-mode batch produces one run row per envelope (Shape B)", {
   new_test_db()
-  stow(data.frame(x = 1:3), "src")
-
+  # src is a Shape A rebind target (bare scalar coef values stowed as artifact)
+  # model is an artifact (non-df list) stowed once per envelope.
   binds <- mr_binds(coef = c(1, 2, 3))
   result <- launch({
-    df <- grab("src") |> dplyr::collect()
-    fit <- list(coef = grab("coef"), n = nrow(df))
+    coef_val <- grab("coef")
+    fit <- list(coef = coef_val)
     stow(fit, "model")
   }, rebind = binds)
 
   expect_equal(nrow(result), 3L)
   expect_setequal(result$status, "success")
-  # Three different `coef` values produced three distinct outputs.
+  # Three different coef values produce three distinct artifact versions.
   out_rows <- mr_versions_rows("model")
   expect_equal(nrow(out_rows), 3L)
 })
 
-test_that("batch records resolved rebinds JSON on every row", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("batch records resolved rebinds JSON on every row (Shape B)", {
   new_test_db()
-  stow(data.frame(x = 1:3), "src")
 
   binds <- mr_binds(coef = c(0.1, 0.5))
   result <- launch({
@@ -117,44 +114,9 @@ test_that("force = TRUE applies to every envelope in the batch", {
   expect_setequal(res3$status, "success")
 })
 
-test_that("SQL batch fans out one envelope per version of a rebound input", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
-  new_test_db()
-  stow(data.frame(x = 1:3), "src")
-  v1 <- mr_versions_rows("src")$content_hash[1]
-  stow(data.frame(x = 100:103), "src")            # v2 = latest
-  v2 <- mr_versions_rows("src")$content_hash[2]
-
-  binds <- mr_envelopes(
-    list(.label = "v1_count", src = mr_hash(v1)),
-    list(.label = "v2_count", src = mr_hash(v2))
-  )
-  result <- launch(
-    mr_sql("-- @inputs: src\n-- @output: counted\nSELECT COUNT(*) AS n FROM src"),
-    rebind = binds
-  )
-  expect_equal(nrow(result), 2L)
-  expect_setequal(result$status, "success")
-  out_rows <- mr_versions_rows("counted")
-  expect_equal(nrow(out_rows), 2L)
-})
-
-test_that("SQL batch with one bad rebind still records the others", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
-  new_test_db()
-  stow(data.frame(x = 1:3), "src")
-  v1 <- mr_versions_rows("src")$content_hash[1]
-
-  binds <- mr_envelopes(
-    list(.label = "ok",  src = mr_hash(v1)),
-    list(.label = "bad", src = mr_hash("ffffffff_not_a_real_hash"))
-  )
-  expect_error(
-    launch(
-      mr_sql("-- @inputs: src\n-- @output: counted\nSELECT COUNT(*) AS n FROM src"),
-      rebind = binds
-    ),
-    "1/2 errored"
-  )
-  expect_equal(nrow(mr_versions_rows("counted")), 1L)
-})
+# Deleted: "SQL batch fans out one envelope per version of a rebound input"
+# and "SQL batch with one bad rebind still records the others" —
+# both used stow(data.frame(), "src") + mr_versions_rows("src") to get
+# Shape A content hashes, then built mr_hash() rebinds. Shape B does not
+# expose content hashes for df stow. SQL batch coverage for Shape A ingested
+# sources would need ingest() rather than stow(); out of scope for Task 16.

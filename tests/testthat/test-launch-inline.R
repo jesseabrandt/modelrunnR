@@ -15,14 +15,14 @@ test_that("launch({...}) records a run row and tracks stows", {
   expect_match(rows$outputs[1], "inline_out")
 })
 
-test_that("launch({...}) sees grab()s recorded as inputs", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("launch({...}) sees grab()s recorded as inputs (Shape B)", {
   new_test_db()
 
-  stow(data.frame(a = 1:2), "src")
+  # Write src inside a launch so it's a valid Shape B table.
+  launch({ stow(data.frame(a = 1:2), "src") })
 
   run <- launch({
-    df <- grab("src") |> dplyr::collect()
+    df <- grab("src", run = "all") |> dplyr::collect()
     stow(df, "dst")
   })
 
@@ -30,24 +30,24 @@ test_that("launch({...}) sees grab()s recorded as inputs", {
   expect_match(run$outputs, "dst")
 })
 
-test_that("launch({...}) accepts rebind and label arguments", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("launch({...}) accepts rebind and label arguments (Shape B)", {
   new_test_db()
 
-  stow(data.frame(v = 1), "base")
+  # Bare scalar rebind: stored as Shape A literal. grab("base") inside
+  # the launch sees the Shape A rebound value (a 1-row df).
   run <- launch(
     {
       df <- dplyr::collect(grab("base"))
-      stow(df, "tagged")
+      stow(data.frame(v = df$v), "tagged")
     },
     rebind = list(base = data.frame(v = 99)),
     label  = "alt"
   )
 
   expect_equal(run$variant_label, "alt")
-  # The rebound value was stowed once (via the bare-value path) plus the
-  # downstream output, so "tagged" should carry v = 99.
-  expect_equal(dplyr::collect(grab("tagged"))$v, 99)
+  # "tagged" is Shape B; the full-table grab returns run_id + variant_label.
+  got <- dplyr::collect(grab("tagged", run = "all"))
+  expect_equal(got$v, 99)
 })
 
 test_that("launch({...}) re-running the same block is fresh", {

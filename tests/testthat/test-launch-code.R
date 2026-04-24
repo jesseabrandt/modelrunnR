@@ -55,11 +55,12 @@ test_that("launch_code() errors on an unknown run_id", {
   expect_error(launch_code("run_never_existed"), "no run with run_id")
 })
 
-test_that("launch_code() errors when an interactive write row has no body", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+test_that("launch_code() errors when an interactive write row has no body (Shape B)", {
   new_test_db()
 
-  stow(data.frame(a = 1), "interactively_written")
+  # Artifacts (non-df) still support interactive stow; they write an
+  # interactive _mr_runs row with no code body, just like the old df path.
+  stow(list(a = 1), "interactively_written")
   con <- .mr_get_connection()
   rows <- DBI::dbGetQuery(
     con,
