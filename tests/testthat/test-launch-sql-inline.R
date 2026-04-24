@@ -1,9 +1,8 @@
 ## Inline-mode SQL launches: launch(mr_sql("..."))
 
 test_that("launch(mr_sql(...)) registers a view and round-trips", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
-  stow(data.frame(x = 1:3), "src")
+  .mr_stow_table("src", data.frame(x = 1:3))
   body <- "-- @inputs: src\n-- @output: doubled\nSELECT x * 2 AS y FROM src"
   run_row <- launch(mr_sql(body))
 
@@ -16,9 +15,8 @@ test_that("launch(mr_sql(...)) registers a view and round-trips", {
 })
 
 test_that("inline SQL without @output errors", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
-  stow(data.frame(x = 1:3), "src")
+  .mr_stow_table("src", data.frame(x = 1:3))
   expect_error(
     launch(mr_sql("-- @inputs: src\nSELECT * FROM src")),
     "@output"
@@ -26,17 +24,15 @@ test_that("inline SQL without @output errors", {
 })
 
 test_that("step encodes a 12-char prefix and uses 'sql:' infix", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
-  stow(data.frame(x = 1:3), "src")
+  .mr_stow_table("src", data.frame(x = 1:3))
   run_row <- launch(mr_sql("-- @inputs: src\n-- @output: o\nSELECT * FROM src"))
   expect_match(run_row$step, "^<inline:sql:[0-9a-f]{12}>$")
 })
 
 test_that("re-running identical inline SQL is fresh", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
-  stow(data.frame(x = 1:3), "src")
+  .mr_stow_table("src", data.frame(x = 1:3))
   body <- "-- @inputs: src\n-- @output: o\nSELECT * FROM src"
   first  <- launch(mr_sql(body), label = "v1")
   second <- launch(mr_sql(body), label = "v1")

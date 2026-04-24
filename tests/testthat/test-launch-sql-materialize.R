@@ -1,9 +1,8 @@
 ## launch(... materialize = TRUE) wraps SQL as CREATE OR REPLACE TABLE.
 
 test_that("materialize = TRUE produces kind = 'table' with row-content hash", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
-  stow(data.frame(x = 1:5), "src")
+  .mr_stow_table("src", data.frame(x = 1:5))
   body <- "-- @inputs: src\n-- @output: out\nSELECT x * 10 AS y FROM src"
   launch(mr_sql(body), materialize = TRUE)
 
@@ -17,9 +16,8 @@ test_that("materialize = TRUE produces kind = 'table' with row-content hash", {
 })
 
 test_that("table and view modes round-trip identically through grab()/collect()", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
-  stow(data.frame(x = 1:5), "src")
+  .mr_stow_table("src", data.frame(x = 1:5))
   view_body <- "-- @inputs: src\n-- @output: vout\nSELECT x AS y FROM src"
   tab_body  <- "-- @inputs: src\n-- @output: tout\nSELECT x AS y FROM src"
   launch(mr_sql(view_body))
@@ -31,9 +29,8 @@ test_that("table and view modes round-trip identically through grab()/collect()"
 })
 
 test_that("switching from view to table under same name is a namespace error", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
-  stow(data.frame(x = 1:3), "src")
+  .mr_stow_table("src", data.frame(x = 1:3))
   body <- "-- @inputs: src\n-- @output: out\nSELECT * FROM src"
   launch(mr_sql(body))                             # view
   # `force = TRUE` bypasses skip-on-fresh so the namespace guard

@@ -2,11 +2,10 @@
 ## rebound version's physical name, producing a different content_hash.
 
 test_that("rebind to mr_hash() rewrites the body and produces a new version", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
-  stow(data.frame(x = 1:3), "src")
+  .mr_stow_table("src", data.frame(x = 1:3))
   v1 <- mr_versions_rows("src")$content_hash[1]
-  stow(data.frame(x = 100:103), "src")              # new latest version
+  .mr_stow_table("src", data.frame(x = 100:103))              # new latest version
 
   body <- "-- @inputs: src\n-- @output: out\nSELECT * FROM src"
   default_run  <- launch(mr_sql(body), label = "def")
@@ -26,9 +25,8 @@ test_that("rebind to mr_hash() rewrites the body and produces a new version", {
 })
 
 test_that("rebind referencing a name not in @inputs errors", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
-  stow(data.frame(x = 1:3), "src")
+  .mr_stow_table("src", data.frame(x = 1:3))
   body <- "-- @inputs: src\n-- @output: out\nSELECT * FROM src"
   expect_error(
     launch(mr_sql(body), rebind = list(other = data.frame(z = 1))),
@@ -37,14 +35,13 @@ test_that("rebind referencing a name not in @inputs errors", {
 })
 
 test_that("word-boundary substitution does not rewrite suffixed identifiers", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
   # Two distinct versions of `panel` must already exist before the
   # default launch, so default-vs-rebound SELECT bodies actually
   # differ in their substituted physical names.
-  stow(data.frame(panel = 1:3), "panel")
+  .mr_stow_table("panel", data.frame(panel = 1:3))
   v1 <- mr_versions_rows("panel")$content_hash[1]
-  stow(data.frame(panel = 100:103), "panel")          # v2 = latest
+  .mr_stow_table("panel", data.frame(panel = 100:103))          # v2 = latest
   body <- "-- @inputs: panel\n-- @output: out\nSELECT panel AS panel_alt FROM panel"
 
   launch(mr_sql(body))                                # default → v2 physical

@@ -8,9 +8,8 @@ write_sql <- function(text, name = "features.sql", envir = parent.frame()) {
 }
 
 test_that("launch() on a .sql file registers a view and round-trips via grab()", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
-  stow(data.frame(firm_id = 1:3, sales = c(10, 20, 30)), "panel_raw")
+  .mr_stow_table("panel_raw", data.frame(firm_id = 1:3, sales = c(10, 20, 30)))
 
   sql_path <- write_sql(paste(
     "-- @inputs: panel_raw",
@@ -34,9 +33,8 @@ test_that("launch() on a .sql file registers a view and round-trips via grab()",
 })
 
 test_that("@output overrides the filename-stem default", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
-  stow(data.frame(x = 1:3), "src")
+  .mr_stow_table("src", data.frame(x = 1:3))
 
   sql_path <- write_sql(paste(
     "-- @inputs: src",
@@ -51,9 +49,8 @@ test_that("@output overrides the filename-stem default", {
 })
 
 test_that("re-running an unchanged .sql file under the same label skips fresh", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
-  stow(data.frame(x = 1:3), "src")
+  .mr_stow_table("src", data.frame(x = 1:3))
   sql_path <- write_sql("-- @inputs: src\nSELECT * FROM src",
                         name = "features.sql")
 
@@ -64,9 +61,8 @@ test_that("re-running an unchanged .sql file under the same label skips fresh", 
 })
 
 test_that("editing the SELECT body forces a new version and re-runs", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
-  stow(data.frame(x = 1:3), "src")
+  .mr_stow_table("src", data.frame(x = 1:3))
   sql_path <- write_sql("-- @inputs: src\nSELECT x FROM src",
                         name = "features.sql")
   launch(sql_path, label = "v1")
@@ -82,9 +78,8 @@ test_that("editing the SELECT body forces a new version and re-runs", {
 })
 
 test_that("missing @inputs name errors before any DB write", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
-  stow(data.frame(x = 1:3), "src")
+  .mr_stow_table("src", data.frame(x = 1:3))
   sql_path <- write_sql("-- @inputs: not_there\nSELECT * FROM not_there",
                         name = "features.sql")
   before <- nrow(mr_versions_rows())
@@ -117,9 +112,8 @@ test_that("unknown @key errors", {
 })
 
 test_that("a stowed table with the same name blocks a SQL view registration", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
   new_test_db()
-  stow(data.frame(x = 1:3), "features")
+  .mr_stow_table("features", data.frame(x = 1:3))
   sql_path <- write_sql("SELECT 1 AS x", name = "features.sql")
   expect_error(launch(sql_path), "already exists as a table")
 })

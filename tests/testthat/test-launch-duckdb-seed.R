@@ -1,8 +1,8 @@
 test_that("duckdb_seed makes slice_sample reproducible across runs", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+  skip("append-mode stow: stow(tbl_lazy) inside launch body — wires in Task 10")
   new_test_db()
   df <- data.frame(id = 1:1000, v = rnorm(1000))
-  stow(df, "big")
+  .mr_stow_table("big", df)
 
   launch(
     {
@@ -29,9 +29,9 @@ test_that("duckdb_seed makes slice_sample reproducible across runs", {
 })
 
 test_that("different duckdb_seeds produce different samples", {
-  skip("append-mode stow: expected to rewrite for Shape B in task 16")
+  skip("append-mode stow: stow(tbl_lazy) inside launch body — wires in Task 10")
   new_test_db()
-  stow(data.frame(id = 1:1000, v = rnorm(1000)), "big")
+  .mr_stow_table("big", data.frame(id = 1:1000, v = rnorm(1000)))
 
   launch(
     { grab("big") |> dplyr::slice_sample(n = 20) |> stow("s1") },
