@@ -48,7 +48,7 @@ test_that("variants() aggregates multiple runs of the same label", {
 })
 
 # Deleted: "variants_unexplored lists labeled upstreams not consumed by the script"
-# variants_unexplored() matches on p$name in _mr_runs.outputs JSON; Shape B
+# variants_unexplored() matches on p$name in _mr_runs.outputs JSON; append-shape
 # writes produce {kind, logical_name, ...} — no p$name field — so the function
-# returns 0 rows for Shape B data flows. Surfaced as a production gap for a
+# returns 0 rows for append-shape data flows. Surfaced as a production gap for a
 # separate fix alongside the label-propagation issue.

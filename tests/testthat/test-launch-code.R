@@ -55,7 +55,7 @@ test_that("launch_code() errors on an unknown run_id", {
   expect_error(launch_code("run_never_existed"), "no run with run_id")
 })
 
-test_that("launch_code() errors when an interactive write row has no body (Shape B)", {
+test_that("launch_code() errors when an interactive write row has no body (append-shape)", {
   new_test_db()
 
   # Artifacts (non-df) still support interactive stow; they write an

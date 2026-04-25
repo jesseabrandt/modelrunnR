@@ -50,16 +50,16 @@ test_that("blob_threshold option controls the storage choice", {
   expect_equal(v$storage_location, "blob")
 })
 
-test_that("namespace collision between a table and an artifact errors cleanly (Shape B)", {
-  # After stow(df, name) the name is registered as Shape B (append table).
+test_that("namespace collision between a table and an artifact errors cleanly (append-shape)", {
+  # After stow(df, name) the name is registered as append-shape (append table).
   # Trying to stow an artifact under the same name must error.
   new_test_db()
   launch({ stow(data.frame(n = 1:3), "x") })
   expect_error(stow(list(a = 1), "x"),
                regexp = "already exists.*append table|refusing to register")
 
-  # After stow(artifact, name) the name is registered as Shape A.
-  # Trying to stow a data frame (Shape B) under the same name must error.
+  # After stow(artifact, name) the name is registered as versioned-shape.
+  # Trying to stow a data frame (append-shape) under the same name must error.
   new_test_db()
   stow(list(a = 1), "y")
   expect_error(
@@ -82,7 +82,7 @@ test_that("artifacts are recorded in run outputs and addressable via from_run", 
                     params = list(run$run_id))$outputs[1],
     simplifyVector = FALSE
   )
-  # Shape A entries use $name; Shape B entries use $logical_name.
+  # versioned-shape entries use $name; append-shape entries use $logical_name.
   names_produced <- vapply(outs, function(p) {
     if (!is.null(p$name)) p$name else p$logical_name
   }, character(1))
@@ -92,7 +92,7 @@ test_that("artifacts are recorded in run outputs and addressable via from_run", 
   expect_s3_class(refit, "lm")
 })
 
-test_that("grab(name, run = 'all') on Shape A returns a named list of all versions", {
+test_that("grab(name, run = 'all') on versioned-shape returns a named list of all versions", {
   new_test_db()
   stow(list(v = 1), "t")
   stow(list(v = 2), "t")
@@ -109,7 +109,7 @@ test_that("grab(name, run = 'all') on Shape A returns a named list of all versio
   expect_equal(length(unique(hashes)), 3L)
 })
 
-test_that("grab(name, run = <id>) on Shape A errors with guidance", {
+test_that("grab(name, run = <id>) on versioned-shape errors with guidance", {
   new_test_db()
   stow(list(v = 1), "t")
   expect_error(

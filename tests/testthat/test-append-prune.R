@@ -10,7 +10,7 @@ test_that("prune() removes rows by older_than", {
     params = list(as.POSIXct("2020-01-01", tz = "UTC")))
 
   # lm is variant-labeled — it's protected unless force = TRUE.
-  # by='run' scopes to Shape B so we get a single-shape data frame back.
+  # by='run' scopes to append-shape so we get a single-shape data frame back.
   pruned <- prune(by = "run", older_than = "30d", force = TRUE)
   expect_identical(pruned$rows_pruned, 1L)
 

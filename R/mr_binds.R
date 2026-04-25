@@ -190,5 +190,20 @@ mr_envelopes <- function(...) {
       }
     }
   }
+  # Warn (not error) on duplicate .label — intentional reruns under the
+  # same label are valid (seeded replays), but the relaunch path picks
+  # "the most recent run with this label", so silent duplicates are a
+  # frequent confusion.
+  labels <- vapply(envelopes, function(e) {
+    if (".label" %in% names(e)) as.character(e$.label) else NA_character_
+  }, character(1))
+  labeled <- labels[!is.na(labels)]
+  dupes <- unique(labeled[duplicated(labeled)])
+  if (length(dupes) > 0L) {
+    warning(sprintf(
+      "mr_envelopes(): duplicate .label across envelopes: %s. Relaunch by label resolves to the most recent run with that label.",
+      paste(sprintf("'%s'", dupes), collapse = ", ")
+    ), call. = FALSE)
+  }
   structure(envelopes, class = "mr_binds", mode = "envelopes")
 }

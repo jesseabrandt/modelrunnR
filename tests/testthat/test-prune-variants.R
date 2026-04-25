@@ -34,7 +34,7 @@ test_that("prune_variants requires both script and label", {
   expect_error(prune_variants(label = "x"), regexp = "script", fixed = FALSE)
 })
 
-test_that("prune_variants leaves downstream labeled variants alone (Shape B)", {
+test_that("prune_variants leaves downstream labeled variants alone (append-shape)", {
   new_test_db()
 
   prod <- write_script('stow(data.frame(v = 1:4), "features")')

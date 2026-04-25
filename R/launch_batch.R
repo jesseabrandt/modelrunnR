@@ -26,10 +26,7 @@
 
   # Mirror the SQL-batch nested-launch guard: catch the misuse before
   # ANY envelope runs, not after the first row has been written.
-  if (.mr_is_recording() || !is.null(.mr_state$helpers) ||
-      !is.null(.mr_state$rebinds)) {
-    stop("launch(): nested launches are not supported in v0.1.", call. = FALSE)
-  }
+  .mr_guard_no_nested_launch()
 
   prior_flag <- .mr_state$batch_active
   .mr_state$batch_active <- TRUE
@@ -85,10 +82,7 @@
     stop("launch(): mr_binds() expanded to zero envelopes.", call. = FALSE)
   }
 
-  if (.mr_is_recording() || !is.null(.mr_state$helpers) ||
-      !is.null(.mr_state$rebinds)) {
-    stop("launch(): nested launches are not supported in v0.1.", call. = FALSE)
-  }
+  .mr_guard_no_nested_launch()
 
   prior_flag <- .mr_state$batch_active
   .mr_state$batch_active <- TRUE
@@ -155,8 +149,25 @@
 # simple sum is correct.
 .mr_finalize_batch <- function(n, rows, errors, on_error) {
   rows_clean <- rows[!vapply(rows, is.null, logical(1))]
-  result_df <- if (length(rows_clean) == 0L) data.frame()
-               else do.call(rbind, rows_clean)
+  # Every row flows through `.mr_write_run_row`, so schemas match by
+  # construction. Assert that explicitly before rbind so a future
+  # addition that adds a per-launch-only column fails loudly here
+  # (with a schema dump) rather than silently producing a ragged
+  # frame. bind_rows(fill=TRUE) was considered but can't cast the
+  # JSON-classed columns (inputs/outputs/helpers/rebinds).
+  if (length(rows_clean) == 0L) {
+    result_df <- data.frame()
+  } else {
+    cols <- lapply(rows_clean, names)
+    if (length(unique(cols)) != 1L) {
+      stop(sprintf(
+        "launch(): batch row schema diverged across envelopes. Unique column sets: %s",
+        paste(vapply(unique(cols), paste, character(1), collapse = ", "),
+              collapse = " | ")
+      ), call. = FALSE)
+    }
+    result_df <- do.call(rbind, rows_clean)
+  }
 
   n_errors_caught <- sum(vapply(errors, function(e) !is.null(e), logical(1)))
   n_errors_status <- if (nrow(result_df) > 0L && "status" %in% names(result_df)) {

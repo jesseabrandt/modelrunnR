@@ -4,7 +4,7 @@ physical_tables <- function(pattern = "__") {
   grep(pattern, tbls, value = TRUE, fixed = TRUE)
 }
 
-test_that("grab(from_run = rid) returns what that run produced (Shape B)", {
+test_that("grab(from_run = rid) returns what that run produced (append-shape)", {
   new_test_db()
 
   # Two sequential launches each stow distinct row counts. grab() with
@@ -23,7 +23,7 @@ test_that("grab() errors cleanly when a name has never been stowed", {
   expect_error(grab("ghost"), "no value stowed")
 })
 
-# Deleted: "stow() warns when df has non-default row names" — Shape B's
+# Deleted: "stow() warns when df has non-default row names" — append-shape's
 # .mr_append_write_frame() does not currently emit the row-names warning
-# (only .mr_stow_table() for Shape A does). Surfaced as a production gap
+# (only .mr_stow_table() for versioned-shape does). Surfaced as a production gap
 # for a separate fix; not a Task 16 concern.

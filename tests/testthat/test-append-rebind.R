@@ -1,4 +1,4 @@
-test_that("mr_run() rebind on Shape B filters grab() to that run", {
+test_that("mr_run() rebind on append-shape filters grab() to that run", {
   new_test_db()
   run_lm <- launch({ stow(data.frame(m="lm", v=1), "metrics") }, label="lm")
   run_rf <- launch({ stow(data.frame(m="rf", v=2), "metrics") }, label="rf")
@@ -16,7 +16,7 @@ test_that("mr_run() rebind on Shape B filters grab() to that run", {
   expect_identical(captured$m, "lm")
 })
 
-test_that("mr_hash() on a Shape B name with an unknown hash errors clearly", {
+test_that("mr_hash() on a append-shape name with an unknown hash errors clearly", {
   new_test_db()
   launch({ stow(data.frame(m="lm"), "metrics") }, label = "lm")
   expect_error(
@@ -26,7 +26,7 @@ test_that("mr_hash() on a Shape B name with an unknown hash errors clearly", {
   )
 })
 
-test_that("mr_hash() on a Shape B name resolves to the chunk from versions()", {
+test_that("mr_hash() on a append-shape name resolves to the chunk from versions()", {
   new_test_db()
   launch({ stow(data.frame(m = "lm", rmse = 0.5), "metrics") }, label = "lm")
   launch({ stow(data.frame(m = "rf", rmse = 0.4), "metrics") }, label = "rf")
@@ -47,7 +47,7 @@ test_that("mr_hash() on a Shape B name resolves to the chunk from versions()", {
   expect_equal(captured$m, "lm")
 })
 
-test_that("mr_variant() rebind on Shape B filters to latest run with that label", {
+test_that("mr_variant() rebind on append-shape filters to latest run with that label", {
   new_test_db()
   launch({ stow(data.frame(m="lm", v=1), "metrics") }, label="lm")
   launch({ stow(data.frame(m="rf", v=2), "metrics") }, label="rf")
@@ -65,7 +65,7 @@ test_that("mr_variant() rebind on Shape B filters to latest run with that label"
   expect_identical(captured$m, "rf")
 })
 
-test_that("variants(name = ...) resolves Shape B names (backfill from Task 12)", {
+test_that("variants(name = ...) resolves append-shape names (backfill from Task 12)", {
   new_test_db()
   launch({ stow(data.frame(m="lm"), "metrics") }, label = "lm")
   launch({ stow(data.frame(m="rf"), "metrics") }, label = "rf")

@@ -1,4 +1,4 @@
-test_that("_mr_runs.outputs records an append_table entry per Shape B stow", {
+test_that("_mr_runs.outputs records an append_table entry per append-shape stow", {
   new_test_db()
   run_row <- launch({
     stow(data.frame(model = "lm", rmse = 0.5), "metrics")
@@ -13,7 +13,7 @@ test_that("_mr_runs.outputs records an append_table entry per Shape B stow", {
   expect_true(nzchar(entry$chunk_hash))
 })
 
-test_that("_mr_runs.outputs for Shape A artifacts keeps the legacy {name, hash} pair shape", {
+test_that("_mr_runs.outputs for versioned-shape artifacts keeps the legacy {name, hash} pair shape", {
   new_test_db()
   run_row <- launch({
     stow(list(a = 1), "my_model")
@@ -50,7 +50,7 @@ test_that("skipped_fresh runs do not append rows", {
   expect_identical(nrow(rows), 1L)
 })
 
-test_that("Shape B inputs do not make downstream launches stale", {
+test_that("append-shape inputs do not make downstream launches stale", {
   new_test_db()
   launch({ stow(data.frame(m = "lm", rmse = 0.5), "metrics") }, label = "producer")
 
@@ -61,7 +61,7 @@ test_that("Shape B inputs do not make downstream launches stale", {
   expect_identical(r2$status, "skipped_fresh")
 })
 
-test_that("label propagates across Shape B grab()", {
+test_that("label propagates across append-shape grab()", {
   new_test_db()
   launch({ stow(data.frame(m = "lm"), "metrics") }, label = "experiment_x")
 

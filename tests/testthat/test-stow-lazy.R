@@ -1,4 +1,4 @@
-test_that("stow(lazy_tbl, name) realizes the tbl server-side (Shape B)", {
+test_that("stow(lazy_tbl, name) realizes the tbl server-side (append-shape)", {
   new_test_db()
 
   # Write raw data via a launch.
@@ -21,7 +21,7 @@ test_that("stow(lazy_tbl, name) realizes the tbl server-side (Shape B)", {
   expect_true(all(c("g", "total", "run_id") %in% colnames(got)))
 })
 
-test_that("stow(lazy_tbl) on a foreign connection errors clearly (Shape B)", {
+test_that("stow(lazy_tbl) on a foreign connection errors clearly (append-shape)", {
   new_test_db()
 
   # The inline block's parent is globalenv(), not the test frame, so we
@@ -45,7 +45,7 @@ test_that("source_sql is NULL for artifact stows", {
   expect_true(is.na(rows$source_sql[1]))
 })
 
-test_that("lazy stow records an output entry on the run row (Shape B)", {
+test_that("lazy stow records an output entry on the run row (append-shape)", {
   new_test_db()
   launch({ stow(data.frame(x = 1:5), "raw") })
 
@@ -64,7 +64,7 @@ test_that("lazy stow records an output entry on the run row (Shape B)", {
     "SELECT outputs FROM _mr_runs WHERE variant_label = 'lazy_stow' ORDER BY started_at DESC LIMIT 1"
   )
   outputs <- jsonlite::fromJSON(runs$outputs[1], simplifyVector = FALSE)
-  # Shape B outputs carry logical_name, not name
+  # append-shape outputs carry logical_name, not name
   names_out <- vapply(outputs, function(p) {
     if (!is.null(p$logical_name)) p$logical_name else p$name
   }, character(1))

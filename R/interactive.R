@@ -60,13 +60,7 @@
       error = function(e) list()
     )
     for (e in entries) {
-      if (identical(e$kind, "append_table")) {
-        if (identical(e$logical_name, name)) return(runs$step[i])
-      } else {
-        if (identical(e$name, name) && identical(e$hash, hash)) {
-          return(runs$step[i])
-        }
-      }
+      if (.mr_output_matches_name(e, name, hash)) return(runs$step[i])
     }
   }
   NA_character_

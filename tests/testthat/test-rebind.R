@@ -1,8 +1,8 @@
-test_that("launch(rebind = list(name = df)) stows bare values as Shape A and script grabs them", {
+test_that("launch(rebind = list(name = df)) stows bare values as versioned-shape and script grabs them", {
   new_test_db()
 
-  # Bare data frame rebind is stowed as a Shape A (versioned) table.
-  # The script grabs the rebound value via the normal Shape A path.
+  # Bare data frame rebind is stowed as a versioned-shape (versioned) table.
+  # The script grabs the rebound value via the normal versioned-shape path.
   script <- write_script(c(
     'p <- dplyr::collect(grab("params"))',
     'stow(data.frame(echo = p$x), "out")'
@@ -13,7 +13,7 @@ test_that("launch(rebind = list(name = df)) stows bare values as Shape A and scr
   expect_equal(dplyr::collect(grab("out", run = "all"))$echo, 42L)
 })
 
-test_that("launch(rebind) with mr_run resolves via run outputs for Shape B", {
+test_that("launch(rebind) with mr_run resolves via run outputs for append-shape", {
   new_test_db()
 
   producer <- write_script('stow(data.frame(v = 1:5), "features")')
@@ -27,7 +27,7 @@ test_that("launch(rebind) with mr_run resolves via run outputs for Shape B", {
   expect_equal(dplyr::collect(grab("out", run = "all"))$n, 5L)
 })
 
-test_that("launch(rebind) with mr_variant() resolves to labeled run's rows (Shape B)", {
+test_that("launch(rebind) with mr_variant() resolves to labeled run's rows (append-shape)", {
   new_test_db()
 
   launch(write_script('stow(data.frame(v = 1:4), "features")'), label = "slow")
@@ -56,7 +56,7 @@ test_that("launch(data = ...) is a hard error with a migration message", {
   )
 })
 
-test_that("mr_variant() in rebind errors when no run has produced the name under that label (Shape B)", {
+test_that("mr_variant() in rebind errors when no run has produced the name under that label (append-shape)", {
   new_test_db()
   launch({ stow(data.frame(v = 1), "features") })
 

@@ -62,6 +62,19 @@ stow <- function(value, name) {
       call. = FALSE
     )
   }
+  # Also catch the name-first swap when both args are present:
+  # stow("preds", df) — value is a scalar string, name is a data frame
+  # (or any other non-character payload). Without this, .mr_validate_name
+  # fails downstream with a less-useful "name must be a character"
+  # message.
+  if (!missing(name) && is.character(value) && length(value) == 1L &&
+      !is.character(name)) {
+    stop(
+      "stow() is value-first as of this version: stow(value, name). ",
+      "Did you mean `stow(<value>, \"", value, "\")` ?",
+      call. = FALSE
+    )
+  }
   .mr_validate_name(name, context = "stow")
 
   if (inherits(value, "tbl_lazy")) {

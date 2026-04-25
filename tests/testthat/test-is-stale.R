@@ -7,9 +7,9 @@ test_that("is_stale(mr_label(...)) returns FALSE after a fresh run", {
   expect_length(attr(res, "reasons"), 0L)
 })
 
-# Deleted: "is_stale(mr_label) returns TRUE when a Shape B input changes"
-# Shape B reads record hash = NA_character_; staleness check sees NA == NA
-# and never reports stale for Shape B inputs. Tracking Shape B input changes
+# Deleted: "is_stale(mr_label) returns TRUE when a append-shape input changes"
+# append-shape reads record hash = NA_character_; staleness check sees NA == NA
+# and never reports stale for append-shape inputs. Tracking append-shape input changes
 # requires a separate mechanism (not in v0.1).
 
 test_that("is_stale(mr_label(...)) returns TRUE (never_run) for an unused label", {

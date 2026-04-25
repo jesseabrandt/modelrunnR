@@ -1,6 +1,6 @@
 ## Helpers for parsing the JSON-encoded output pair lists on _mr_runs.
-## Shape B outputs use the structured form {kind, logical_name, ...};
-## Shape A outputs use {name, hash}. This parser handles both.
+## append-shape outputs use the structured form {kind, logical_name, ...};
+## versioned-shape outputs use {name, hash}. This parser handles both.
 parse_output_names <- function(json) {
   if (is.na(json) || !nzchar(json)) return(character())
   parsed <- jsonlite::fromJSON(json, simplifyVector = FALSE)
@@ -15,7 +15,7 @@ parse_input_names <- function(json) {
   vapply(parsed, function(p) p$name, character(1))
 }
 
-test_that("run record captures observed inputs/outputs and success status (Shape B)", {
+test_that("run record captures observed inputs/outputs and success status (append-shape)", {
   new_test_db()
 
   writer <- write_script(c(

@@ -26,7 +26,7 @@ test_that("launch(label = ' trimmed ') strips whitespace", {
   expect_equal(row$variant_label, "eta_0.01")
 })
 
-test_that("grab(name, variant = 'x') resolves to rows from the latest run under that label (Shape B)", {
+test_that("grab(name, variant = 'x') resolves to rows from the latest run under that label (append-shape)", {
   new_test_db()
 
   fit <- write_script('stow(data.frame(v = 1:3), "features")')
@@ -39,7 +39,7 @@ test_that("grab(name, variant = 'x') resolves to rows from the latest run under 
   expect_equal(nrow(dplyr::collect(grab("features", variant = "fast"))), 9L)
 })
 
-test_that("grab(variant = 'nonexistent') errors cleanly (Shape B)", {
+test_that("grab(variant = 'nonexistent') errors cleanly (append-shape)", {
   new_test_db()
 
   launch({ stow(data.frame(v = 1), "features") })
@@ -50,7 +50,7 @@ test_that("grab(variant = 'nonexistent') errors cleanly (Shape B)", {
   )
 })
 
-test_that("grab() errors on multiple selectors including variant (Shape B)", {
+test_that("grab() errors on multiple selectors including variant (append-shape)", {
   new_test_db()
 
   launch({ stow(data.frame(v = 1), "features") })
@@ -61,7 +61,7 @@ test_that("grab() errors on multiple selectors including variant (Shape B)", {
   )
 })
 
-test_that("rebind = list(x = mr_variant('slow')) resolves to the labeled variant (Shape B)", {
+test_that("rebind = list(x = mr_variant('slow')) resolves to the labeled variant (append-shape)", {
   new_test_db()
 
   producer <- write_script('stow(data.frame(v = 1:4), "features")')
@@ -75,7 +75,7 @@ test_that("rebind = list(x = mr_variant('slow')) resolves to the labeled variant
   expect_equal(dplyr::collect(grab("n", run = "all"))$n, 4L)
 })
 
-test_that("grab(variant = 'x') inside launch() records the read on the run row (Shape B)", {
+test_that("grab(variant = 'x') inside launch() records the read on the run row (append-shape)", {
   new_test_db()
 
   prod <- write_script('stow(data.frame(v = 1:3), "features")')

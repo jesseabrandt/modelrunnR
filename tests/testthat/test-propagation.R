@@ -1,14 +1,14 @@
-# Note: label propagation from upstream Shape B data flows does not work in v0.1.
+# Note: label propagation from upstream append-shape data flows does not work in v0.1.
 # .mr_label_for_produced_hash() matches on {name, hash} pairs in _mr_runs.outputs,
-# but Shape B writes record {kind, logical_name, chunk_hash} — no `name` field —
-# so propagation never fires. Coverage for Shape A artifact propagation is kept
-# below; Shape B propagation is a separate production gap.
+# but append-shape writes record {kind, logical_name, chunk_hash} — no `name` field —
+# so propagation never fires. Coverage for versioned-shape artifact propagation is kept
+# below; append-shape propagation is a separate production gap.
 
-# Deleted: "downstream inherits a single agreeing upstream label" for Shape B
-# Deleted: "downstream stays plain when upstreams disagree and warns" for Shape B
-# Both require propagation from Shape B outputs which is not wired in v0.1.
+# Deleted: "downstream inherits a single agreeing upstream label" for append-shape
+# Deleted: "downstream stays plain when upstreams disagree and warns" for append-shape
+# Both require propagation from append-shape outputs which is not wired in v0.1.
 
-test_that("explicit label wins over propagation without warning (Shape B)", {
+test_that("explicit label wins over propagation without warning (append-shape)", {
   new_test_db()
 
   prod <- write_script('stow(data.frame(a = 1), "model")')
@@ -33,7 +33,7 @@ test_that("explicit label wins over propagation without warning (Shape B)", {
   expect_equal(rows$variant_label, "explicit_override")
 })
 
-test_that("no labeled upstreams -> plain run, no warning (Shape B)", {
+test_that("no labeled upstreams -> plain run, no warning (append-shape)", {
   new_test_db()
 
   prod <- write_script('stow(data.frame(a = 1), "model")')

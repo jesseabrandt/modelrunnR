@@ -20,6 +20,6 @@ test_that("launch summary appends a variant line when labeled explicitly", {
 })
 
 # Deleted: "launch summary notes inherited variant source" — label propagation
-# from Shape B outputs does not work in v0.1 (outputs use {logical_name} field
+# from append-shape outputs does not work in v0.1 (outputs use {logical_name} field
 # not {name} field, so .mr_label_for_produced_hash never matches). This test
-# relied on propagation firing from a df stow, which is now Shape B.
+# relied on propagation firing from a df stow, which is now append-shape.

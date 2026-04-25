@@ -21,10 +21,17 @@
 #' @param variant_label When non-NA, restrict the "most recent run" lookup to
 #'   runs with this exact label. When NA (the default), the lookup considers
 #'   any run for this step, regardless of label.
+#' @param rebind Optional `name -> content_hash` map for names the
+#'   about-to-fire launch has explicitly rebound. When a recorded
+#'   input name appears in this map, the input-arm compares its
+#'   recorded hash against the rebound hash rather than against the
+#'   current latest version — so a repeated launch under the same
+#'   pin stays fresh even if the pinned name has since moved on.
 #'
 #' @return A list with fields `stale` and `reasons`.
 #' @keywords internal
-.mr_is_stale <- function(step, variant_label = NA_character_) {
+.mr_is_stale <- function(step, variant_label = NA_character_,
+                         rebind = list()) {
   con <- .mr_get_connection()
   if (!is.na(variant_label)) {
     prior <- DBI::dbGetQuery(
@@ -59,8 +66,9 @@
   reasons <- c(reasons, .mr_check_code_hash(step, prior))
 
   # 3: input hash arm -- iterate recorded inputs and compare to the
-  # current latest version of each logical name.
-  reasons <- c(reasons, .mr_check_inputs(con, prior$inputs[1]))
+  # current latest version of each logical name, or to the
+  # caller-supplied rebound hash when present.
+  reasons <- c(reasons, .mr_check_inputs(con, prior$inputs[1], rebind))
 
   # 4: external input arm -- recompute each declared file/env hash.
   reasons <- c(reasons, .mr_check_external_inputs(prior$external_inputs[1]))
@@ -152,7 +160,7 @@
   character()
 }
 
-.mr_check_inputs <- function(con, inputs_json) {
+.mr_check_inputs <- function(con, inputs_json, rebind = list()) {
   if (is.na(inputs_json) || !nzchar(inputs_json) || inputs_json == "[]") {
     return(character())
   }
@@ -163,17 +171,35 @@
     # single content hash. Skip the version-latest comparison on these;
     # upstream launch freshness is the authoritative signal. jsonlite
     # round-trips NA_character_ as null → R NULL, so handle both.
-    if (is.null(p$hash) || is.na(p$hash)) next
+    if (is.null(p$hash) || is.na(p$hash)) {
+      # A caller-supplied rebind on an unhashed input still flags
+      # stale — the caller explicitly asked for a specific identity,
+      # which by definition differs from whatever the prior NA-hash
+      # run bound to.
+      if (!is.null(rebind[[p$name]])) {
+        reasons <- c(reasons, sprintf("input:%s", p$name))
+      }
+      next
+    }
 
-    row <- DBI::dbGetQuery(
-      con,
-      "SELECT content_hash FROM _mr_versions
-        WHERE logical_name = ?
-        ORDER BY first_seen DESC
-        LIMIT 1",
-      params = list(p$name)
-    )
-    current <- if (nrow(row) == 0L) NA_character_ else row$content_hash[1]
+    # If the about-to-fire launch rebinds this name, the "current"
+    # identity is the rebound hash — not latest(name). This keeps a
+    # repeated launch under the same pin fresh even after the pinned
+    # name has accumulated newer versions. A rebind to a *different*
+    # hash reports stale (the resulting run would differ).
+    current <- if (!is.null(rebind[[p$name]])) {
+      as.character(rebind[[p$name]])
+    } else {
+      row <- DBI::dbGetQuery(
+        con,
+        "SELECT content_hash FROM _mr_versions
+          WHERE logical_name = ?
+          ORDER BY first_seen DESC
+          LIMIT 1",
+        params = list(p$name)
+      )
+      if (nrow(row) == 0L) NA_character_ else row$content_hash[1]
+    }
     if (is.na(current) || !identical(current, p$hash)) {
       reasons <- c(reasons, sprintf("input:%s", p$name))
     }

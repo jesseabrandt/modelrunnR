@@ -230,10 +230,7 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
     # Nested-launch guard mirrors the R-mode rule: a SQL launch that
     # would run from inside an active R-mode recording would clobber
     # the outer's state on the recording side and confuse provenance.
-    if (.mr_is_recording() || !is.null(.mr_state$helpers) ||
-        !is.null(.mr_state$rebinds)) {
-      stop("launch(): nested launches are not supported in v0.1.", call. = FALSE)
-    }
+    .mr_guard_no_nested_launch()
     return(.mr_launch_sql(
       src_kind                = src_kind,
       path_or_body            = body_or_path,
@@ -329,17 +326,25 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 
 ## Internals ------------------------------------------------------------------
 
-.mr_new_run_id <- function() {
-  ts  <- format(Sys.time(), "%Y%m%d_%H%M%OS3")
-  suf <- paste(sample(c(0:9, letters[1:6]), 6, replace = TRUE), collapse = "")
-  sprintf("run_%s_%s", gsub("[^0-9A-Za-z_]", "", ts), suf)
+# Raise if a launch is fired while another launch is already active
+# (recording, helper-tracking, or rebinding). Called from both R-mode
+# and SQL-mode, single and batch dispatchers.
+.mr_guard_no_nested_launch <- function() {
+  if (.mr_is_recording() || !is.null(.mr_state$helpers) ||
+      !is.null(.mr_state$rebinds)) {
+    stop("launch(): nested launches are not supported in v0.1.", call. = FALSE)
+  }
+  invisible(NULL)
 }
 
-.mr_new_batch_id <- function() {
+.mr_new_id <- function(prefix) {
   ts  <- format(Sys.time(), "%Y%m%d_%H%M%OS3")
   suf <- paste(sample(c(0:9, letters[1:6]), 6, replace = TRUE), collapse = "")
-  sprintf("batch_%s_%s", gsub("[^0-9A-Za-z_]", "", ts), suf)
+  sprintf("%s_%s_%s", prefix, gsub("[^0-9A-Za-z_]", "", ts), suf)
 }
+
+.mr_new_run_id   <- function() .mr_new_id("run")
+.mr_new_batch_id <- function() .mr_new_id("batch")
 
 .mr_source_script <- function(path) {
   envir <- new.env(parent = globalenv())
@@ -512,33 +517,25 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 # fresh. No user code ran, so `inputs`/`outputs` are empty and
 # `duration_ms = 0`. `variant_label` inherits from the prior run's row
 # for this step when the caller didn't pass one, so the skipped row
-# stays in the same labeled thread.
+# stays in the same labeled thread. Shared by R-mode and SQL-mode
+# launchers; they differ only in caller-side argument naming.
 .mr_record_skipped_fresh <- function(step, run_id, started_at,
-                                     resolved_ext, code_body, label,
+                                     external_inputs, code_body, label,
                                      rebinds = list(),
                                      duckdb_seed = NULL,
                                      batch_id = NA_character_) {
   con <- .mr_get_connection()
-  if (is.na(label)) {
-    prior <- DBI::dbGetQuery(
-      con,
-      "SELECT variant_label, code_hash FROM _mr_runs
-        WHERE step = ?
-        ORDER BY started_at DESC LIMIT 1",
-      params = list(step)
-    )
-    if (nrow(prior) > 0L && !is.na(prior$variant_label[1])) {
-      label <- prior$variant_label[1]
-    }
-  }
-  prior_hash <- DBI::dbGetQuery(
+  prior <- DBI::dbGetQuery(
     con,
-    "SELECT code_hash FROM _mr_runs
+    "SELECT variant_label, code_hash FROM _mr_runs
       WHERE step = ?
       ORDER BY started_at DESC LIMIT 1",
     params = list(step)
   )
-  code_hash <- if (nrow(prior_hash) == 0L) NA_character_ else prior_hash$code_hash[1]
+  if (is.na(label) && nrow(prior) > 0L && !is.na(prior$variant_label[1])) {
+    label <- prior$variant_label[1]
+  }
+  code_hash <- if (nrow(prior) == 0L) NA_character_ else prior$code_hash[1]
 
   .mr_write_run_row(
     step            = step,
@@ -549,7 +546,7 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
     duration_ms     = 0L,
     status          = "skipped_fresh",
     code_hash       = code_hash,
-    external_inputs = resolved_ext,
+    external_inputs = external_inputs,
     helpers         = list(),
     variant_label   = label,
     code_body       = code_body,

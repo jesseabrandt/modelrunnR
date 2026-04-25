@@ -27,10 +27,10 @@ test_that("launch() errors if both `code` and `script_path` are passed", {
   )
 })
 
-test_that("launch(script_path = { ... }) still dispatches to inline mode (Shape B)", {
+test_that("launch(script_path = { ... }) still dispatches to inline mode (append-shape)", {
   new_test_db()
 
-  # Use an artifact stow (Shape A) so the block evaluates without a launch
+  # Use an artifact stow (versioned-shape) so the block evaluates without a launch
   # context (deprecated script_path shim evaluates the block eagerly when
   # building dots; data-frame stow requires an active recording context).
   run <- suppressWarnings(launch(script_path = {
@@ -51,9 +51,9 @@ test_that("deprecation shim strips `script_path` before the unknown-args check",
   )
 })
 
-test_that("launch(script_path = { ... }) and launch(code = { ... }) produce the same step hash (Shape B)", {
+test_that("launch(script_path = { ... }) and launch(code = { ... }) produce the same step hash (append-shape)", {
   new_test_db()
-  # Use artifact stow (Shape A) — script_path shim evaluates the block
+  # Use artifact stow (versioned-shape) — script_path shim evaluates the block
   # eagerly in dots; data-frame stow requires an active recording context.
   run_old <- suppressWarnings(launch(script_path = {
     stow(list(a = 1), "x")

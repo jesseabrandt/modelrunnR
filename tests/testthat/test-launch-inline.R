@@ -15,10 +15,10 @@ test_that("launch({...}) records a run row and tracks stows", {
   expect_match(rows$outputs[1], "inline_out")
 })
 
-test_that("launch({...}) sees grab()s recorded as inputs (Shape B)", {
+test_that("launch({...}) sees grab()s recorded as inputs (append-shape)", {
   new_test_db()
 
-  # Write src inside a launch so it's a valid Shape B table.
+  # Write src inside a launch so it's a valid append-shape table.
   launch({ stow(data.frame(a = 1:2), "src") })
 
   run <- launch({
@@ -30,11 +30,11 @@ test_that("launch({...}) sees grab()s recorded as inputs (Shape B)", {
   expect_match(run$outputs, "dst")
 })
 
-test_that("launch({...}) accepts rebind and label arguments (Shape B)", {
+test_that("launch({...}) accepts rebind and label arguments (append-shape)", {
   new_test_db()
 
-  # Bare scalar rebind: stored as Shape A literal. grab("base") inside
-  # the launch sees the Shape A rebound value (a 1-row df).
+  # Bare scalar rebind: stored as versioned-shape literal. grab("base") inside
+  # the launch sees the versioned-shape rebound value (a 1-row df).
   run <- launch(
     {
       df <- dplyr::collect(grab("base"))
@@ -45,7 +45,7 @@ test_that("launch({...}) accepts rebind and label arguments (Shape B)", {
   )
 
   expect_equal(run$variant_label, "alt")
-  # "tagged" is Shape B; the full-table grab returns run_id + variant_label.
+  # "tagged" is append-shape; the full-table grab returns run_id + variant_label.
   got <- dplyr::collect(grab("tagged", run = "all"))
   expect_equal(got$v, 99)
 })

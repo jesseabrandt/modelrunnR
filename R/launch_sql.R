@@ -169,9 +169,12 @@
   rendered_body <- parsed$body
   for (nm in parsed$inputs) {
     pat <- paste0("\\b", .mr_regex_escape(nm), "\\b")
-    rendered_body <- gsub(
-      pat, .mr_quote_ident(physical_for[[nm]]), rendered_body, perl = TRUE
-    )
+    # Escape the replacement string so backslashes and `\N` / `$N`
+    # backreferences in physical identifiers aren't reinterpreted by
+    # gsub. Currently benign (physical names are `name__hex_hash`), but
+    # defensive against future identifier shapes.
+    repl <- .mr_regex_escape_replacement(.mr_quote_ident(physical_for[[nm]]))
+    rendered_body <- gsub(pat, repl, rendered_body, perl = TRUE)
   }
 
   # 6. code_hash for the run row. SQL has no transitively-sourced helpers
@@ -189,8 +192,10 @@
 
   # 7. Pre-flight staleness via the run-row history for this step under
   #    this label. Reuses the R-mode .mr_is_stale() machinery; helpers
-  #    are vacuously [] for SQL steps.
-  staleness <- .mr_is_stale(step, variant_label = label)
+  #    are vacuously [] for SQL steps. Pass the resolved rebind so a
+  #    pinned input's current-hash comparison uses the pin, not
+  #    latest().
+  staleness <- .mr_is_stale(step, variant_label = label, rebind = rebind)
   will_skip <- !staleness$stale && !isTRUE(force) && skip_on_fresh
   .mr_print_staleness(step, staleness, will_skip = will_skip)
 
@@ -199,16 +204,16 @@
   start_secs <- as.numeric(started_at)
 
   if (will_skip) {
-    return(invisible(.mr_record_skipped_fresh_sql(
-      step               = step,
-      run_id             = run_id,
-      started_at         = started_at,
-      external_inputs    = external_inputs_resolved,
-      code_body          = code_body,
-      label              = label,
-      provenance         = provenance,
-      duckdb_seed        = duckdb_seed,
-      batch_id           = batch_id
+    return(invisible(.mr_record_skipped_fresh(
+      step            = step,
+      run_id          = run_id,
+      started_at      = started_at,
+      external_inputs = external_inputs_resolved,
+      code_body       = code_body,
+      label           = label,
+      rebinds         = provenance,
+      duckdb_seed     = duckdb_seed,
+      batch_id        = batch_id
     )))
   }
 
@@ -412,55 +417,16 @@
   content_hash
 }
 
-# Skip-on-fresh row for a SQL launch: no rendering happens, no view
-# created, run row records what would have been bound to.
-.mr_record_skipped_fresh_sql <- function(step, run_id, started_at,
-                                         external_inputs, code_body,
-                                         label, provenance, duckdb_seed,
-                                         batch_id = NA_character_) {
-  con <- .mr_get_connection()
-  if (is.na(label)) {
-    prior <- DBI::dbGetQuery(
-      con,
-      "SELECT variant_label FROM _mr_runs
-        WHERE step = ?
-        ORDER BY started_at DESC LIMIT 1",
-      params = list(step)
-    )
-    if (nrow(prior) > 0L && !is.na(prior$variant_label[1])) {
-      label <- prior$variant_label[1]
-    }
-  }
-  prior_hash <- DBI::dbGetQuery(
-    con,
-    "SELECT code_hash FROM _mr_runs
-      WHERE step = ?
-      ORDER BY started_at DESC LIMIT 1",
-    params = list(step)
-  )
-  code_hash <- if (nrow(prior_hash) == 0L) NA_character_ else prior_hash$code_hash[1]
-
-  .mr_write_run_row(
-    step            = step,
-    run_id          = run_id,
-    inputs          = list(),
-    outputs         = list(),
-    started_at      = started_at,
-    duration_ms     = 0L,
-    status          = "skipped_fresh",
-    code_hash       = code_hash,
-    external_inputs = external_inputs,
-    helpers         = list(),
-    variant_label   = label,
-    code_body       = code_body,
-    duckdb_seed     = if (is.null(duckdb_seed)) NA_real_ else duckdb_seed,
-    rebinds         = provenance,
-    batch_id        = batch_id
-  )
-}
-
 # Regex-escape a string so it can be used as a literal identifier in a
 # regex pattern (used by the @inputs -> physical-name substitution).
 .mr_regex_escape <- function(s) {
   gsub("([.\\\\+*?\\[\\^\\]$(){}=!<>|:\\-])", "\\\\\\1", s, perl = TRUE)
+}
+
+# Escape a gsub replacement string so backslashes and `\N`
+# backreferences are treated as literal text. Base R's gsub does not
+# interpret `$N` in replacements (that's a Perl/JS convention), so
+# only backslashes need escaping.
+.mr_regex_escape_replacement <- function(s) {
+  gsub("\\\\", "\\\\\\\\", s)
 }

@@ -75,14 +75,82 @@ Fix candidates:
   batch-launch spec §Labels) — rebinds column is the preferred
   provenance surface. If fixed via option 1, this rejection stands.
 
-### Test comments still reference `Shape A` / `Shape B`
+### Skipped-fresh run rows can chain `NA` code_hash across skips
+
+### Reserved-prefix hole in `.mr_validate_name`
+
+Allowlist now requires `[A-Za-z_][A-Za-z0-9_]*` but nothing rejects
+user names starting with `_mr_`, the prefix the package uses for its
+own metadata tables (`_mr_runs`, `_mr_versions`, `_mr_append_tables`).
+A user stowing under `_mr_runs` would collide in `.mr_guard_namespace`
+later, with a less-actionable error. Cheap close: append `&& !startsWith(name, "_mr_")` with an explicit reserved-prefix message.
+
+### Direct unit test for rebind-aware staleness
+
+The test-launch-batch updates exercise the new rebind threading
+indirectly via batch skip-on-fresh under labeled envelopes. A direct
+unit test would lock in the core invariant: seed a run under
+`rebind = mr_hash(old_hash)`, stow a newer version of that name,
+re-launch under the same pin, assert `skipped_fresh`. Low priority;
+the existing suite covers the broad path.
+
+`.mr_record_skipped_fresh` inherits `code_hash` from the most recent
+run for this step regardless of status. If the most recent prior row
+was itself `skipped_fresh` whose `code_hash` is `NA` (first-time
+skip scenario, or a run logged before code_hash was recorded), the
+new skipped row also gets `NA`, and subsequent skips inherit `NA`
+indefinitely. Flagged by the audit-on-consolidation pass. Narrowest
+fix: limit the inheritance query to `status = 'success'` rows.
+
+### Append-shape lazy-write can emit missing-column SQL after schema drift
+
+`.mr_append_write_lazy` zero-head-collects the lazy tbl, reconciles
+schema against the append-shape registry, then builds `INSERT INTO
+phys (col_list) SELECT col_list, run_id, label FROM (<body>) AS _src`
+using the PRAGMA-driven `user_cols`. If the reconcile path has added
+columns to the registry that the lazy tbl's `_src` subquery doesn't
+project, DuckDB errors at execution with a "column not found" binder
+error. Reachable when a lazy tbl is constructed before `ALTER TABLE
+ADD COLUMN` fires for a new column in the same session. Fix: after
+reconcile, verify `names(frame_types)` covers all of `user_cols`;
+either error early with a clear R-level message or `COALESCE(<col>,
+NULL)` the missing columns in the SELECT.
+
+### `.mr_append_user_col_order` fallback is silent
+
+Added 2026-04-24 to drive append-shape lazy-write INSERT column order
+from `PRAGMA table_info` rather than parsed `schema_json` key order.
+The fallback (catalog query errors or returns 0 rows) silently
+reverts to `names(schema)` — exactly the behavior the fix was
+trying to remove. Add a `warning()` in the fallback branch so a
+regression surfaces.
+
+### Batch-row schema assertion in `.mr_finalize_batch` checks names only
+
+The schema-equality assert before `do.call(rbind, rows_clean)` catches
+column-set divergence but not column-type divergence. Can't be type-
+tightened today because `.mr_pairs_to_json` legitimately returns
+`character` (plain) for empty outputs and `json`-classed for
+non-empty; R's `rbind` coerces these silently. A proper fix unifies
+`.mr_pairs_to_json`'s return class first (always json-classed, empty
+or not), then tightens the assertion to check types too.
+
+### Malformed append-shape output entries silently miss in `.mr_output_matches_name`
+
+The shape discriminator introduced 2026-04-24 returns `FALSE` for a
+Shape B entry with `kind = "append_table"` but `logical_name` absent
+(evaluates `identical(NULL, name)`). That's a silent miss. Add an
+internal warning when `kind == "append_table"` and `is.null($logical_name)`
+so corrupt registry state surfaces.
+
+### ✓ Test comments still reference `Shape A` / `Shape B`
 
 The 2026-04-24 rename to `versioned-shape` / `append-shape` covered
 user-facing surfaces (spec, framework, README, NEWS, getting-started
 vignette, this file) but deferred the ~20 test files under
 `tests/testthat/` that reference the old names in comments and
-`test_that()` descriptions. Update opportunistically when touching
-those files for other reasons, or in one dedicated rename pass.
+`test_that()` descriptions. Closed 2026-04-24: bulk sed rename across
+29 test files.
 
 ## Surfaced 2026-04-23 (from consolidated-branch audit)
 
@@ -169,7 +237,7 @@ pre-release by hashing a canonical representation
 (`digest::digest(x, algo = "xxhash64")` on a column-wise sort) or
 DuckDB-side via `.mr_hash_duckdb_table` after insert.
 
-### Type-coerce-to-TEXT is session-TZ-dependent for POSIXct
+### ✓ Type-coerce-to-TEXT is session-TZ-dependent for POSIXct
 
 `R/shape_append.R:122-127` — `as.character(POSIXct)` renders in the
 session's TZ. Two runs in different TZs with the same instant coerce
@@ -177,7 +245,7 @@ to different TEXT values, breaking reproducibility for schema drift
 involving timestamps. Fix: for POSIXct specifically, use
 `format(x, "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC")`.
 
-### `schema_json` column order depends on jsonlite key preservation
+### ✓ `schema_json` column order depends on jsonlite key preservation
 
 `fromJSON(..., simplifyVector = FALSE)` returns a named list; JSON
 object key order is not guaranteed across library versions. `names(schema)`
@@ -187,7 +255,7 @@ jsonlite upgrade that reorders keys could silently misalign
 column order via `PRAGMA table_info(...)` rather than relying on
 parsed JSON order.
 
-### `prune(by = "run")` builds SQL `IN (...)` lists inline
+### ✓ `prune(by = "run")` builds SQL `IN (...)` lists inline
 
 `R/prune.R` uses `quote_list(ids)` to embed run ids as literals in
 `IN (...)` clauses. Today's run_id format is alphanumeric (package-
@@ -195,7 +263,7 @@ generated) so no injection path, but the SQL body grows unbounded for
 large prune lists. Fix: build a DuckDB temp table of ids and
 `DELETE ... WHERE _mr_run_id IN (SELECT id FROM tmp)`.
 
-### `.mr_validate_name` allowlist is permissive
+### ✓ `.mr_validate_name` allowlist is permissive
 
 `R/validate.R:29` blocks `/`, `\`, `..`, and control chars. Permits
 spaces, `$`, `@`, commas, most punctuation. Combined with `gsub`
@@ -204,7 +272,7 @@ backreferences (`$1`, `\1`) is technically unspecified. Current R
 is benign; defensive tighten to `^[A-Za-z_][A-Za-z0-9_]*$` plus
 `gsub(..., fixed = TRUE)` on the substitution.
 
-### Staging-table orphan on commit failure
+### ✓ Staging-table orphan on commit failure
 
 `R/launch_sql.R:406` (and adjacent in `R/ingest.R`) set
 `staging_alive <<- FALSE` before `DBI::dbCommit`. If commit fails,
@@ -230,12 +298,12 @@ layout is an intentional exception but it's at the edge. Candidates:
 `shape_append_write.R` / `shape_append_read.R` / `shape_append_meta.R`,
 or update CLAUDE.md to name "shape modules" as an explicit exception.
 
-### Helper dedup: `.mr_new_run_id` / `.mr_new_batch_id`
+### ✓ Helper dedup: `.mr_new_run_id` / `.mr_new_batch_id`
 
 `R/launch.R:332-342` — six-line near-duplicates differing only in
 prefix. One helper: `.mr_new_id(prefix)`.
 
-### `_mr_runs.outputs` shape-discriminator duplicated across files
+### ✓ `_mr_runs.outputs` shape-discriminator duplicated across files
 
 Five files (`propagation.R`, `staleness.R`, `interactive.R`,
 `variants.R`, `versions.R`) each switch on `{kind, logical_name}` vs
@@ -414,14 +482,14 @@ and have the batch dispatcher pass `"capture"`. Removes the
 `on.exit` save/restore dance and makes the contract local to the
 function signature.
 
-### `mr_envelopes()` doesn't warn on duplicate `.label` across envelopes
+### ✓ `mr_envelopes()` doesn't warn on duplicate `.label` across envelopes
 
 Two envelopes labeled `"baseline"` both run and both stamp the same
 label, breaking the "label is a tracked variant thread" invariant
 that relaunch relies on. Likely a `warning()` (not an error: there
 are valid reasons to deliberately repeat a label, e.g. seeded reruns).
 
-### `do.call(rbind, rows)` is brittle if row schema diverges
+### ✓ `do.call(rbind, rows)` is brittle if row schema diverges
 
 Today every `_mr_runs` row goes through `.mr_write_run_row` so
 schemas match. A future addition of a per-launch-only column (or a
@@ -455,7 +523,7 @@ replacing the spec section with a one-line pointer at
 
 ## Surfaced 2026-04-19 (from launch-SQL audit, fix-or-queue triage)
 
-### `.mr_check_inputs` ignores rebind when comparing to "current latest"
+### ✓ `.mr_check_inputs` ignores rebind when comparing to "current latest"
 
 `R/staleness.R` `.mr_check_inputs` compares each prior recorded input
 against the current LATEST `_mr_versions` row for that name. When a
@@ -470,7 +538,7 @@ panel-data work. Fix likely: thread the rebind map into
 `.mr_is_stale()` and prefer the rebound hash over latest when
 comparing.
 
-### `gsub` replacement string in rebind substitution isn't escaped
+### ✓ `gsub` replacement string in rebind substitution isn't escaped
 
 `R/launch_sql.R` `.mr_launch_sql` uses
 `gsub(pat, .mr_quote_ident(physical_for[[nm]]), rendered_body, perl = TRUE)`.
@@ -479,7 +547,7 @@ reinterpreted by `gsub`. Currently safe (logical names are validated;
 physical names are `name__hex_hash`), but a defensive
 `stringi::stri_replace_all_fixed` or escape pass would future-proof.
 
-### DRY skipped-fresh and nested-launch helpers
+### ✓ DRY skipped-fresh and nested-launch helpers
 
 `.mr_record_skipped_fresh` (R/launch.R) and `.mr_record_skipped_fresh_sql`
 (R/launch_sql.R) are near-duplicates. The nested-launch guard is also
@@ -497,7 +565,7 @@ both launchers.
 - Round-trip stability of `code_hash` for a SQL launch across re-runs
   is implicit in the skip-on-fresh test but not asserted directly.
 
-### Tighten `.mr_validate_name` allowlist
+### ✓ Tighten `.mr_validate_name` allowlist
 
 `R/validate.R` rejects path separators / `..` / control characters but
 permits spaces and most punctuation. SQL launch surfaces this through
@@ -560,7 +628,7 @@ The existing feature-set block in `final_practicum/qmd/run_models.qmd`
 Fix: detect `tbl_dbi` / `tbl_sql` in `stow()` and materialize via
 `CREATE TABLE AS` against `mr_con()` without round-tripping through R.
 
-### 3. `stow()` signature-swap guard is too narrow
+### ✓ 3. `stow()` signature-swap guard is too narrow
 
 `stow()` went value-first: `stow(value, name)`. The guard only fires
 when `name` is missing AND `value` is a length-one character vector.

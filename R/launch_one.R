@@ -32,7 +32,8 @@
   shape_b_filters    <- .mr_state$pending_shape_b_filters
   .mr_state$pending_shape_b_filters <- NULL
 
-  staleness <- .mr_is_stale(step, variant_label = label)
+  staleness <- .mr_is_stale(step, variant_label = label,
+                            rebind = rebinds_map)
   skip_on_fresh <- isTRUE(getOption("modelrunnR.skip_if_fresh", TRUE))
   will_skip <- !staleness$stale && !isTRUE(force) && skip_on_fresh
   .mr_print_staleness(step, staleness, will_skip = will_skip)
@@ -42,7 +43,7 @@
       step            = step,
       run_id          = run_id,
       started_at      = started_at,
-      resolved_ext    = resolved_ext,
+      external_inputs = resolved_ext,
       code_body       = code_body,
       label           = label,
       rebinds         = rebinds_provenance,
@@ -59,10 +60,7 @@
     DBI::dbExecute(con_for_seed, "SELECT setseed(?)", params = list(duckdb_seed))
   }
 
-  if (.mr_is_recording() || !is.null(.mr_state$helpers) ||
-      !is.null(.mr_state$rebinds)) {
-    stop("launch(): nested launches are not supported in v0.1.", call. = FALSE)
-  }
+  .mr_guard_no_nested_launch()
 
   .mr_start_recording(run_id = run_id, variant_label = label)
   .mr_start_helper_tracking()

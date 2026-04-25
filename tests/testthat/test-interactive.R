@@ -72,7 +72,7 @@ test_that("a later launch that grabs an interactively-stowed frame warns about r
   expect_warning(launch(reader), "stowed interactively")
 })
 
-test_that("grab() outside launch does not write a _mr_runs row (Shape B)", {
+test_that("grab() outside launch does not write a _mr_runs row (append-shape)", {
   new_test_db()
   launch({ stow(data.frame(n = 1:3), "x") })
   before <- DBI::dbGetQuery(.mr_get_connection(), "SELECT COUNT(*) AS c FROM _mr_runs")$c
@@ -81,7 +81,7 @@ test_that("grab() outside launch does not write a _mr_runs row (Shape B)", {
   expect_equal(after, before)
 })
 
-test_that("launch does NOT warn when all inputs were produced by tracked runs (Shape B)", {
+test_that("launch does NOT warn when all inputs were produced by tracked runs (append-shape)", {
   new_test_db()
   # Write 'x' inside a tracked launch so its producer is a real script step.
   writer <- write_script("stow(data.frame(n = 1:3), 'x')")

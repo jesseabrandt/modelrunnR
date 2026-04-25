@@ -4,7 +4,7 @@
 \alias{.mr_is_stale}
 \title{Check whether a step is stale relative to its most recent run}
 \usage{
-.mr_is_stale(step, variant_label = NA_character_)
+.mr_is_stale(step, variant_label = NA_character_, rebind = list())
 }
 \arguments{
 \item{step}{Normalized path to the step's script file.}
@@ -12,6 +12,13 @@
 \item{variant_label}{When non-NA, restrict the "most recent run" lookup to
 runs with this exact label. When NA (the default), the lookup considers
 any run for this step, regardless of label.}
+
+\item{rebind}{Optional \code{name -> content_hash} map for names the
+about-to-fire launch has explicitly rebound. When a recorded
+input name appears in this map, the input-arm compares its
+recorded hash against the rebound hash rather than against the
+current latest version — so a repeated launch under the same
+pin stays fresh even if the pinned name has since moved on.}
 }
 \value{
 A list with fields \code{stale} and \code{reasons}.

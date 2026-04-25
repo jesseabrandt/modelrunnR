@@ -63,7 +63,8 @@ variants <- function(script = NULL, name = NULL) {
           error = function(e) list()
         )
       }
-      if (any(vapply(pairs, function(p) identical(p$name, name) || identical(p$logical_name, name), logical(1)))) {
+      if (any(vapply(pairs, .mr_output_matches_name, logical(1),
+                     name = name))) {
         keep[i] <- TRUE
         break
       }

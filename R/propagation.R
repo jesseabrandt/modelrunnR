@@ -50,15 +50,7 @@
       )
     }
     for (p in pairs) {
-      # Shape A output: {name, hash}. Match both.
-      if (identical(p$name, name) && identical(p$hash, hash)) {
-        return(rows$variant_label[j])
-      }
-      # Shape B output: {kind: "append_table", logical_name, ...}.
-      # Inputs grabbed from a Shape B name record hash = NA (no single
-      # content hash for an append log). Match by logical_name in that
-      # case. jsonlite round-trips NA_character_ as null → NULL.
-      if ((is.null(hash) || is.na(hash)) && identical(p$logical_name, name)) {
+      if (.mr_output_matches_name(p, name, hash)) {
         return(rows$variant_label[j])
       }
     }

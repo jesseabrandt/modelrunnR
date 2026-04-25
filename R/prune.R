@@ -341,34 +341,50 @@ prune <- function(name = NULL,
     ids_to_prune <- c(ids_to_prune, as.character(run_id))
   }
 
-  quote_list <- function(ids) {
-    paste(vapply(ids, function(x) DBI::dbQuoteLiteral(con, x),
-                 character(1)),
-          collapse = ", ")
+  # Stage id lists through a DuckDB temp table rather than inlining as
+  # IN (...) literals. For large prune lists the literal form grows
+  # SQL body size unboundedly and is slower to parse; the temp-table
+  # form keeps each query body constant-size.
+  with_id_scope <- function(ids, body) {
+    tmp <- paste0("_mr_tmp_prune_ids_",
+                  paste(sample(c(0:9, letters), 10, replace = TRUE),
+                        collapse = ""))
+    DBI::dbWriteTable(
+      con, tmp,
+      data.frame(id = as.character(ids), stringsAsFactors = FALSE),
+      temporary = TRUE, overwrite = TRUE
+    )
+    on.exit(try(.mr_drop_table(con, tmp), silent = TRUE), add = TRUE)
+    body(tmp)
   }
 
   if (!is.null(cutoff)) {
-    rids <- DBI::dbGetQuery(
-      con,
-      sprintf(
-        "SELECT run_id FROM _mr_runs
-          WHERE started_at < ? AND run_id IN (%s)",
-        quote_list(all_runs$rid)
-      ),
-      params = list(cutoff))
+    rids <- with_id_scope(all_runs$rid, function(tmp) {
+      DBI::dbGetQuery(
+        con,
+        sprintf(
+          "SELECT run_id FROM _mr_runs
+            WHERE started_at < ? AND run_id IN (SELECT id FROM %s)",
+          .mr_quote_ident(tmp)
+        ),
+        params = list(cutoff)
+      )
+    })
     ids_to_prune <- c(ids_to_prune, rids$run_id)
   }
 
   if (!is.null(keep) && is.numeric(keep) && keep >= 0) {
-    ranked <- DBI::dbGetQuery(
-      con,
-      sprintf(
-        "SELECT run_id FROM _mr_runs
-          WHERE run_id IN (%s)
-          ORDER BY started_at DESC",
-        quote_list(all_runs$rid)
+    ranked <- with_id_scope(all_runs$rid, function(tmp) {
+      DBI::dbGetQuery(
+        con,
+        sprintf(
+          "SELECT run_id FROM _mr_runs
+            WHERE run_id IN (SELECT id FROM %s)
+            ORDER BY started_at DESC",
+          .mr_quote_ident(tmp)
+        )
       )
-    )
+    })
     if (nrow(ranked) > keep) {
       ids_to_prune <- c(ids_to_prune, ranked$run_id[(keep + 1L):nrow(ranked)])
     }
@@ -381,14 +397,17 @@ prune <- function(name = NULL,
   }
 
   if (!isTRUE(force)) {
-    labeled <- DBI::dbGetQuery(
-      con,
-      sprintf(
-        "SELECT run_id FROM _mr_runs
-          WHERE variant_label IS NOT NULL AND run_id IN (%s)",
-        quote_list(ids_to_prune)
+    labeled <- with_id_scope(ids_to_prune, function(tmp) {
+      DBI::dbGetQuery(
+        con,
+        sprintf(
+          "SELECT run_id FROM _mr_runs
+            WHERE variant_label IS NOT NULL
+              AND run_id IN (SELECT id FROM %s)",
+          .mr_quote_ident(tmp)
+        )
       )
-    )
+    })
     ids_to_prune <- setdiff(ids_to_prune, labeled$run_id)
     if (length(labeled$run_id) > 0L) {
       warning(sprintf(
@@ -401,23 +420,39 @@ prune <- function(name = NULL,
     }
   }
 
-  count_sql <- sprintf(
-    "SELECT COUNT(*) AS c FROM %s WHERE _mr_run_id IN (%s)",
-    .mr_quote_ident(physical), quote_list(ids_to_prune))
-  count <- DBI::dbGetQuery(con, count_sql)$c[1]
-
-  DBI::dbBegin(con)
-  tryCatch({
-    DBI::dbExecute(con,
-      sprintf("DELETE FROM %s WHERE _mr_run_id IN (%s)",
-              .mr_quote_ident(physical), quote_list(ids_to_prune)))
-    DBI::dbExecute(con,
-      "UPDATE _mr_append_tables
-          SET row_count = row_count - ?, last_seen = ?
-        WHERE logical_name = ?",
-      params = list(count, Sys.time(), logical))
-    DBI::dbCommit(con)
-  }, error = function(e) { DBI::dbRollback(con); stop(e) })
+  # Count and DELETE share the same temp table inside one transaction
+  # so `row_count` decrements by exactly the number of rows actually
+  # removed — a concurrent append between the two can't widen the
+  # window.
+  count <- with_id_scope(ids_to_prune, function(tmp) {
+    DBI::dbBegin(con)
+    local_count <- tryCatch({
+      c <- DBI::dbGetQuery(
+        con,
+        sprintf(
+          "SELECT COUNT(*) AS c FROM %s WHERE _mr_run_id IN (SELECT id FROM %s)",
+          .mr_quote_ident(physical), .mr_quote_ident(tmp)
+        )
+      )$c[1]
+      DBI::dbExecute(
+        con,
+        sprintf(
+          "DELETE FROM %s WHERE _mr_run_id IN (SELECT id FROM %s)",
+          .mr_quote_ident(physical), .mr_quote_ident(tmp)
+        )
+      )
+      DBI::dbExecute(
+        con,
+        "UPDATE _mr_append_tables
+            SET row_count = row_count - ?, last_seen = ?
+          WHERE logical_name = ?",
+        params = list(c, Sys.time(), logical)
+      )
+      DBI::dbCommit(con)
+      c
+    }, error = function(e) { DBI::dbRollback(con); stop(e) })
+    local_count
+  })
 
   data.frame(logical_name = logical, rows_pruned = as.integer(count),
              stringsAsFactors = FALSE)

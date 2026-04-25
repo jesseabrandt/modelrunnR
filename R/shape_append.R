@@ -14,6 +14,24 @@
 
 .mr_append_reserved_cols <- c("_mr_run_id", "_mr_variant_label")
 
+# User-column order for an append-shape physical table, read from
+# DuckDB's catalog. Returns columns in DuckDB's declared order with
+# reserved system columns dropped. Falls back to `fallback` (schema
+# list order) if the catalog query returns nothing, which shouldn't
+# happen but keeps the lazy-write path from faulting if PRAGMA is
+# disabled in a future DuckDB build.
+.mr_append_user_col_order <- function(con, physical, fallback) {
+  info <- tryCatch(
+    DBI::dbGetQuery(
+      con,
+      sprintf("PRAGMA table_info(%s)", .mr_quote_ident(physical))
+    ),
+    error = function(e) NULL
+  )
+  if (is.null(info) || nrow(info) == 0L) return(fallback)
+  setdiff(info$name, .mr_append_reserved_cols)
+}
+
 # Convert a data frame's column types to DuckDB types, returning a
 # list(col = type, ...). Used to build the CREATE TABLE and to populate
 # schema_json.
@@ -22,6 +40,16 @@
     lapply(df, .mr_append_r_to_duckdb_type),
     names(df)
   )
+}
+
+# POSIXct -> ISO-8601 UTC so two runs in different session TZs coerce
+# identical instants to identical TEXT. Non-POSIXct columns go through
+# as.character, which is TZ-independent for Date / numeric / logical.
+.mr_append_coerce_to_text <- function(col) {
+  if (inherits(col, "POSIXct")) {
+    return(format(col, "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC"))
+  }
+  as.character(col)
 }
 
 .mr_append_r_to_duckdb_type <- function(col) {
@@ -119,11 +147,8 @@
     to_insert <- value
     coerce <- attr(schema, "coerce_to_text")
     if (!is.null(coerce)) {
-      # NOTE: as.character() on POSIXct is session-TZ-dependent; coercion
-      # result depends on Sys.timezone() at stow() call time. Other types
-      # (Date, logical, numeric) are TZ-independent.
       for (col in coerce) {
-        to_insert[[col]] <- as.character(to_insert[[col]])
+        to_insert[[col]] <- .mr_append_coerce_to_text(to_insert[[col]])
       }
     }
     # Task 6 path: fill schema-known columns absent from incoming frame
@@ -447,7 +472,12 @@
       }
     }
 
-    user_cols <- names(schema)
+    # Drive INSERT column order from DuckDB's own catalog rather than
+    # names(schema), which depends on jsonlite key preservation. Either
+    # ordering is correct today (INSERT names columns explicitly), but
+    # anchoring to PRAGMA table_info makes the lazy-write path
+    # robust to a future jsonlite upgrade reordering parsed keys.
+    user_cols <- .mr_append_user_col_order(con, physical, names(schema))
     insert_cols <- paste(c(
       vapply(user_cols, .mr_quote_ident, character(1)),
       "\"_mr_run_id\"", "\"_mr_variant_label\""

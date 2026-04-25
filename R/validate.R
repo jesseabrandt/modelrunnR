@@ -10,6 +10,17 @@
 ## a name like "../../etc/passwd" would escape the artifact directory.
 ## Validate at the user boundary rather than trying to sanitize after
 ## the fact at each call site.
+##
+## Names must match [A-Za-z_][A-Za-z0-9_]* — letters, digits, and
+## underscores only, not starting with a digit. The SQL-launch path
+## substitutes @inputs names via `\b<name>\b` word-boundary matching;
+## `_` is a word character so `\bfeatures\b` doesn't match inside
+## `features_extended`. Any non-word character (hyphen, dot, space)
+## would invert that: `\bfeatures\b` WOULD match inside `features-v2`
+## and silently corrupt the rendered SQL. Keeping names word-only is
+## what makes the substitution provably sound.
+
+.mr_name_pattern <- "^[A-Za-z_][A-Za-z0-9_]*$"
 
 .mr_validate_name <- function(name,
                               context = "stow",
@@ -26,13 +37,11 @@
       context, max_length, nchar(name)
     ), call. = FALSE)
   }
-  if (grepl("[/\\\\]|\\.\\.|[[:cntrl:]]", name)) {
+  if (!grepl(.mr_name_pattern, name)) {
     stop(sprintf(
-      "%s(): `name` may not contain path separators (/, \\), '..', ",
-      context
-    ),
-    "or control characters. Got: ", sQuote(name),
-    call. = FALSE)
+      "%s(): `name` must contain only letters, digits, and underscores, and not start with a digit. Got: %s",
+      context, sQuote(name)
+    ), call. = FALSE)
   }
   invisible(name)
 }

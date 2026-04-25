@@ -1,6 +1,6 @@
 ## Helper: stow N distinct artifact versions of a name so there are
-## Shape A rows in _mr_versions to prune.
-## Data-frame stow now goes to Shape B (append log), not _mr_versions, so
+## versioned-shape rows in _mr_versions to prune.
+## Data-frame stow now goes to append-shape (append log), not _mr_versions, so
 ## prune(..., by = "version") on data-frame names no longer applies.
 stow_n_artifact_versions <- function(name, n) {
   for (i in seq_len(n)) {
@@ -51,7 +51,7 @@ test_that("empty modelrunnR_artifacts/ dir is removed after a full-prune", {
   expect_false(dir.exists(artifact_dir))
 })
 
-test_that("prune() auto-dispatches: Shape A name routes to version pruning", {
+test_that("prune() auto-dispatches: versioned-shape name routes to version pruning", {
   new_test_db()
   stow_n_artifact_versions("t", 3)
   # by = "auto" is the default
@@ -61,7 +61,7 @@ test_that("prune() auto-dispatches: Shape A name routes to version pruning", {
   expect_equal(v$c[1], 1)
 })
 
-test_that("prune() errors when by='run' on a Shape A name", {
+test_that("prune() errors when by='run' on a versioned-shape name", {
   new_test_db()
   stow_n_artifact_versions("t", 2)
   expect_error(
@@ -70,7 +70,7 @@ test_that("prune() errors when by='run' on a Shape A name", {
   )
 })
 
-test_that("prune() errors when by='version' on a Shape B name", {
+test_that("prune() errors when by='version' on a append-shape name", {
   new_test_db()
   launch({ stow(data.frame(m = "lm"), "metrics") }, label = "lm")
   expect_error(

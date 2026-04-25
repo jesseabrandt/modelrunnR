@@ -1,4 +1,4 @@
-test_that("launch + stow round-trips a data frame to the next launch's grab (Shape B)", {
+test_that("launch + stow round-trips a data frame to the next launch's grab (append-shape)", {
   new_test_db()
 
   writer <- write_script(c(

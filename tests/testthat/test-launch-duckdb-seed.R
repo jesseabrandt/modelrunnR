@@ -23,7 +23,7 @@ test_that("duckdb_seed makes slice_sample reproducible across runs", {
     label = "seeded_b", duckdb_seed = 0.42, force = TRUE
   )
 
-  # Both Shape B tables should have 20 rows with the same ids (same seed).
+  # Both append-shape tables should have 20 rows with the same ids (same seed).
   rows_a <- DBI::dbGetQuery(con, "SELECT id FROM sample_a__append ORDER BY id")
   rows_b <- DBI::dbGetQuery(con, "SELECT id FROM sample_b__append ORDER BY id")
   expect_identical(rows_a$id, rows_b$id)

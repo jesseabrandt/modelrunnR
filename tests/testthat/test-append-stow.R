@@ -87,7 +87,7 @@ test_that("stowing a frame with reserved system columns errors pre-insert", {
   expect_identical(nrow(reg), 0L)
 })
 
-test_that("stow(df, name) inside launch() routes to Shape B", {
+test_that("stow(df, name) inside launch() routes to append-shape", {
   new_test_db()
   con <- .mr_get_connection()
 
@@ -107,13 +107,13 @@ test_that("stow(df, name) inside launch() routes to Shape B", {
   expect_identical(nrow(rows), 2L)
   expect_setequal(rows[["_mr_variant_label"]], c("lm", "rf"))
 
-  # _mr_versions must NOT have metrics (Shape A) rows.
+  # _mr_versions must NOT have metrics (versioned-shape) rows.
   versions <- DBI::dbGetQuery(con,
     "SELECT * FROM _mr_versions WHERE logical_name = 'metrics'")
   expect_identical(nrow(versions), 0L)
 })
 
-test_that("stow(obj, name) for non-tabular values still goes to Shape A", {
+test_that("stow(obj, name) for non-tabular values still goes to versioned-shape", {
   new_test_db()
   con <- .mr_get_connection()
   launch({
@@ -131,7 +131,7 @@ test_that("stow(obj, name) for non-tabular values still goes to Shape A", {
   expect_identical(nrow(reg), 0L)
 })
 
-test_that("stow(tbl_lazy, name) materializes server-side into Shape B", {
+test_that("stow(tbl_lazy, name) materializes server-side into append-shape", {
   new_test_db()
   con <- .mr_get_connection()
 

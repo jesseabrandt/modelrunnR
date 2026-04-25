@@ -1,4 +1,4 @@
-test_that("launch(mr_label(...)) re-executes an inline labeled pipeline (Shape B)", {
+test_that("launch(mr_label(...)) re-executes an inline labeled pipeline (append-shape)", {
   new_test_db()
 
   launch(
@@ -25,7 +25,7 @@ test_that("launch(mr_label(...)) auto-inherits the label", {
   expect_equal(run$variant_label, "baseline")
 })
 
-test_that("launch(mr_label(...)) picks up the most recent iteration (Shape B)", {
+test_that("launch(mr_label(...)) picks up the most recent iteration (append-shape)", {
   new_test_db()
 
   # Iteration 1.
@@ -57,7 +57,7 @@ test_that("launch(mr_label(...)) re-sources a file pipeline when the file still 
   expect_equal(run$variant_label, "file_pipe")
 })
 
-test_that("launch(mr_label(...)) falls back to the snapshot when the file is gone (Shape B)", {
+test_that("launch(mr_label(...)) falls back to the snapshot when the file is gone (append-shape)", {
   new_test_db()
 
   s <- write_script('stow(data.frame(a = 1), "gone_pipe")')
@@ -79,10 +79,10 @@ test_that("launch(mr_label(...)) errors when the label has no runs", {
   expect_error(launch(mr_label("nonexistent")), "no run with label")
 })
 
-test_that("launch() rejects non-label mr_refs in first position (Shape B)", {
+test_that("launch() rejects non-label mr_refs in first position (append-shape)", {
   new_test_db()
   launch({ stow(data.frame(v = 1), "x") })
-  # mr_hash references are Shape A concepts; grab("x") under Shape B has no hash
+  # mr_hash references are versioned-shape concepts; grab("x") under append-shape has no hash
   # But we can still test the error path by manufacturing an artifact hash.
   stow(list(v = 1), "x_art")
   hashes <- versions("x_art")$content_hash

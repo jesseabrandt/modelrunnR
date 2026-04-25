@@ -1,4 +1,4 @@
-test_that("grab() returns a lazy tbl for a stowed data.frame (Shape B)", {
+test_that("grab() returns a lazy tbl for a stowed data.frame (append-shape)", {
   new_test_db()
   launch({
     stow(data.frame(x = 1:10, y = letters[1:10], stringsAsFactors = FALSE), "t")
@@ -54,7 +54,7 @@ test_that("grab() on a stowed non-tabular artifact returns the R object", {
   expect_identical(got$coef, c(1, 2, 3))
 })
 
-test_that("grab() lazy tbl composes with dplyr verbs and collects (Shape B)", {
+test_that("grab() lazy tbl composes with dplyr verbs and collects (append-shape)", {
   new_test_db()
   launch({ stow(data.frame(g = rep(letters[1:3], each = 4), v = 1:12), "t") })
 
@@ -66,7 +66,7 @@ test_that("grab() lazy tbl composes with dplyr verbs and collects (Shape B)", {
   expect_setequal(result$g, c("a", "b", "c"))
 })
 
-test_that("as.data.frame() on grab() materializes (Shape B)", {
+test_that("as.data.frame() on grab() materializes (append-shape)", {
   new_test_db()
   launch({ stow(data.frame(x = 1:5), "t") })
 
@@ -75,7 +75,7 @@ test_that("as.data.frame() on grab() materializes (Shape B)", {
   expect_equal(nrow(got), 5L)
 })
 
-test_that("tibble::as_tibble() on grab() materializes (Shape B)", {
+test_that("tibble::as_tibble() on grab() materializes (append-shape)", {
   new_test_db()
   launch({ stow(data.frame(x = 1:5), "t") })
   skip_if_not_installed("tibble")
@@ -85,7 +85,7 @@ test_that("tibble::as_tibble() on grab() materializes (Shape B)", {
   expect_equal(nrow(got), 5L)
 })
 
-test_that("grab(name, from_run = id) on a table returns lazy tbl (Shape B)", {
+test_that("grab(name, from_run = id) on a table returns lazy tbl (append-shape)", {
   new_test_db()
   run <- launch({
     stow(data.frame(x = 1:4), "t")
@@ -96,7 +96,7 @@ test_that("grab(name, from_run = id) on a table returns lazy tbl (Shape B)", {
   expect_equal(nrow(dplyr::collect(got)), 4L)
 })
 
-test_that("grab(name, variant = label) on a table returns lazy tbl (Shape B)", {
+test_that("grab(name, variant = label) on a table returns lazy tbl (append-shape)", {
   new_test_db()
   launch({ stow(data.frame(x = 1:5), "t") }, label = "variant_a")
 

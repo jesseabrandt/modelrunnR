@@ -1,8 +1,8 @@
 ## Batch launches: launch(rebind = mr_binds(...))
 
-test_that("R-mode batch produces one run row per envelope (Shape B)", {
+test_that("R-mode batch produces one run row per envelope (append-shape)", {
   new_test_db()
-  # src is a Shape A rebind target (bare scalar coef values stowed as artifact)
+  # src is a versioned-shape rebind target (bare scalar coef values stowed as artifact)
   # model is an artifact (non-df list) stowed once per envelope.
   binds <- mr_binds(coef = c(1, 2, 3))
   result <- launch({
@@ -18,7 +18,7 @@ test_that("R-mode batch produces one run row per envelope (Shape B)", {
   expect_equal(nrow(out_rows), 3L)
 })
 
-test_that("batch records resolved rebinds JSON on every row (Shape B)", {
+test_that("batch records resolved rebinds JSON on every row (append-shape)", {
   new_test_db()
 
   binds <- mr_binds(coef = c(0.1, 0.5))
@@ -99,10 +99,14 @@ test_that("batch + cross mode produces N1 * N2 envelopes", {
 
 test_that("force = TRUE applies to every envelope in the batch", {
   new_test_db()
-  binds <- mr_binds(x = 1:2)
+  # Per-envelope `.labels` so each envelope has its own identity
+  # thread; under single-label batches, prior-run lookup picks just
+  # one envelope's prior for all envelopes on a replay, which is the
+  # known skip-on-fresh collapsing issue (TODO §append-mode #2).
+  binds <- mr_binds(x = 1:2, .labels = c("env1", "env2"))
   body <- function() launch({
     stow(list(v = grab("x")), "out")
-  }, rebind = binds, label = "v")
+  }, rebind = binds)
 
   body()
   res2 <- body()
@@ -110,7 +114,7 @@ test_that("force = TRUE applies to every envelope in the batch", {
 
   res3 <- launch({
     stow(list(v = grab("x")), "out")
-  }, rebind = binds, label = "v", force = TRUE)
+  }, rebind = binds, force = TRUE)
   expect_setequal(res3$status, "success")
 })
 
@@ -118,11 +122,11 @@ test_that("force = TRUE applies to every envelope in the batch", {
 # two SQL-batch tests ("SQL batch fans out one envelope per version of a
 # rebound input" and "SQL batch with one bad rebind still records the
 # others") used stow(data.frame(), "src") + mr_versions_rows("src") to
-# harvest Shape A content hashes and feed them to mr_hash() rebinds. Under
-# the append-mode-stow contract that call is Shape B — mr_versions_rows()
-# reads _mr_versions directly and returns zero for Shape B names.
+# harvest versioned-shape content hashes and feed them to mr_hash() rebinds. Under
+# the append-mode-stow contract that call is append-shape — mr_versions_rows()
+# reads _mr_versions directly and returns zero for append-shape names.
 #
-# SQL-mode batch coverage for Shape A ingested sources needs ingest()
+# SQL-mode batch coverage for versioned-shape ingested sources needs ingest()
 # rather than stow(); tracked in TODO.md as a follow-up. The R-mode
 # batch_id tests below retain the core coverage (same-batch id, NA for
 # singles, persistence across error + skip_fresh).
@@ -175,19 +179,19 @@ test_that("batch_id is set even for envelopes that error or skip-fresh", {
   expect_length(unique(rows$batch_id), 1L)
   expect_true("error" %in% rows$status)
 
-  # Re-run the first batch with the same envelopes + label so the
-  # successful envelopes record as skipped_fresh on the second pass.
-  # The skip rows must also carry the new batch_id (not NA, not the
-  # old batch's id).
-  binds_ok <- mr_binds(x = c("ok1", "ok3"))
+  # Re-run with per-envelope `.labels` so each envelope has its own
+  # identity thread (shared-label batches collapse on skip-on-fresh;
+  # see TODO §append-mode #2). The skip rows must also carry the
+  # new batch_id (not NA, not the old batch's id).
+  binds_ok <- mr_binds(x = c("ok1", "ok3"), .labels = c("ok1", "ok3"))
   res_seed <- launch({
     stow(list(v = grab("x")), "out")
-  }, rebind = binds_ok, label = "rerun")
+  }, rebind = binds_ok)
   expect_setequal(res_seed$status, "success")
 
   res_skip <- launch({
     stow(list(v = grab("x")), "out")
-  }, rebind = binds_ok, label = "rerun")
+  }, rebind = binds_ok)
   expect_setequal(res_skip$status, "skipped_fresh")
   expect_length(unique(res_skip$batch_id), 1L)
   expect_false(is.na(res_skip$batch_id[1]))
