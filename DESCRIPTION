@@ -18,6 +18,7 @@ Imports:
     dplyr,
     duckdb,
     jsonlite,
+    ps,
     qs2
 Suggests:
     arrow,

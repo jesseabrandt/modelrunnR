@@ -199,9 +199,13 @@
   will_skip <- !staleness$stale && !isTRUE(force) && skip_on_fresh
   .mr_print_staleness(step, staleness, will_skip = will_skip)
 
-  run_id     <- .mr_new_run_id()
-  started_at <- Sys.time()
-  start_secs <- as.numeric(started_at)
+  run_id       <- .mr_new_run_id()
+  started_at   <- Sys.time()
+  start_secs   <- as.numeric(started_at)
+  # Capture session context at launch start (mirrors R-mode launch_one)
+  # so the at-start free_ram / attached_packages snapshot is recorded
+  # whether or not the run actually fires.
+  session_info <- .mr_capture_session_info()
 
   if (will_skip) {
     return(invisible(.mr_record_skipped_fresh(
@@ -213,7 +217,8 @@
       label           = label,
       rebinds         = provenance,
       duckdb_seed     = duckdb_seed,
-      batch_id        = batch_id
+      batch_id        = batch_id,
+      session_info    = session_info
     )))
   }
 
@@ -285,7 +290,8 @@
     code_body       = code_body,
     duckdb_seed     = if (is.null(duckdb_seed)) NA_real_ else duckdb_seed,
     rebinds         = provenance,
-    batch_id        = batch_id
+    batch_id        = batch_id,
+    session_info    = session_info
   )
 
   .mr_print_timing_summary(

@@ -209,16 +209,25 @@
   }
   step <- sprintf("<interactive:%s>",
                   format(started_at, "%Y-%m-%d %H:%M:%OS3"))
+  si <- .mr_capture_session_info()
   row <- data.frame(
-    step          = step,
-    run_id        = run_id,
-    inputs        = "[]",
-    outputs       = outputs_json,
-    started_at    = started_at,
-    duration_ms   = 0L,
-    status        = "interactive",
-    variant_label = NA_character_,
-    stringsAsFactors = FALSE
+    step              = step,
+    run_id            = run_id,
+    inputs            = "[]",
+    outputs           = outputs_json,
+    started_at        = started_at,
+    duration_ms       = 0L,
+    status            = "interactive",
+    variant_label     = NA_character_,
+    hostname          = si$hostname,
+    os                = si$os,
+    arch              = si$arch,
+    r_version         = si$r_version,
+    n_cpu             = si$n_cpu,
+    total_ram_bytes   = si$total_ram_bytes,
+    free_ram_bytes    = si$free_ram_bytes,
+    attached_packages = si$attached_packages,
+    stringsAsFactors  = FALSE
   )
   DBI::dbAppendTable(con, "_mr_runs", row)
   invisible(run_id)

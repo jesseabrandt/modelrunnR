@@ -435,25 +435,38 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
                               code_body = NA_character_,
                               duckdb_seed = NA_real_,
                               rebinds = list(),
-                              batch_id = NA_character_) {
+                              batch_id = NA_character_,
+                              session_info = NULL) {
   con <- .mr_get_connection()
+  # NULL means "capture now". Callers who want at-launch-start free RAM
+  # capture explicitly and thread the list in; skipped/interactive paths
+  # let the default fire.
+  if (is.null(session_info)) session_info <- .mr_capture_session_info()
   row <- data.frame(
-    step            = step,
-    run_id          = run_id,
-    inputs          = .mr_pairs_to_json(inputs),
-    outputs         = .mr_pairs_to_json(outputs),
-    started_at      = started_at,
-    duration_ms     = duration_ms,
-    status          = status,
-    code_hash       = code_hash,
-    external_inputs = .mr_external_inputs_to_json(external_inputs),
-    helpers         = .mr_helpers_to_json(helpers),
-    variant_label   = variant_label,
-    code_body       = code_body,
-    duckdb_seed     = duckdb_seed,
-    rebinds         = .mr_pairs_to_json(rebinds),
-    batch_id        = batch_id,
-    stringsAsFactors = FALSE
+    step              = step,
+    run_id            = run_id,
+    inputs            = .mr_pairs_to_json(inputs),
+    outputs           = .mr_pairs_to_json(outputs),
+    started_at        = started_at,
+    duration_ms       = duration_ms,
+    status            = status,
+    code_hash         = code_hash,
+    external_inputs   = .mr_external_inputs_to_json(external_inputs),
+    helpers           = .mr_helpers_to_json(helpers),
+    variant_label     = variant_label,
+    code_body         = code_body,
+    duckdb_seed       = duckdb_seed,
+    rebinds           = .mr_pairs_to_json(rebinds),
+    batch_id          = batch_id,
+    hostname          = session_info$hostname,
+    os                = session_info$os,
+    arch              = session_info$arch,
+    r_version         = session_info$r_version,
+    n_cpu             = session_info$n_cpu,
+    total_ram_bytes   = session_info$total_ram_bytes,
+    free_ram_bytes    = session_info$free_ram_bytes,
+    attached_packages = session_info$attached_packages,
+    stringsAsFactors  = FALSE
   )
   DBI::dbAppendTable(con, "_mr_runs", row)
   row
@@ -523,7 +536,8 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
                                      external_inputs, code_body, label,
                                      rebinds = list(),
                                      duckdb_seed = NULL,
-                                     batch_id = NA_character_) {
+                                     batch_id = NA_character_,
+                                     session_info = NULL) {
   con <- .mr_get_connection()
   prior <- DBI::dbGetQuery(
     con,
@@ -552,6 +566,7 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
     code_body       = code_body,
     duckdb_seed     = if (is.null(duckdb_seed)) NA_real_ else duckdb_seed,
     rebinds         = rebinds,
-    batch_id        = batch_id
+    batch_id        = batch_id,
+    session_info    = session_info
   )
 }

@@ -66,6 +66,21 @@
   # in that batch. NULL for single-envelope launches -- they're
   # already uniquely identified by run_id.
   .mr_add_column_if_missing(con, "_mr_runs", "batch_id", "TEXT")
+  # Session context (captured at launch start). Lets users compare
+  # timing across machines / R versions / package sets without
+  # round-tripping through sessionInfo() captures stowed by hand.
+  # Free RAM is at-launch; total RAM and CPU count are host-stable.
+  .mr_add_column_if_missing(con, "_mr_runs", "hostname",          "TEXT")
+  .mr_add_column_if_missing(con, "_mr_runs", "os",                "TEXT")
+  .mr_add_column_if_missing(con, "_mr_runs", "arch",              "TEXT")
+  .mr_add_column_if_missing(con, "_mr_runs", "r_version",         "TEXT")
+  .mr_add_column_if_missing(con, "_mr_runs", "n_cpu",             "INTEGER")
+  .mr_add_column_if_missing(con, "_mr_runs", "total_ram_bytes",   "BIGINT")
+  .mr_add_column_if_missing(con, "_mr_runs", "free_ram_bytes",    "BIGINT")
+  # JSON array of {pkg, ver} for sessionInfo()$otherPkgs at launch
+  # start (attached non-base packages). Variable-length so it stays
+  # JSON; deduping into a session_info table is a future refactor.
+  .mr_add_column_if_missing(con, "_mr_runs", "attached_packages", "TEXT")
   # Earlier draft named this column `inline_code` and only populated
   # it for inline launches. Carry the data forward and drop the old
   # column so `code_body` stays single-source-of-truth.
