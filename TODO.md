@@ -11,9 +11,27 @@ that just deprecated `ingest()` (2026-04-26 stow-unification work).
 Reword to "`grab()` read the CSV server-side..." or similar; surfaced
 by code-quality review of Task 8.
 
+### Bring `grab(source = path)` into the `mr_file()` vocabulary
+
+Today `grab(name, source = path)` accepts a path string. After the
+2026-04-26 stow-unification change, `mr_file()` is the canonical way
+to express "this path is a file source." For symmetry, `grab()` should
+accept `grab(name, source = mr_file(path))` (or `grab(mr_file(path),
+name)`) without breaking the current path-string form. Spec:
+docs/superpowers/specs/2026-04-26-stow-unification-design.md
+("Non-goals / deferred").
+
+### Hard-remove `ingest()` after one release cycle
+
+`ingest()` is currently a `.Deprecated()` shim that delegates to
+`stow(mr_file(source), name)`. After one cycle, drop the export and
+the file, and remove `test-ingest*.R`. Update `final_practicum` and
+any other dependent project before doing this. Invariant 5 (ASK before
+removing exports).
+
 ## Surfaced 2026-04-25 (from mi_forests setup)
 
-### In-memory frame → versioned source should be a one-liner
+### ✓ In-memory frame → versioned source should be a one-liner
 
 Today `grab(source = path)` only accepts a file path, so a project that
 builds its source dataset in R has to write a file first and then point
