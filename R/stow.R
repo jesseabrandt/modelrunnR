@@ -54,7 +54,7 @@
 #'
 #' @return `value`, invisibly.
 #' @export
-stow <- function(value, name) {
+stow <- function(value, name, shape = NULL) {
   if (missing(name) && is.character(value) && length(value) == 1L &&
       !inherits(value, "mr_file")) {
     stop(
@@ -78,6 +78,35 @@ stow <- function(value, name) {
     )
   }
   .mr_validate_name(name, context = "stow")
+
+  # Validate `shape`. Routing on `shape = "versioned"` is wired up in
+  # Task 6; this task accepts the argument and rejects invalid usage
+  # but otherwise has no behavioral effect.
+  if (!is.null(shape)) {
+    if (!is.character(shape) || length(shape) != 1L ||
+        !shape %in% c("versioned", "append")) {
+      stop(
+        'stow(): shape must be NULL, "versioned", or "append".',
+        call. = FALSE
+      )
+    }
+    if (inherits(value, "mr_file")) {
+      stop(
+        "stow(): mr_file values are always versioned; drop the ",
+        "shape argument.",
+        call. = FALSE
+      )
+    }
+    if (!is.data.frame(value) && !inherits(value, "tbl_lazy")) {
+      stop(
+        sprintf(
+          "stow(): shape is only meaningful for data frames and lazy tbls; got %s.",
+          paste(class(value), collapse = "/")
+        ),
+        call. = FALSE
+      )
+    }
+  }
 
   if (inherits(value, "mr_file")) {
     .mr_guard_namespace(name, shape = "A")
