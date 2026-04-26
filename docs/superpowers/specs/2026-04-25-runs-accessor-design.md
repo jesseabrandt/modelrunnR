@@ -145,7 +145,7 @@ No `styler`, no `cli`, no further weight.
 | Case | Expected |
 |------|----------|
 | `runs()` against an empty store (no `_mr_runs` rows) | zero-row tibble, `mr_code`-classed `code_body` |
-| `runs()` with no DB option set | error from `.mr_get_connection()` (existing behavior) |
+| `runs()` with no DB option set, run inside a project tree | resolves a DB at the project root (existing `db_path()` fallback); does not error. The original spec listed an error path here, but `db_path()` intentionally falls back to project-root discovery — covered in `test-db_path.R` / `test-connection.R`. |
 | `pull(code_body)` of single row, color terminal | highlighted multi-line print, no `cat()` needed |
 | `pull(code_body)` of single row, sink with no color | plain multi-line print |
 | `pull(code_body)` of multiple rows | each printed as a code block, separated by blank lines |

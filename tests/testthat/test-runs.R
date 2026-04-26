@@ -6,6 +6,10 @@ test_that("runs() against an empty store returns a zero-row tibble with mr_code 
   expect_equal(nrow(out), 0L)
   expect_true("code_body" %in% names(out))
   expect_s3_class(out$code_body, "mr_code")
+  # Spec contracts "correct column types" for the zero-row case — verify a
+  # couple of representative non-character columns survived the empty read.
+  expect_s3_class(out$started_at, "POSIXct")
+  expect_true(is.numeric(out$duration_ms))
 })
 
 test_that("runs() returns a tibble after launch() populates _mr_runs", {
@@ -57,8 +61,8 @@ test_that("runs() round-trips code_body identically to dbReadTable (modulo class
   raw <- DBI::dbReadTable(con, "_mr_runs")
   out <- runs()
 
-  raw_sorted <- raw[order(raw$run_id), , drop = FALSE]
-  out_sorted <- out[order(out$run_id), , drop = FALSE]
+  raw_sorted <- raw[order(raw$started_at), , drop = FALSE]
+  out_sorted <- out[order(out$started_at), , drop = FALSE]
 
   expect_identical(as.character(out_sorted$code_body), raw_sorted$code_body)
 })
@@ -79,10 +83,10 @@ test_that("JSON-shaped columns stay raw character", {
   out <- runs()
   json_cols <- c("inputs", "outputs", "external_inputs", "helpers",
                  "rebinds", "attached_packages")
-  # Guard against the test silently passing if a column ever disappears: at
-  # least one of these must actually exist in the surfaced tibble.
-  expect_true(any(json_cols %in% names(out)))
-  for (col in intersect(json_cols, names(out))) {
+  # Tight guard: every named JSON column must actually appear in runs(); a
+  # rename or removal upstream should fail here, not silently skip.
+  expect_setequal(intersect(json_cols, names(out)), json_cols)
+  for (col in json_cols) {
     expect_type(out[[col]], "character")
     expect_false(inherits(out[[col]], "mr_code"))
   }

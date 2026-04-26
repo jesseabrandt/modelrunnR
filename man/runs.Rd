@@ -10,7 +10,10 @@ runs()
 A tibble with all \verb{_mr_runs} columns. \code{code_body} has class
 \code{c("mr_code", "character")}; all other columns are their natural
 types. Returns a zero-row tibble with the correct column types if
-the table exists but is empty.
+the table exists but is empty. \code{duration_ms} (DuckDB \code{BIGINT}) is
+returned as \code{numeric} by default and as \code{integer64} when the
+\code{bit64} package is attached — the type depends on the active
+session, not on \code{runs()} itself.
 }
 \description{
 Returns the contents of \verb{_mr_runs} as an eager tibble — one row per
@@ -22,12 +25,9 @@ readable, syntax-highlighted code.
 This is the tidy backbone for inspecting the store. Filtering,
 grouping, and counting are done with dplyr verbs on the returned
 tibble — no new vocabulary. JSON-shaped columns (\code{inputs}, \code{outputs},
-\code{session_info}, \code{attached_packages}) are returned as plain character;
-parse on demand with \code{\link[jsonlite:fromJSON]{jsonlite::fromJSON()}}.
-
-The connection is resolved via \code{\link[=getOption]{getOption()}} \code{"modelrunnR.db"}, the
-same mechanism used by \code{\link[=versions]{versions()}}, \code{\link[=variants]{variants()}}, \code{\link[=grab]{grab()}}, and
-\code{\link[=stow]{stow()}}. There is no \code{con} argument by design.
+\code{external_inputs}, \code{helpers}, \code{rebinds}, \code{attached_packages}) are
+returned as plain character; parse on demand with
+\code{\link[jsonlite:fromJSON]{jsonlite::fromJSON()}}.
 }
 \examples{
 \dontrun{
@@ -43,5 +43,6 @@ same mechanism used by \code{\link[=versions]{versions()}}, \code{\link[=variant
 \seealso{
 \code{\link[=versions]{versions()}} for the produced-artifact view, \code{\link[=variants]{variants()}}
 for the labeled-pipeline view, \code{\link[=launch_code]{launch_code()}} to retrieve a
-single run's code as a plain string for re-execution.
+run's source for inspection (with script-vs-snapshot
+reconciliation when the original step was a file).
 }

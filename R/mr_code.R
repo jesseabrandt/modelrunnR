@@ -9,6 +9,7 @@
 #' @return The same vector with `"mr_code"` prepended to its class.
 #' @noRd
 .mr_as_code <- function(x) {
+  if (inherits(x, "mr_code")) return(x)
   x <- as.character(x)
   class(x) <- c("mr_code", class(x))
   x
@@ -35,8 +36,18 @@
 #' - `as.character.mr_code()` strips the class and returns the underlying
 #'   strings; standard string ops (`paste`, `gsub`, `nchar`, `writeLines`)
 #'   coerce through it transparently.
-#' - `[.mr_code` preserves the class on subsetting so
-#'   `head(pull(code_body), 1)` still prints as code.
+#' - `[.mr_code` and `[[.mr_code` preserve the class on subsetting so
+#'   `head(pull(code_body), 1)` and `pull(code_body)[[1]]` still print as
+#'   code.
+#'
+#' @return
+#' - `print.mr_code()` invisibly returns its input.
+#' - `format.mr_code()` returns a plain `character` vector of summaries
+#'   (one per element); the class is intentionally not preserved so
+#'   tibble can render the cells as plain text.
+#' - `as.character.mr_code()` returns a plain `character` vector with
+#'   the class stripped.
+#' - `[.mr_code` and `[[.mr_code` return an `mr_code` vector.
 #'
 #' @name mr_code
 NULL
@@ -60,6 +71,14 @@ as.character.mr_code <- function(x, ...) {
 #' @export
 `[.mr_code` <- function(x, i) {
   out <- unclass(x)[i]
+  class(out) <- c("mr_code", class(out))
+  out
+}
+
+#' @rdname mr_code
+#' @export
+`[[.mr_code` <- function(x, i) {
+  out <- unclass(x)[[i]]
   class(out) <- c("mr_code", class(out))
   out
 }

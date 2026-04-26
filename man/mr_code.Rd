@@ -5,6 +5,7 @@
 \alias{format.mr_code}
 \alias{as.character.mr_code}
 \alias{[.mr_code}
+\alias{[[.mr_code}
 \alias{print.mr_code}
 \title{Print, format, subset, and coerce mr_code vectors}
 \usage{
@@ -14,6 +15,8 @@
 
 \method{[}{mr_code}(x, i)
 
+\method{[[}{mr_code}(x, i)
+
 \method{print}{mr_code}(x, ...)
 }
 \arguments{
@@ -22,6 +25,17 @@
 \item{...}{Unused; present for S3 method signature consistency.}
 
 \item{i}{Index passed to \code{[}.}
+}
+\value{
+\itemize{
+\item \code{print.mr_code()} invisibly returns its input.
+\item \code{format.mr_code()} returns a plain \code{character} vector of summaries
+(one per element); the class is intentionally not preserved so
+tibble can render the cells as plain text.
+\item \code{as.character.mr_code()} returns a plain \code{character} vector with
+the class stripped.
+\item \verb{[.mr_code} and \verb{[[.mr_code} return an \code{mr_code} vector.
+}
 }
 \description{
 \code{mr_code} is a thin character subclass attached to the \code{code_body}
@@ -40,7 +54,8 @@ tibble print layout stays compact.
 \item \code{as.character.mr_code()} strips the class and returns the underlying
 strings; standard string ops (\code{paste}, \code{gsub}, \code{nchar}, \code{writeLines})
 coerce through it transparently.
-\item \verb{[.mr_code} preserves the class on subsetting so
-\code{head(pull(code_body), 1)} still prints as code.
+\item \verb{[.mr_code} and \verb{[[.mr_code} preserve the class on subsetting so
+\code{head(pull(code_body), 1)} and \code{pull(code_body)[[1]]} still print as
+code.
 }
 }

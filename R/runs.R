@@ -8,21 +8,22 @@
 #' This is the tidy backbone for inspecting the store. Filtering,
 #' grouping, and counting are done with dplyr verbs on the returned
 #' tibble — no new vocabulary. JSON-shaped columns (`inputs`, `outputs`,
-#' `session_info`, `attached_packages`) are returned as plain character;
-#' parse on demand with [jsonlite::fromJSON()].
-#'
-#' The connection is resolved via [getOption()] `"modelrunnR.db"`, the
-#' same mechanism used by [versions()], [variants()], [grab()], and
-#' [stow()]. There is no `con` argument by design.
+#' `external_inputs`, `helpers`, `rebinds`, `attached_packages`) are
+#' returned as plain character; parse on demand with
+#' [jsonlite::fromJSON()].
 #'
 #' @return A tibble with all `_mr_runs` columns. `code_body` has class
 #'   `c("mr_code", "character")`; all other columns are their natural
 #'   types. Returns a zero-row tibble with the correct column types if
-#'   the table exists but is empty.
+#'   the table exists but is empty. `duration_ms` (DuckDB `BIGINT`) is
+#'   returned as `numeric` by default and as `integer64` when the
+#'   `bit64` package is attached — the type depends on the active
+#'   session, not on `runs()` itself.
 #'
 #' @seealso [versions()] for the produced-artifact view, [variants()]
 #'   for the labeled-pipeline view, [launch_code()] to retrieve a
-#'   single run's code as a plain string for re-execution.
+#'   run's source for inspection (with script-vs-snapshot
+#'   reconciliation when the original step was a file).
 #'
 #' @examples
 #' \dontrun{

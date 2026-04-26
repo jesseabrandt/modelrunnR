@@ -57,6 +57,18 @@ test_that("[.mr_code preserves the class with negative index", {
   expect_equal(unclass(x[-1]), c("b", "c"))
 })
 
+test_that("[[.mr_code preserves the class on integer index", {
+  x <- .mr_as_code(c("a <- 1", "b <- 2", "c <- 3"))
+  expect_s3_class(x[[2]], "mr_code")
+  expect_equal(unclass(x[[2]]), "b <- 2")
+})
+
+test_that(".mr_as_code is idempotent — re-applying does not stack the class", {
+  x <- .mr_as_code(c("a", "b"))
+  y <- .mr_as_code(x)
+  expect_identical(class(y), class(x))
+})
+
 test_that("paste0 on mr_code coerces via as.character", {
   x <- .mr_as_code(c("foo", "bar"))
   expect_equal(paste0(x, "!"), c("foo!", "bar!"))
@@ -83,6 +95,10 @@ test_that("print.mr_code prints '<no code body>' for empty-string elements", {
 })
 
 test_that("print.mr_code separates multiple elements with exactly one blank line", {
+  # Pin: no ANSI in output. Otherwise a CI runner with FORCE_COLOR=1 or a
+  # globally-set cli.num_colors would slip escape codes into out[1]/out[3]
+  # and the substring expect_match calls would fail.
+  withr::local_options(cli.num_colors = 1)
   x <- .mr_as_code(c("a <- 1", "b <- 2"))
   out <- capture.output(print(x))
   # Expect: line 1 = first code, line 2 = blank, line 3 = second code; no
