@@ -239,9 +239,9 @@ runs() |>
 
 The class is purely R-side. `DBI::dbGetQuery()` against `_mr_runs`
 returns plain `character`, so the store stays usable without the
-package. JSON-shaped columns (`inputs`, `outputs`, `session_info`,
-`attached_packages`) are surfaced as plain `chr` — parse on demand
-with `jsonlite::fromJSON()`.
+package. JSON-shaped columns (`inputs`, `outputs`, `external_inputs`,
+`helpers`, `rebinds`, `attached_packages`) are surfaced as plain
+`chr` — parse on demand with `jsonlite::fromJSON()`.
 
 ## Re-running a pipeline by label
 

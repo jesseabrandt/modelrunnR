@@ -77,11 +77,14 @@ test_that("JSON-shaped columns stay raw character", {
   launch({ stow(data.frame(x = 1), "out") })
 
   out <- runs()
-  for (col in c("inputs", "outputs", "session_info", "attached_packages")) {
-    if (col %in% names(out)) {
-      expect_type(out[[col]], "character")
-      expect_false(inherits(out[[col]], "mr_code"))
-    }
+  json_cols <- c("inputs", "outputs", "external_inputs", "helpers",
+                 "rebinds", "attached_packages")
+  # Guard against the test silently passing if a column ever disappears: at
+  # least one of these must actually exist in the surfaced tibble.
+  expect_true(any(json_cols %in% names(out)))
+  for (col in intersect(json_cols, names(out))) {
+    expect_type(out[[col]], "character")
+    expect_false(inherits(out[[col]], "mr_code"))
   }
 })
 

@@ -118,7 +118,7 @@ as.character.mr_code <- function(x, ...) unclass(x)
 
 ### 3. JSON-shaped columns stay raw `chr`
 
-`_mr_runs` has four columns whose stored value is a JSON string: `inputs`, `outputs`, `session_info`, `attached_packages`. `runs()` does **not** parse them — they're returned as plain `chr`. Rationale:
+`_mr_runs` has six columns whose stored value is a JSON string: `inputs`, `outputs`, `external_inputs`, `helpers`, `rebinds`, `attached_packages`. (Session context — `hostname`, `os`, `arch`, `r_version`, `n_cpu`, `total_ram_bytes`, `free_ram_bytes` — was decomposed into scalar columns by an earlier change and is **not** a JSON column.) `runs()` does **not** parse the JSON columns — they're returned as plain `chr`. Rationale:
 
 - Pre-parsing into list-columns rewards one specific user (someone fluent with `tidyr::unnest`) at the cost of readability for everyone else.
 - "Who produced X?" is already answered by `versions(name)` — no need to duplicate it via `runs() |> unnest(outputs) |> filter(...)`.

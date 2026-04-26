@@ -50,9 +50,9 @@
   `dplyr::pull(code_body)` prints as readable, optionally
   syntax-highlighted code (via `prettycode`); the DuckDB column itself
   stays plain `TEXT`, so `DBI::dbGetQuery()` against `_mr_runs` is
-  unaffected. JSON-shaped columns (`inputs`, `outputs`, `session_info`,
-  `attached_packages`) are surfaced as plain `chr`; parse on demand
-  with `jsonlite::fromJSON()`. See
+  unaffected. JSON-shaped columns (`inputs`, `outputs`, `external_inputs`,
+  `helpers`, `rebinds`, `attached_packages`) are surfaced as plain `chr`;
+  parse on demand with `jsonlite::fromJSON()`. See
   `docs/superpowers/specs/2026-04-25-runs-accessor-design.md`.
 
 ## Storage
