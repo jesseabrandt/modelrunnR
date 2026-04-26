@@ -215,6 +215,34 @@ under the same label. When you're confident an older iteration
 isn't worth keeping, `prune_variants()` and `prune()` can
 clear the history (see `?prune_variants`, `?prune`).
 
+## Inspecting runs
+
+`runs()` returns the run log itself — the underlying `_mr_runs` table
+as a tibble, one row per run. Use it when you want to drill into the
+history beyond the pre-grouped views from `versions()` and
+`variants()`.
+
+```{r runs}
+runs() |> dplyr::select(run_id, step, variant_label, status, started_at)
+```
+
+The `code_body` column carries an `mr_code` class, so pulling it out
+prints as multi-line code (syntax-highlighted at a color-capable
+terminal, plain text in pipes / files / knitr):
+
+```{r runs-code}
+runs() |>
+  dplyr::filter(status == "success") |>
+  utils::tail(1) |>
+  dplyr::pull(code_body)
+```
+
+The class is purely R-side. `DBI::dbGetQuery()` against `_mr_runs`
+returns plain `character`, so the store stays usable without the
+package. JSON-shaped columns (`inputs`, `outputs`, `session_info`,
+`attached_packages`) are surfaced as plain `chr` — parse on demand
+with `jsonlite::fromJSON()`.
+
 ## Re-running a pipeline by label
 
 Once a pipeline has a label, you don't have to re-type its code to
