@@ -25,83 +25,9 @@
 #'   [grab()] to read the stored data by name.
 #' @export
 ingest <- function(name, source) {
-  .mr_validate_name(name, context = "ingest")
-  stopifnot(
-    is.character(source),
-    length(source) == 1L,
-    nzchar(source)
-  )
-  if (!file.exists(source)) {
-    stop(sprintf("ingest(): file not found: %s", source), call. = FALSE)
-  }
-
-  con <- .mr_get_connection()
-
-  # Stage into a temp table name, hash it, then rename to the canonical
-  # physical_name(name, hash) if this is a new version (or drop it if
-  # the content already exists under this logical_name).
-  staging <- paste0(
-    "_mr_tmp_ingest_",
-    paste(sample(c(0:9, letters), 10, replace = TRUE), collapse = "")
-  )
-  .mr_ingest_file_to_table(con, source, staging)
-  staging_alive <- TRUE
-  on.exit(
-    if (staging_alive) try(.mr_drop_table(con, staging), silent = TRUE),
-    add = TRUE
-  )
-
-  content_hash <- .mr_hash_duckdb_table(con, staging)
-  physical_name <- .mr_physical_name(name, content_hash)
-  src_hash      <- .mr_file_hash(source)
-  src_uri       <- normalizePath(source, mustWork = TRUE)
-
-  existing <- .mr_get_version_row(con, name, content_hash)
-  now <- Sys.time()
-
-  DBI::dbBegin(con)
-  tryCatch({
-    if (nrow(existing) == 0L) {
-      # Promote staging to the canonical physical_name.
-      .mr_execute(
-        con,
-        sprintf(
-          "ALTER TABLE %s RENAME TO %s",
-          .mr_quote_ident(staging), .mr_quote_ident(physical_name)
-        )
-      )
-      DBI::dbExecute(
-        con,
-        "INSERT INTO _mr_versions
-           (logical_name, content_hash, physical_name, kind,
-            first_seen, last_seen, size_bytes, storage_location,
-            source_uri, source_hash)
-         VALUES (?, ?, ?, 'table', ?, ?, ?, NULL, ?, ?)",
-        params = list(name, content_hash, physical_name, now, now,
-                      0, src_uri, src_hash)
-      )
-      .mr_refresh_latest_view(con, name)
-    } else {
-      DBI::dbExecute(
-        con,
-        "UPDATE _mr_versions
-           SET last_seen = ?, source_uri = ?, source_hash = ?
-         WHERE logical_name = ? AND content_hash = ?",
-        params = list(now, src_uri, src_hash, name, content_hash)
-      )
-    }
-    DBI::dbCommit(con)
-    staging_alive <<- FALSE  # renamed away; no drop on exit
-  }, error = function(e) {
-    DBI::dbRollback(con)
-    stop(e)
-  })
-
-  .mr_record_write(name, content_hash)
-  .mr_maybe_record_interactive_write(name, content_hash)
-  .mr_maybe_warn_version_count(con, name)
-
-  invisible(dplyr::tbl(con, physical_name))
+  # Body delegated to .mr_stow_file() so the same code path is
+  # reachable from the upcoming stow.mr_file dispatch branch (Task 4).
+  .mr_stow_file(name, source)
 }
 
 # Latest recorded source_hash for a logical name, or NA if none exists.
