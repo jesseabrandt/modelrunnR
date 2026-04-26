@@ -12,8 +12,8 @@ test_that("stow(df, name, shape = 'versioned') lands in _mr_versions, not append
   expect_equal(rows$kind[1], "table")
 
   # Source columns are NULL for in-memory writes.
-  expect_true(is.na(rows$source_uri[1]) || rows$source_uri[1] == "")
-  expect_true(is.na(rows$source_hash[1]) || rows$source_hash[1] == "")
+  expect_true(is.na(rows$source_uri[1]))
+  expect_true(is.na(rows$source_hash[1]))
 
   # grab() returns the data.
   got <- grab("training") |> dplyr::collect()

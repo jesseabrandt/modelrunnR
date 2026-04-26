@@ -134,7 +134,7 @@ stow <- function(value, name, shape = NULL) {
       # rather than silently demote to append; the spec scopes
       # versioned-shape opt-in to data frames in §4.
       stop(
-        "stow(): shape = 'versioned' is not yet supported for lazy ",
+        "stow(): shape = 'versioned' is not supported for lazy ",
         "tbls; collect() to a data frame first.",
         call. = FALSE
       )
