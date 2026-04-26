@@ -61,3 +61,66 @@ test_that("paste0 on mr_code coerces via as.character", {
   x <- .mr_as_code(c("foo", "bar"))
   expect_equal(paste0(x, "!"), c("foo!", "bar!"))
 })
+
+test_that("print.mr_code emits the code body for a single element", {
+  x <- .mr_as_code("x <- 1\ny <- 2")
+  out <- capture.output(print(x))
+  joined <- paste(out, collapse = "\n")
+  expect_match(joined, "x <- 1", fixed = TRUE)
+  expect_match(joined, "y <- 2", fixed = TRUE)
+})
+
+test_that("print.mr_code prints '<no code body>' for NA elements", {
+  x <- .mr_as_code(NA_character_)
+  out <- capture.output(print(x))
+  expect_true(any(grepl("<no code body>", out, fixed = TRUE)))
+})
+
+test_that("print.mr_code prints '<no code body>' for empty-string elements", {
+  x <- .mr_as_code("")
+  out <- capture.output(print(x))
+  expect_true(any(grepl("<no code body>", out, fixed = TRUE)))
+})
+
+test_that("print.mr_code separates multiple elements with a blank line", {
+  x <- .mr_as_code(c("a <- 1", "b <- 2"))
+  out <- capture.output(print(x))
+  joined <- paste(out, collapse = "\n")
+  expect_match(joined, "a <- 1", fixed = TRUE)
+  expect_match(joined, "b <- 2", fixed = TRUE)
+  expect_true(any(out == ""))
+})
+
+test_that("print.mr_code returns input invisibly", {
+  x <- .mr_as_code("x <- 1")
+  res <- withVisible(print(x))
+  expect_false(res$visible)
+  expect_identical(res$value, x)
+})
+
+test_that("print.mr_code emits ANSI escapes when crayon color is enabled", {
+  # cli.num_colors is checked before the sink-detection path in num_ansi_colors(),
+  # so it reliably forces color even inside capture.output() (which opens a sink).
+  withr::local_options(cli.num_colors = 256)
+  x <- .mr_as_code("x <- 1")
+  out <- capture.output(print(x))
+  joined <- paste(out, collapse = "\n")
+  expect_true(grepl("\033\\[", joined))
+})
+
+test_that("print.mr_code emits no ANSI escapes when color is disabled", {
+  withr::local_options(cli.num_colors = 1)
+  x <- .mr_as_code("x <- 1")
+  out <- capture.output(print(x))
+  joined <- paste(out, collapse = "\n")
+  expect_false(grepl("\033\\[", joined))
+})
+
+test_that("print.mr_code highlights every line of multi-line code (not just the first)", {
+  withr::local_options(cli.num_colors = 256)
+  x <- .mr_as_code("x <- 1\ny <- 2")
+  out <- capture.output(print(x))
+  joined <- paste(out, collapse = "\n")
+  n_arrows_with_color <- length(gregexpr("\033\\[\\d+m<-", joined)[[1]])
+  expect_gte(n_arrows_with_color, 2L)
+})
