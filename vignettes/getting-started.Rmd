@@ -40,18 +40,25 @@ df$y <- 1 + df$x1 + 2 * df$x2 + rnorm(n, sd = 0.5)
 head(df)
 ```
 
-## Registering input data with `ingest()`
+## Registering input data with `stow(mr_file(...))`
 
 Before a tracked run can read input data, we need to register it with
-the store. `ingest(name, path)` reads a CSV or Parquet file and
-creates a content-addressed versioned-shape version — reproducible across
-sessions because the file's byte hash is tracked.
+the store. The verb is `stow()` — same as for any other value — and
+file sources are tagged with `mr_file()` so `stow()` knows to route
+them through the file-ingest path. The result is a content-addressed
+versioned-shape version, reproducible across sessions because the
+file's byte hash is tracked.
 
-```{r ingest}
+```{r register-input}
 train_csv <- tempfile(fileext = ".csv")
 write.csv(df, train_csv, row.names = FALSE)
-ingest("training", train_csv)
+stow(mr_file(train_csv), "training")
+```
 
+(`ingest("training", train_csv)` is the older spelling and still works
+for one release cycle, with a deprecation warning.)
+
+```{r grab-training}
 # grab() returns a dbplyr lazy tbl for tabular data.
 grab("training")
 
@@ -65,8 +72,8 @@ head(training_local)
 The store has two storage shapes for tabular data, and which one you
 get depends on how the value enters:
 
-- **Versioned-shape — content-addressed versions.** `ingest()` writes input
-  reference data as versioned-shape. Every distinct content gets its own
+- **Versioned-shape — content-addressed versions.** `stow(mr_file(...))` writes
+  input reference data as versioned-shape. Every distinct content gets its own
   version row; `grab()` returns the latest. Non-tabular values stowed
   via `stow(model, "fit")` also take this path (as artifacts).
 - **Append-shape — run-indexed append log.** `stow(df, name)` *inside a

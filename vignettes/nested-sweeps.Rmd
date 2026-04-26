@@ -55,10 +55,10 @@ n  <- 200
 df <- data.frame(x1 = rnorm(n), x2 = rnorm(n))
 df$y <- 1 + df$x1 + 2 * df$x2 + rnorm(n, sd = 0.5)
 
-# Register as an ingested source so launch() blocks can grab() it.
+# Register as a versioned source so launch() blocks can grab() it.
 train_csv <- tempfile(fileext = ".csv")
 write.csv(df, train_csv, row.names = FALSE)
-ingest("training", train_csv)
+stow(mr_file(train_csv), "training")
 ```
 
 ## Pre-assign fold IDs
