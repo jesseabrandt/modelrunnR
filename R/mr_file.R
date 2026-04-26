@@ -25,3 +25,9 @@ mr_file <- function(path) {
   }
   structure(path, class = c("mr_file", "character"))
 }
+
+#' @export
+print.mr_file <- function(x, ...) {
+  cat(sprintf("<mr_file: %s>\n", unclass(x)))
+  invisible(x)
+}

@@ -17,3 +17,16 @@ test_that("mr_file() does not require the file to exist", {
   # construction. This lets mr_file() values be carried in lists.
   expect_silent(mr_file("/path/that/does/not/exist.csv"))
 })
+
+test_that("print.mr_file() renders <mr_file: path>", {
+  x <- mr_file("data/training.parquet")
+  out <- capture.output(print(x))
+  expect_match(out, "<mr_file: data/training.parquet>", fixed = TRUE)
+})
+
+test_that("mr_file() is still a character at the bytes level", {
+  # Inheriting from "character" means `as.character()` and
+  # format-context fallbacks Just Work.
+  x <- mr_file("data/training.parquet")
+  expect_identical(as.character(x), "data/training.parquet")
+})
