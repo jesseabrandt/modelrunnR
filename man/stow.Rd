@@ -4,13 +4,21 @@
 \alias{stow}
 \title{Persist a value to the modelrunnR artifact store}
 \usage{
-stow(value, name)
+stow(value, name, shape = NULL)
 }
 \arguments{
 \item{value}{Any R value. First, so \code{df |> stow("name")} works.}
 
 \item{name}{A length-one character vector. Logical name for the
 value.}
+
+\item{shape}{Optional length-1 character: \code{"versioned"} to opt a
+data frame into versioned-shape storage (one row per distinct
+content), or \code{"append"} to make the default explicit. \code{NULL}
+(default) preserves type-based dispatch: data frames append,
+non-frame R objects go versioned. Cannot be combined with an
+\code{mr_file} value (always versioned) and is rejected on artifact
+values.}
 }
 \value{
 \code{value}, invisibly.
@@ -35,6 +43,11 @@ serialized size is below \code{getOption("modelrunnR.blob_threshold")}
 \verb{<db_dir>/modelrunnR_artifacts/<name>__<hash>.qs2} otherwise. One
 version per distinct value; all previous versions stay queryable
 via \code{\link[=grab]{grab()}} selectors.
+\item \strong{Versioned table} (for data frames passed with
+\code{shape = "versioned"}) — hashed, written to a dedicated physical
+table per distinct content, and registered in \verb{_mr_versions} (same
+path that \code{\link[=ingest]{ingest()}} uses). \code{\link[=mr_file]{mr_file()}} values always route through
+the file-source path (versioned-shape, source URI/hash recorded).
 }
 
 A logical name is tied to one shape on first write. Changing shape
