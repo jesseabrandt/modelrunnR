@@ -42,6 +42,18 @@
   producing run_id and using the same append-shape run-filter path as
   `mr_run()`. SQL-launch `@inputs` on append-shape names are also supported
   via on-demand filtered views.
+* **`runs()` — tidy accessor for the run log.** Returns the contents
+  of `_mr_runs` as an eager tibble — one row per run, all schema
+  columns surfaced. Connection is resolved via `getOption("modelrunnR.db")`,
+  matching `versions()` / `variants()` / `grab()` (no `con` argument).
+  The `code_body` column carries an `mr_code` class so
+  `dplyr::pull(code_body)` prints as readable, optionally
+  syntax-highlighted code (via `prettycode`); the DuckDB column itself
+  stays plain `TEXT`, so `DBI::dbGetQuery()` against `_mr_runs` is
+  unaffected. JSON-shaped columns (`inputs`, `outputs`, `session_info`,
+  `attached_packages`) are surfaced as plain `chr`; parse on demand
+  with `jsonlite::fromJSON()`. See
+  `docs/superpowers/specs/2026-04-25-runs-accessor-design.md`.
 
 ## Storage
 
