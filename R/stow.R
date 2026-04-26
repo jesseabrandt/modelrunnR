@@ -91,9 +91,7 @@ stow <- function(value, name, shape = NULL) {
   }
   .mr_validate_name(name, context = "stow")
 
-  # Validate `shape`. Routing on `shape = "versioned"` is wired up in
-  # Task 6; this task accepts the argument and rejects invalid usage
-  # but otherwise has no behavioral effect.
+  # Validate `shape`; see spec §2 for the dispatch table.
   if (!is.null(shape)) {
     if (!is.character(shape) || length(shape) != 1L ||
         !shape %in% c("versioned", "append")) {

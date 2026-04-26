@@ -11,6 +11,20 @@ that just deprecated `ingest()` (2026-04-26 stow-unification work).
 Reword to "`grab()` read the CSV server-side..." or similar; surfaced
 by code-quality review of Task 8.
 
+### Update `R/backend_duckdb.R` error messages from `ingest():` to `stow():`
+
+Several error messages in `.mr_ingest_file_to_table()` and `.mr_read_file()`
+(R/backend_duckdb.R lines ~77, 84, 93, 109, 113, 122) still prefix
+their messages with `ingest():`. Since Task 4 of the 2026-04-26
+stow-unification work, these errors are reachable through
+`stow(mr_file(...))`, so a user calling the new public verb hits an
+error attributed to a deprecated function. Cosmetic but jarring.
+
+Note: the "file not found" case is fine — that error fires earlier
+in `.mr_stow_file()` with a `stow():` prefix. The remaining sites are
+extension/format errors from the DuckDB-side staging path. Surfaced
+by final whole-branch code-quality review of feat/stow-unification.
+
 ### Bring `grab(source = path)` into the `mr_file()` vocabulary
 
 Today `grab(name, source = path)` accepts a path string. After the

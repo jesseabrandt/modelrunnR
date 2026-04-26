@@ -5,7 +5,7 @@
 # source_uri / source_hash on the _mr_versions row.
 #
 # Called from:
-#   - stow.mr_file() (the new dispatch branch in R/stow.R)
+#   - stow()'s mr_file dispatch branch (R/stow.R)
 #   - ingest() (deprecation shim in R/ingest.R)
 .mr_stow_file <- function(name, path) {
   .mr_validate_name(name, context = "stow")
