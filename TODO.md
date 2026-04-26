@@ -319,6 +319,18 @@ the on.exit handler doesn't drop the staging table. Move the flag
 flip to after the `dbCommit` returns. Pre-existing pattern, not new
 to the append-mode branch.
 
+### Same `<<- FALSE` bug in `R/launch_sql.R:417`
+
+`R/launch_sql.R:417` uses the same `staging_alive <<- FALSE` pattern as the
+old `ingest()` body. Inside `tryCatch({...})`, `<<-` skips the function's
+local frame and never updates the guard, so on success `on.exit` fires
+a futile DROP TABLE that `try(..., silent = TRUE)` swallows. Not data-
+corrupting; just wasted work per call.
+
+Fix is one character: change `<<-` to `<-`. Out of scope for the
+2026-04-26 stow-unification work because that branch only touches the
+ingest call path. Surfaced by code-quality review of Task 3.
+
 ### Versioned-shape extraction to `shape_versioned.R`
 
 Spec §12 calls for `R/shape_versioned.R` to absorb versioned-shape writer
