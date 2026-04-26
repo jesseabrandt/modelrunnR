@@ -1,0 +1,11 @@
+inspect_path: docs/inspect
+render_target: none
+source_paths:
+- R
+- src
+- py
+extractors:
+  r:
+    enabled: true
+  python:
+    enabled: true
