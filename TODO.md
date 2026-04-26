@@ -1,5 +1,44 @@
 # modelrunnR TODO
 
+## Surfaced 2026-04-25 (from mi_forests setup)
+
+### In-memory frame → versioned source should be a one-liner
+
+Today `grab(source = path)` only accepts a file path, so a project that
+builds its source dataset in R has to write a file first and then point
+`grab()` at it. Surfaced in `mi_forests` as ~7 lines of explicit
+`arrow::write_parquet()` boilerplate before the `grab(source = ...)`
+call could even start.
+
+`ingest(name, path)` has the same path-only constraint. `stow(df, name)`
+exists but routes to append-shape under the new contract — wrong shape
+for "this is my source dataset, treat it as a versioned input."
+
+Goal: building a data frame in R and registering it as a versioned
+named source should be one call, no detour through the filesystem.
+
+Open questions (do not presuppose the parquet-materialization route —
+it may interact awkwardly with the source-hash contract):
+
+- **Surface.** `ingest(name, source = function() ...)` overload? Or a
+  separate `ingest_frame(name, df)` / `register(name, df)` verb? Or
+  extend `grab(source = ...)` to accept a function/frame?
+- **Hashing.** `grab(source = path)` keys idempotency on the file's
+  content hash. For an in-memory frame the analogue is hashing the
+  frame contents directly (R-version-stable hash, see the
+  `serialize()`-based chunk_hash item below). Picking the right hash
+  primitive matters more than picking the storage format.
+- **Shape.** Versioned-shape (so the dataset has a stable identity and
+  re-running with identical inputs is a no-op) — not append-shape.
+- **Materialization.** Whether the frame lands as a DuckDB table
+  written from R, or as a parquet sidecar that DuckDB reads, is an
+  implementation detail downstream of the hashing decision. Don't
+  lock it in at the API level.
+
+Not urgent. Workaround today: write a temp parquet, `grab(source =
+tmp)`, delete. Cleaning this up removes a recurring friction point for
+projects whose source data isn't already a file on disk.
+
 ## Surfaced 2026-04-24 (from nested-sweep cookbook design)
 
 ### Auto-surface rebind values as columns on append-shape `grab(run = "all")`
