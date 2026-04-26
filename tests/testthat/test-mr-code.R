@@ -82,13 +82,16 @@ test_that("print.mr_code prints '<no code body>' for empty-string elements", {
   expect_true(any(grepl("<no code body>", out, fixed = TRUE)))
 })
 
-test_that("print.mr_code separates multiple elements with a blank line", {
+test_that("print.mr_code separates multiple elements with exactly one blank line", {
   x <- .mr_as_code(c("a <- 1", "b <- 2"))
   out <- capture.output(print(x))
-  joined <- paste(out, collapse = "\n")
-  expect_match(joined, "a <- 1", fixed = TRUE)
-  expect_match(joined, "b <- 2", fixed = TRUE)
-  expect_true(any(out == ""))
+  # Expect: line 1 = first code, line 2 = blank, line 3 = second code; no
+  # extra trailing or duplicate blanks.
+  expect_equal(length(out), 3L)
+  expect_equal(sum(out == ""), 1L)
+  expect_match(out[1], "a <- 1", fixed = TRUE)
+  expect_equal(out[2], "")
+  expect_match(out[3], "b <- 2", fixed = TRUE)
 })
 
 test_that("print.mr_code returns input invisibly", {

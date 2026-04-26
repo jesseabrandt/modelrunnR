@@ -69,18 +69,17 @@ as.character.mr_code <- function(x, ...) {
 print.mr_code <- function(x, ...) {
   raw <- unclass(x)
   for (i in seq_along(raw)) {
+    if (i > 1) writeLines("")
     s <- raw[[i]]
     if (is.na(s) || !nzchar(s)) {
-      cat("<no code body>\n")
+      writeLines("<no code body>")
     } else {
       # prettycode::highlight() treats each vector element as one source line.
       # Splitting first ensures every line is colored (a single multi-line
       # string would only get the first line highlighted).
       lines <- strsplit(s, "\n", fixed = TRUE)[[1]]
-      cat(prettycode::highlight(lines), sep = "\n")
-      cat("\n")
+      writeLines(prettycode::highlight(lines))
     }
-    if (i < length(raw)) cat("\n")
   }
   invisible(x)
 }
