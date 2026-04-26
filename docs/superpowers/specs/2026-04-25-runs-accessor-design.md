@@ -82,7 +82,11 @@ print.mr_code <- function(x, ...) {
     if (is.na(s) || !nzchar(s)) {
       cat("<no code body>\n")
     } else {
-      cat(prettycode::highlight(s), sep = "\n")
+      # prettycode::highlight() treats each vector element as one source line;
+      # split the stored multi-line string first so every line gets colored.
+      lines <- strsplit(s, "\n", fixed = TRUE)[[1]]
+      cat(prettycode::highlight(lines), sep = "\n")
+      cat("\n")
     }
     if (i < length(x)) cat("\n")
   }
@@ -107,7 +111,7 @@ as.character.mr_code <- function(x, ...) unclass(x)
 }
 ```
 
-- **`print`**: writes each element as multi-line code, separated by a blank line if there are several. `prettycode::highlight()` returns a character vector (one element per source line) with ANSI escapes when `crayon::has_color()` is `TRUE`, plain text otherwise. The decision is made by the output sink, not by `interactive()` — so Rscript at a color-capable terminal also gets highlighting, while pipes/files/knitr get plain text.
+- **`print`**: writes each element as multi-line code, separated by a blank line if there are several. The stored `code_body` is split on `\n` before highlighting because `prettycode::highlight()` treats each vector element as one source line — a multi-line single string would only get its first line colored. `prettycode::highlight()` emits ANSI escapes when `crayon::has_color()` is `TRUE` and plain text otherwise; the decision is made by the output sink, not by `interactive()`, so Rscript at a color-capable terminal also gets highlighting while pipes/files/knitr get plain text.
 - **`format`**: returns a short summary like `<412 chr>` for tibble cell display. Without this, the tibble print would dump the whole code block into the cell, breaking the table layout.
 - **`as.character`**: strips the class and returns the underlying string, so `paste()`, `gsub()`, `nchar()`, `writeLines()`, etc. work transparently.
 - **`[`**: preserves the `mr_code` class on subsetting, so `head(pull(code_body), 1)` and `pull(code_body)[i]` still print as code rather than degrading to plain character.
@@ -145,6 +149,7 @@ No `styler`, no `cli`, no further weight.
 | `pull(code_body)` of single row, color terminal | highlighted multi-line print, no `cat()` needed |
 | `pull(code_body)` of single row, sink with no color | plain multi-line print |
 | `pull(code_body)` of multiple rows | each printed as a code block, separated by blank lines |
+| `pull(code_body)` of a multi-line code body, color enabled | every line highlighted (not just the first) |
 | `pull(code_body)` of a row where `code_body` is `NA` or empty | prints `<no code body>` |
 | `runs()` printed at the REPL | tibble shows `<N chr>` in `code_body` cells, layout intact |
 | `head(pull(code_body), 1)` | one `mr_code`-classed element, prints as a single code block |
