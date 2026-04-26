@@ -12,7 +12,7 @@ ingest(name, source)
 \item{source}{Path to a \code{.csv}, \code{.tsv}, or \code{.parquet} file.}
 }
 \value{
-A \code{dbplyr} lazy \code{tbl} over the ingested table, invisibly.
+The \code{mr_file} object, invisibly (same as \code{stow(mr_file(source), name)}).
 Users typically don't use the return value directly — they call
 \code{\link[=grab]{grab()}} to read the stored data by name.
 }

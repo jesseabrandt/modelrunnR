@@ -25,7 +25,7 @@
 #' @param name Logical name to store the loaded table under.
 #' @param source Path to a `.csv`, `.tsv`, or `.parquet` file.
 #'
-#' @return A `dbplyr` lazy `tbl` over the ingested table, invisibly.
+#' @return The `mr_file` object, invisibly (same as `stow(mr_file(source), name)`).
 #'   Users typically don't use the return value directly — they call
 #'   [grab()] to read the stored data by name.
 #' @export
@@ -37,7 +37,7 @@ ingest <- function(name, source) {
       "instead. ingest() will continue to work for one release cycle."
     )
   )
-  .mr_stow_file(name, source)
+  stow(mr_file(source), name)
 }
 
 # Latest recorded source_hash for a logical name, or NA if none exists.

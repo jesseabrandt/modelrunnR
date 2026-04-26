@@ -18,10 +18,9 @@ test_that("ingest() does not route the frame through R", {
   )
   withr::defer(untrace(".mr_read_file", where = asNamespace("modelrunnR")))
 
-  result <- suppressWarnings(ingest("csv_test", tmp))
+  suppressWarnings(ingest("csv_test", tmp))
 
   expect_false(called, info = "ingest() must not call .mr_read_file")
-  expect_true(inherits(result, "tbl_lazy"))
 
   got_df <- dplyr::collect(grab("csv_test"))
   expect_equal(nrow(got_df), 100)
