@@ -31,7 +31,6 @@
 #' @export
 ingest <- function(name, source) {
   .Deprecated(
-    new = "stow",
     msg = paste0(
       "ingest() is deprecated; use `stow(mr_file(source), name)` ",
       "instead. ingest() will continue to work for one release cycle."

@@ -12,7 +12,7 @@ test_that("ingest() emits a deprecation warning and still works", {
   )
 
   # And it actually wrote the data.
-  got <- suppressWarnings(grab("d")) |> dplyr::collect()
+  got <- grab("d") |> dplyr::collect()
   expect_equal(got$x, 1:3)
 })
 

@@ -31,11 +31,11 @@
 #' is not logged.
 #'
 #' When `source` is supplied, `grab()` behaves as an idempotent
-#' read-or-ingest: if `name` does not exist yet, [ingest()] is called
-#' under the hood. If `name` exists and the file's current content
-#' hash differs from the latest stored `source_hash`, `ingest()`
-#' is called again and a new version is created. If the file is
-#' unchanged, the cached version is returned.
+#' read-or-ingest: if `name` does not exist yet, an implicit
+#' `stow(mr_file(source), name)` is performed. If `name` exists and
+#' the file's current content hash differs from the latest stored
+#' `source_hash`, the file is re-stowed and a new version is created.
+#' If the file is unchanged, the cached version is returned.
 #'
 #' @param name A length-one character vector naming a logical value.
 #' @param version Optional content hash (as returned by [versions()])
@@ -46,8 +46,9 @@
 #' @param as_of Optional `POSIXct` timestamp; returns the version
 #'   that was latest at that time. Shape A only.
 #' @param source Optional path to a CSV or Parquet file. Triggers an
-#'   implicit [ingest()] when the file hash differs from (or is not
-#'   yet present in) the stored source metadata.
+#'   implicit `stow(mr_file(source), name)` when the file hash
+#'   differs from (or is not yet present in) the stored source
+#'   metadata.
 #' @param variant Optional string; resolves to the latest version produced
 #'   by any run launched with `label = variant`. Mutually exclusive with
 #'   `version`, `from_run`, `as_of`, and `run`. See *Variants and
