@@ -1,5 +1,16 @@
 # modelrunnR TODO
 
+## Surfaced 2026-04-26 (from stow-unification vignette cleanup)
+
+### "ingested" verb still appears in `vignettes/lazy-data.Rmd`
+
+`vignettes/lazy-data.Rmd:45` says "`grab()` ingested the CSV server-side
+via DuckDB's `read_csv_auto()` —" describing `grab(source = path)`'s
+implicit behavior. The verb "ingested" reads jarringly in a package
+that just deprecated `ingest()` (2026-04-26 stow-unification work).
+Reword to "`grab()` read the CSV server-side..." or similar; surfaced
+by code-quality review of Task 8.
+
 ## Surfaced 2026-04-25 (from mi_forests setup)
 
 ### In-memory frame → versioned source should be a one-liner

@@ -45,7 +45,7 @@ head(df)
 Before a tracked run can read input data, we need to register it with
 the store. The verb is `stow()` — same as for any other value — and
 file sources are tagged with `mr_file()` so `stow()` knows to route
-them through the file-ingest path. The result is a content-addressed
+them through the file-source path. The result is a content-addressed
 versioned-shape version, reproducible across sessions because the
 file's byte hash is tracked.
 
@@ -157,7 +157,7 @@ grab("metrics", run = "all") |> dplyr::collect()
 ## Inspecting versions
 
 `versions()` walks the versioned-shape version history — one row per distinct
-content hash. It works for ingested tables, SQL views, and stowed
+content hash. It works for versioned-input tables, SQL views, and stowed
 artifacts. For append-shape names, rows live in the append table itself
 (query it directly or use `grab()` outside `launch()`).
 
