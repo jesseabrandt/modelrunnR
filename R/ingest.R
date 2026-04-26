@@ -1,5 +1,10 @@
 #' Load a flat file into the modelrunnR artifact store
 #'
+#' @description
+#' **Deprecated.** Use `stow(mr_file(source), name)` instead. Kept as
+#' a runtime shim that delegates to `stow()`; will be removed after
+#' one release cycle.
+#'
 #' Loads a CSV or Parquet file directly into DuckDB using DuckDB's
 #' native `read_csv_auto()` / `read_parquet()` — the file bytes never
 #' pass through R memory. The resulting table is stored under `name`,
@@ -25,8 +30,13 @@
 #'   [grab()] to read the stored data by name.
 #' @export
 ingest <- function(name, source) {
-  # Body delegated to .mr_stow_file() so the same code path is
-  # reachable from the upcoming stow.mr_file dispatch branch (Task 4).
+  .Deprecated(
+    new = "stow",
+    msg = paste0(
+      "ingest() is deprecated; use `stow(mr_file(source), name)` ",
+      "instead. ingest() will continue to work for one release cycle."
+    )
+  )
   .mr_stow_file(name, source)
 }
 

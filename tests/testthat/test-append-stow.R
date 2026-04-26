@@ -139,7 +139,7 @@ test_that("stow(tbl_lazy, name) materializes server-side into append-shape", {
   src <- tempfile(fileext = ".csv")
   write.csv(data.frame(model = c("lm","rf"), rmse = c(0.5, 0.4)),
             src, row.names = FALSE)
-  ingest("src", src)
+  suppressWarnings(ingest("src", src))
 
   launch({
     t <- grab("src")

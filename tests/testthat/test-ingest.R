@@ -10,7 +10,7 @@ test_that("ingest() loads a CSV, versions metadata carries source_uri and source
   new_test_db()
   csv <- write_test_csv(data.frame(x = 1:3, y = letters[1:3]))
 
-  ingest("d", csv)
+  suppressWarnings(ingest("d", csv))
 
   con <- .mr_get_connection()
   row <- DBI::dbGetQuery(con, "SELECT * FROM _mr_versions WHERE logical_name = 'd'")
@@ -67,16 +67,16 @@ test_that("ingest() works for parquet files", {
   pq <- file.path(dir, "data.parquet")
   arrow::write_parquet(data.frame(x = 1:5), pq)
 
-  ingest("d", pq)
+  suppressWarnings(ingest("d", pq))
   expect_equal(dplyr::collect(grab("d"))$x, 1:5)
 })
 
 test_that("ingest() errors cleanly on missing file and unsupported extension", {
   new_test_db()
-  expect_error(ingest("d", "no-such-file.csv"), "not found|does not exist")
+  suppressWarnings(expect_error(ingest("d", "no-such-file.csv"), "not found|does not exist"))
 
   dir <- withr::local_tempdir()
   bogus <- file.path(dir, "data.xyz")
   writeLines("nope", bogus)
-  expect_error(ingest("d", bogus), "extension")
+  suppressWarnings(expect_error(ingest("d", bogus), "extension"))
 })

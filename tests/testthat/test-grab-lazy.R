@@ -23,7 +23,7 @@ test_that("grab() on an already-ingested table returns a lazy tbl", {
   new_test_db()
   tmp <- withr::local_tempfile(fileext = ".csv")
   write.csv(data.frame(a = 1:20), tmp, row.names = FALSE)
-  ingest("csv2", tmp)
+  suppressWarnings(ingest("csv2", tmp))
 
   got <- grab("csv2")
   expect_true(inherits(got, "tbl_lazy"))

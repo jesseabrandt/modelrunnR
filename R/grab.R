@@ -223,13 +223,13 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
     params = list(name)
   )
   if (nrow(existing) == 0L) {
-    ingest(name, source)
+    .mr_stow_file(name, source)
     return(invisible(NULL))
   }
   current <- .mr_file_hash(source)
   stored  <- .mr_latest_source_hash(con, name)
   if (is.na(stored) || !identical(current, stored)) {
-    ingest(name, source)
+    .mr_stow_file(name, source)
   }
   invisible(NULL)
 }
