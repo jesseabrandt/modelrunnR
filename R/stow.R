@@ -77,6 +77,11 @@ stow <- function(value, name) {
   }
   .mr_validate_name(name, context = "stow")
 
+  if (inherits(value, "mr_file")) {
+    .mr_guard_namespace(name, shape = "A")
+    .mr_stow_file(name, unclass(value))
+    return(invisible(value))
+  }
   if (inherits(value, "tbl_lazy")) {
     .mr_guard_namespace(name, shape = "B")
     .mr_append_write_lazy(name, value)
