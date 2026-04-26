@@ -55,7 +55,8 @@
 #' @return `value`, invisibly.
 #' @export
 stow <- function(value, name) {
-  if (missing(name) && is.character(value) && length(value) == 1L) {
+  if (missing(name) && is.character(value) && length(value) == 1L &&
+      !inherits(value, "mr_file")) {
     stop(
       "stow() is value-first as of this version: stow(value, name). ",
       "Did you mean `stow(<value>, \"", value, "\")` ?",
@@ -68,6 +69,7 @@ stow <- function(value, name) {
   # fails downstream with a less-useful "name must be a character"
   # message.
   if (!missing(name) && is.character(value) && length(value) == 1L &&
+      !inherits(value, "mr_file") &&
       !is.character(name)) {
     stop(
       "stow() is value-first as of this version: stow(value, name). ",
