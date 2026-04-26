@@ -20,8 +20,7 @@ test_that("mr_file() does not require the file to exist", {
 
 test_that("print.mr_file() renders <mr_file: path>", {
   x <- mr_file("data/training.parquet")
-  out <- capture.output(print(x))
-  expect_match(out, "<mr_file: data/training.parquet>", fixed = TRUE)
+  expect_output(print(x), "<mr_file: data/training.parquet>", fixed = TRUE)
 })
 
 test_that("mr_file() is still a character at the bytes level", {
