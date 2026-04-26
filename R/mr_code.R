@@ -7,7 +7,6 @@
 #' @param x A character vector (typically `code_body` straight from
 #'   `_mr_runs`). NA elements are preserved.
 #' @return The same vector with `"mr_code"` prepended to its class.
-#' @keywords internal
 #' @noRd
 .mr_as_code <- function(x) {
   x <- as.character(x)
