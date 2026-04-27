@@ -420,6 +420,10 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 # Resolve a run by run_id for relaunch. Mirrors .mr_resolve_relaunch()
 # (label-based) but keys on run_id. See spec
 # docs/superpowers/specs/2026-04-26-launch-by-run-id-design.md.
+#
+# Returns a richer list than its sibling — adds `variant_label` and
+# `status`. Both are needed by launch()'s mr_run() dispatch (label
+# auto-inheritance from the source row; warn-on-non-success policy).
 .mr_resolve_relaunch_run_id <- function(run_id) {
   con <- .mr_get_connection()
   prior <- DBI::dbGetQuery(
