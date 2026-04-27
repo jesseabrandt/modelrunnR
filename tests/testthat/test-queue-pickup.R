@@ -63,3 +63,18 @@ test_that("rebinds survive the queue -> launch(mr_run(id)) round trip and apply 
     expect_equal(out$value[[1]], 0.42)
   })
 })
+
+test_that("queued-row pickup that would be skipped_fresh sets the row's status to skipped_fresh in place", {
+  withr::with_tempdir({
+    new_test_db()
+    # First, run the same expression to success so a fresh prior exists.
+    r1 <- launch({ x <- 1 + 1; stow(x, "two") })
+    # Now queue an identical body.
+    q  <- queue({ x <- 1 + 1; stow(x, "two") })
+    # Pickup: should see the freshness check, skip, and stamp the
+    # queued row as skipped_fresh — not execute, not error.
+    r2 <- launch(mr_run(q$run_id))
+    expect_equal(r2$run_id, q$run_id)
+    expect_equal(r2$status, "skipped_fresh")
+  })
+})
