@@ -285,6 +285,29 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
         resolved$variant_label
       }
     }
+
+    # Non-success source: warn / error / silent per option. Only
+    # applies to mr_run() — mr_label() resolves by latest, which by
+    # construction usually points at a success row. "queued" is a
+    # normal pre-execution state (Task P2.10), not a failure — skip.
+    if (identical(relaunch_kind, "run") &&
+        !is.na(resolved$status) &&
+        !identical(resolved$status, "success") &&
+        !identical(resolved$status, "queued")) {
+      policy <- match.arg(
+        getOption("modelrunnR.relaunch_nonsuccess", "warn"),
+        c("warn", "error", "silent")
+      )
+      msg <- sprintf(
+        "launch(): re-executing run_id '%s' whose source row has status '%s'.",
+        code$value, resolved$status
+      )
+      if (identical(policy, "error")) {
+        stop(paste(msg, "Set options(modelrunnR.relaunch_nonsuccess = \"warn\") to relaunch anyway."),
+             call. = FALSE)
+      }
+      if (identical(policy, "warn")) warning(msg, call. = FALSE)
+    }
   } else {
     stopifnot(
       is.character(code),

@@ -100,3 +100,34 @@ test_that("launch(mr_run(id)) lets caller override variant_label", {
   r2 <- launch(mr_run(r1$run_id), label = "exp_b")
   expect_equal(r2$variant_label, "exp_b")
 })
+
+test_that("launch(mr_run(id)) warns by default when source row's status isn't success", {
+  new_test_db()
+
+  r1 <- tryCatch(launch({ stop("boom") }), error = function(e) NULL)
+  con <- modelrunnR:::.mr_get_connection()
+  bad_id <- DBI::dbGetQuery(con, "SELECT run_id FROM _mr_runs WHERE status = 'error' LIMIT 1")$run_id[1]
+  expect_warning(launch(mr_run(bad_id)), "status 'error'")
+})
+
+test_that("modelrunnR.relaunch_nonsuccess = 'silent' suppresses the warning", {
+  withr::with_options(list(modelrunnR.relaunch_nonsuccess = "silent"), {
+    new_test_db()
+
+    tryCatch(launch({ stop("boom") }), error = function(e) NULL)
+    con <- modelrunnR:::.mr_get_connection()
+    bad_id <- DBI::dbGetQuery(con, "SELECT run_id FROM _mr_runs WHERE status = 'error' LIMIT 1")$run_id[1]
+    expect_no_warning(launch(mr_run(bad_id)))
+  })
+})
+
+test_that("modelrunnR.relaunch_nonsuccess = 'error' refuses with a clear message", {
+  withr::with_options(list(modelrunnR.relaunch_nonsuccess = "error"), {
+    new_test_db()
+
+    tryCatch(launch({ stop("boom") }), error = function(e) NULL)
+    con <- modelrunnR:::.mr_get_connection()
+    bad_id <- DBI::dbGetQuery(con, "SELECT run_id FROM _mr_runs WHERE status = 'error' LIMIT 1")$run_id[1]
+    expect_error(launch(mr_run(bad_id)), "modelrunnR.relaunch_nonsuccess")
+  })
+})
