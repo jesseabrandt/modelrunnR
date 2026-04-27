@@ -18,10 +18,12 @@ support per [`2026-04-25-launch-by-run-id-design.md`](2026-04-25-launch-by-run-i
 [`2026-04-19-batch-launch-design.md`](2026-04-19-batch-launch-design.md).
 
 **Naming:** This spec uses the current `mr_*` symbol names (`mr_run`,
-`mr_binds`, etc.). When the rename in
+`mr_binds`, etc.) — the package's status quo. The
 [`2026-04-26-launchslate-rename-design.md`](2026-04-26-launchslate-rename-design.md)
-executes, references in this file sweep to `slate_*` along with the rest of the
-codebase. Naming is not load-bearing for the design.
+spec proposes a rename to `slate_*`; both `modelrunnR` and `launchslate` are
+live candidates and a decision is deferred. If the rename is adopted, the
+references in this file sweep along with the rest of the codebase. Naming is
+not load-bearing for the design.
 
 ## Motivation
 
