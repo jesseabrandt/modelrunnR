@@ -39,6 +39,9 @@
     total_ram_bytes   = si$total_ram_bytes,
     free_ram_bytes    = si$free_ram_bytes,
     attached_packages = si$attached_packages,
+    git_sha           = si$git_sha,
+    git_branch        = si$git_branch,
+    git_dirty         = si$git_dirty,
     stringsAsFactors  = FALSE
   )
   DBI::dbAppendTable(con, "_mr_runs", row)

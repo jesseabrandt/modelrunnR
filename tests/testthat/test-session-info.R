@@ -2,7 +2,8 @@ test_that(".mr_capture_session_info() returns the documented shape", {
   si <- modelrunnR:::.mr_capture_session_info()
   expect_named(si, c(
     "hostname", "os", "arch", "r_version", "n_cpu",
-    "total_ram_bytes", "free_ram_bytes", "attached_packages"
+    "total_ram_bytes", "free_ram_bytes", "attached_packages",
+    "git_sha", "git_branch", "git_dirty"
   ))
   expect_type(si$hostname,  "character")
   expect_type(si$os,        "character")

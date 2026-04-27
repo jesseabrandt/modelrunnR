@@ -7,15 +7,18 @@
 ## than blow up a launch over telemetry.
 
 .mr_capture_session_info <- function() {
-  list(
-    hostname          = .mr_safe(.mr_capture_hostname,   NA_character_),
-    os                = .mr_safe(.mr_capture_os,         NA_character_),
-    arch              = .mr_safe(.mr_capture_arch,       NA_character_),
-    r_version         = .mr_safe(.mr_capture_r_version,  NA_character_),
-    n_cpu             = .mr_safe(.mr_capture_n_cpu,      NA_integer_),
-    total_ram_bytes   = .mr_safe(.mr_capture_total_ram,  NA_real_),
-    free_ram_bytes    = .mr_safe(.mr_capture_free_ram,   NA_real_),
-    attached_packages = .mr_safe(.mr_capture_attached,   "[]")
+  c(
+    list(
+      hostname          = .mr_safe(.mr_capture_hostname,   NA_character_),
+      os                = .mr_safe(.mr_capture_os,         NA_character_),
+      arch              = .mr_safe(.mr_capture_arch,       NA_character_),
+      r_version         = .mr_safe(.mr_capture_r_version,  NA_character_),
+      n_cpu             = .mr_safe(.mr_capture_n_cpu,      NA_integer_),
+      total_ram_bytes   = .mr_safe(.mr_capture_total_ram,  NA_real_),
+      free_ram_bytes    = .mr_safe(.mr_capture_free_ram,   NA_real_),
+      attached_packages = .mr_safe(.mr_capture_attached,   "[]")
+    ),
+    .mr_capture_git_info()
   )
 }
 

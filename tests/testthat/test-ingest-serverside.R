@@ -18,10 +18,9 @@ test_that("ingest() does not route the frame through R", {
   )
   withr::defer(untrace(".mr_read_file", where = asNamespace("modelrunnR")))
 
-  result <- ingest("csv_test", tmp)
+  suppressWarnings(ingest("csv_test", tmp))
 
   expect_false(called, info = "ingest() must not call .mr_read_file")
-  expect_true(inherits(result, "tbl_lazy"))
 
   got_df <- dplyr::collect(grab("csv_test"))
   expect_equal(nrow(got_df), 100)
@@ -33,7 +32,7 @@ test_that("ingest() records source_uri and source_hash", {
   tmp <- withr::local_tempfile(fileext = ".csv")
   write.csv(data.frame(a = 1:3), tmp, row.names = FALSE)
 
-  ingest("src_meta", tmp)
+  suppressWarnings(ingest("src_meta", tmp))
   rows <- mr_versions_rows("src_meta")
   expect_equal(nrow(rows), 1L)
   expect_equal(normalizePath(rows$source_uri[1]), normalizePath(tmp))

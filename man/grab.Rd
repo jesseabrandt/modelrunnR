@@ -28,8 +28,9 @@ by that run. For Shape B tables, filters to rows from that run.}
 that was latest at that time. Shape A only.}
 
 \item{source}{Optional path to a CSV or Parquet file. Triggers an
-implicit \code{\link[=ingest]{ingest()}} when the file hash differs from (or is not
-yet present in) the stored source metadata.}
+implicit \code{stow(mr_file(source), name)} when the file hash
+differs from (or is not yet present in) the stored source
+metadata.}
 
 \item{variant}{Optional string; resolves to the latest version produced
 by any run launched with \code{label = variant}. Mutually exclusive with
@@ -83,11 +84,11 @@ Inside a tracked \code{\link[=launch]{launch()}}, the read is recorded as an inp
 is not logged.
 
 When \code{source} is supplied, \code{grab()} behaves as an idempotent
-read-or-ingest: if \code{name} does not exist yet, \code{\link[=ingest]{ingest()}} is called
-under the hood. If \code{name} exists and the file's current content
-hash differs from the latest stored \code{source_hash}, \code{ingest()}
-is called again and a new version is created. If the file is
-unchanged, the cached version is returned.
+read-or-ingest: if \code{name} does not exist yet, an implicit
+\code{stow(mr_file(source), name)} is performed. If \code{name} exists and
+the file's current content hash differs from the latest stored
+\code{source_hash}, the file is re-stowed and a new version is created.
+If the file is unchanged, the cached version is returned.
 }
 \section{Security note}{
 

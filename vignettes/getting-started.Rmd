@@ -40,18 +40,25 @@ df$y <- 1 + df$x1 + 2 * df$x2 + rnorm(n, sd = 0.5)
 head(df)
 ```
 
-## Registering input data with `ingest()`
+## Registering input data with `stow(mr_file(...))`
 
 Before a tracked run can read input data, we need to register it with
-the store. `ingest(name, path)` reads a CSV or Parquet file and
-creates a content-addressed versioned-shape version — reproducible across
-sessions because the file's byte hash is tracked.
+the store. The verb is `stow()` — same as for any other value — and
+file sources are tagged with `mr_file()` so `stow()` knows to route
+them through the file-source path. The result is a content-addressed
+versioned-shape version, reproducible across sessions because the
+file's byte hash is tracked.
 
-```{r ingest}
+```{r register-input}
 train_csv <- tempfile(fileext = ".csv")
 write.csv(df, train_csv, row.names = FALSE)
-ingest("training", train_csv)
+stow(mr_file(train_csv), "training")
+```
 
+(`ingest("training", train_csv)` is the older spelling and still works
+for one release cycle, with a deprecation warning.)
+
+```{r grab-training}
 # grab() returns a dbplyr lazy tbl for tabular data.
 grab("training")
 
@@ -65,8 +72,8 @@ head(training_local)
 The store has two storage shapes for tabular data, and which one you
 get depends on how the value enters:
 
-- **Versioned-shape — content-addressed versions.** `ingest()` writes input
-  reference data as versioned-shape. Every distinct content gets its own
+- **Versioned-shape — content-addressed versions.** `stow(mr_file(...))` writes
+  input reference data as versioned-shape. Every distinct content gets its own
   version row; `grab()` returns the latest. Non-tabular values stowed
   via `stow(model, "fit")` also take this path (as artifacts).
 - **Append-shape — run-indexed append log.** `stow(df, name)` *inside a
@@ -150,7 +157,7 @@ grab("metrics", run = "all") |> dplyr::collect()
 ## Inspecting versions
 
 `versions()` walks the versioned-shape version history — one row per distinct
-content hash. It works for ingested tables, SQL views, and stowed
+content hash. It works for versioned-input tables, SQL views, and stowed
 artifacts. For append-shape names, rows live in the append table itself
 (query it directly or use `grab()` outside `launch()`).
 
@@ -245,6 +252,14 @@ The remaining columns hold the rest of each run's context. The
 JSON-shaped ones — `inputs`, `outputs`, `external_inputs`, `helpers`,
 `rebinds`, `attached_packages` — are surfaced as plain `chr`; parse on
 demand with `jsonlite::fromJSON()`.
+
+`git_sha`, `git_branch`, and `git_dirty` stamp each row with the
+working tree's commit at launch time so a run can be traced back to
+the code that produced it. `git_dirty` is a short summary like
+`"3 files changed, 47 insertions(+), 12 deletions(-)"` (plus an
+untracked count when applicable) and is `NA` on a clean tree — its
+presence is the dirty signal. All three are `NA` when the working
+directory isn't a git repo or `git` isn't on `PATH`.
 
 ## Re-running a pipeline by label
 

@@ -1,8 +1,51 @@
 # modelrunnR TODO
 
+## Surfaced 2026-04-26 (from stow-unification vignette cleanup)
+
+### "ingested" verb still appears in `vignettes/lazy-data.Rmd`
+
+`vignettes/lazy-data.Rmd:45` says "`grab()` ingested the CSV server-side
+via DuckDB's `read_csv_auto()` —" describing `grab(source = path)`'s
+implicit behavior. The verb "ingested" reads jarringly in a package
+that just deprecated `ingest()` (2026-04-26 stow-unification work).
+Reword to "`grab()` read the CSV server-side..." or similar; surfaced
+by code-quality review of Task 8.
+
+### Update `R/backend_duckdb.R` error messages from `ingest():` to `stow():`
+
+Several error messages in `.mr_ingest_file_to_table()` and `.mr_read_file()`
+(R/backend_duckdb.R lines ~77, 84, 93, 109, 113, 122) still prefix
+their messages with `ingest():`. Since Task 4 of the 2026-04-26
+stow-unification work, these errors are reachable through
+`stow(mr_file(...))`, so a user calling the new public verb hits an
+error attributed to a deprecated function. Cosmetic but jarring.
+
+Note: the "file not found" case is fine — that error fires earlier
+in `.mr_stow_file()` with a `stow():` prefix. The remaining sites are
+extension/format errors from the DuckDB-side staging path. Surfaced
+by final whole-branch code-quality review of feat/stow-unification.
+
+### Bring `grab(source = path)` into the `mr_file()` vocabulary
+
+Today `grab(name, source = path)` accepts a path string. After the
+2026-04-26 stow-unification change, `mr_file()` is the canonical way
+to express "this path is a file source." For symmetry, `grab()` should
+accept `grab(name, source = mr_file(path))` (or `grab(mr_file(path),
+name)`) without breaking the current path-string form. Spec:
+docs/superpowers/specs/2026-04-26-stow-unification-design.md
+("Non-goals / deferred").
+
+### Hard-remove `ingest()` after one release cycle
+
+`ingest()` is currently a `.Deprecated()` shim that delegates to
+`stow(mr_file(source), name)`. After one cycle, drop the export and
+the file, and remove `test-ingest*.R`. Update `final_practicum` and
+any other dependent project before doing this. Invariant 5 (ASK before
+removing exports).
+
 ## Surfaced 2026-04-25 (from mi_forests setup)
 
-### In-memory frame → versioned source should be a one-liner
+### ✓ In-memory frame → versioned source should be a one-liner
 
 Today `grab(source = path)` only accepts a file path, so a project that
 builds its source dataset in R has to write a file first and then point
@@ -318,6 +361,18 @@ is benign; defensive tighten to `^[A-Za-z_][A-Za-z0-9_]*$` plus
 the on.exit handler doesn't drop the staging table. Move the flag
 flip to after the `dbCommit` returns. Pre-existing pattern, not new
 to the append-mode branch.
+
+### Same `<<- FALSE` bug in `R/launch_sql.R:417`
+
+`R/launch_sql.R:417` uses the same `staging_alive <<- FALSE` pattern as the
+old `ingest()` body. Inside `tryCatch({...})`, `<<-` skips the function's
+local frame and never updates the guard, so on success `on.exit` fires
+a futile DROP TABLE that `try(..., silent = TRUE)` swallows. Not data-
+corrupting; just wasted work per call.
+
+Fix is one character: change `<<-` to `<-`. Out of scope for the
+2026-04-26 stow-unification work because that branch only touches the
+ingest call path. Surfaced by code-quality review of Task 3.
 
 ### Versioned-shape extraction to `shape_versioned.R`
 

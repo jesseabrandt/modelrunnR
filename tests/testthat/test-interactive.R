@@ -100,7 +100,7 @@ test_that("ingest() outside launch also produces an interactive run row", {
   csv <- file.path(dir, "d.csv")
   write.csv(data.frame(x = 1:3), csv, row.names = FALSE)
 
-  ingest("d", csv)
+  suppressWarnings(ingest("d", csv))
 
   runs <- DBI::dbGetQuery(
     .mr_get_connection(),

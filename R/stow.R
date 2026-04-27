@@ -17,6 +17,11 @@
 #'   `<db_dir>/modelrunnR_artifacts/<name>__<hash>.qs2` otherwise. One
 #'   version per distinct value; all previous versions stay queryable
 #'   via [grab()] selectors.
+#' - **Versioned table** (for data frames passed with
+#'   `shape = "versioned"`) — hashed, written to a dedicated physical
+#'   table per distinct content, and registered in `_mr_versions` (same
+#'   path that [ingest()] uses). [mr_file()] values always route through
+#'   the file-source path (versioned-shape, source URI/hash recorded).
 #'
 #' A logical name is tied to one shape on first write. Changing shape
 #' later (e.g. `stow(df, "x")` then `stow(model, "x")`) errors.
@@ -51,11 +56,19 @@
 #' @param value Any R value. First, so `df |> stow("name")` works.
 #' @param name A length-one character vector. Logical name for the
 #'   value.
+#' @param shape Optional length-1 character: `"versioned"` to opt a
+#'   data frame into versioned-shape storage (one row per distinct
+#'   content), or `"append"` to make the default explicit. `NULL`
+#'   (default) preserves type-based dispatch: data frames append,
+#'   non-frame R objects go versioned. Cannot be combined with an
+#'   `mr_file` value (always versioned) and is rejected on artifact
+#'   values.
 #'
 #' @return `value`, invisibly.
 #' @export
-stow <- function(value, name) {
-  if (missing(name) && is.character(value) && length(value) == 1L) {
+stow <- function(value, name, shape = NULL) {
+  if (missing(name) && is.character(value) && length(value) == 1L &&
+      !inherits(value, "mr_file")) {
     stop(
       "stow() is value-first as of this version: stow(value, name). ",
       "Did you mean `stow(<value>, \"", value, "\")` ?",
@@ -68,6 +81,7 @@ stow <- function(value, name) {
   # fails downstream with a less-useful "name must be a character"
   # message.
   if (!missing(name) && is.character(value) && length(value) == 1L &&
+      !inherits(value, "mr_file") &&
       !is.character(name)) {
     stop(
       "stow() is value-first as of this version: stow(value, name). ",
@@ -77,12 +91,62 @@ stow <- function(value, name) {
   }
   .mr_validate_name(name, context = "stow")
 
+  # Validate `shape`; see spec §2 for the dispatch table.
+  if (!is.null(shape)) {
+    if (!is.character(shape) || length(shape) != 1L ||
+        !shape %in% c("versioned", "append")) {
+      stop(
+        'stow(): shape must be NULL, "versioned", or "append".',
+        call. = FALSE
+      )
+    }
+    if (inherits(value, "mr_file")) {
+      stop(
+        "stow(): mr_file values are always versioned; drop the ",
+        "shape argument.",
+        call. = FALSE
+      )
+    }
+    if (!is.data.frame(value) && !inherits(value, "tbl_lazy")) {
+      stop(
+        sprintf(
+          "stow(): shape is only meaningful for data frames and lazy tbls; got %s.",
+          paste(class(value), collapse = "/")
+        ),
+        call. = FALSE
+      )
+    }
+  }
+
+  if (inherits(value, "mr_file")) {
+    .mr_guard_namespace(name, shape = "A")
+    .mr_stow_file(name, unclass(value))
+    return(invisible(value))
+  }
+
+  versioned <- identical(shape, "versioned")
+
   if (inherits(value, "tbl_lazy")) {
+    if (versioned) {
+      # tbl_lazy + versioned currently has no first-class path. Surface
+      # rather than silently demote to append; the spec scopes
+      # versioned-shape opt-in to data frames in §4.
+      stop(
+        "stow(): shape = 'versioned' is not supported for lazy ",
+        "tbls; collect() to a data frame first.",
+        call. = FALSE
+      )
+    }
     .mr_guard_namespace(name, shape = "B")
     .mr_append_write_lazy(name, value)
   } else if (is.data.frame(value)) {
-    .mr_guard_namespace(name, shape = "B")
-    .mr_append_write_frame(name, value)
+    if (versioned) {
+      .mr_guard_namespace(name, shape = "A")
+      .mr_stow_table(name, value)
+    } else {
+      .mr_guard_namespace(name, shape = "B")
+      .mr_append_write_frame(name, value)
+    }
   } else {
     .mr_guard_namespace(name, shape = "A", new_kind = "artifact")
     .mr_stow_artifact(name, value)

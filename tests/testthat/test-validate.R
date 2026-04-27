@@ -58,5 +58,5 @@ test_that("ingest() rejects names with path traversal", {
   dir <- withr::local_tempdir()
   csv <- file.path(dir, "x.csv")
   writeLines(c("a,b", "1,2"), csv)
-  expect_error(ingest("../evil", csv), "letters, digits, and underscores")
+  suppressWarnings(expect_error(ingest("../evil", csv), "letters, digits, and underscores"))
 })
