@@ -40,6 +40,7 @@
          FROM _mr_runs
         WHERE step = ?
           AND variant_label = ?
+          AND status != 'queued'
         ORDER BY started_at DESC
         LIMIT 1",
       params = list(step, variant_label)
@@ -50,6 +51,7 @@
       "SELECT code_hash, inputs, external_inputs, helpers
          FROM _mr_runs
         WHERE step = ?
+          AND status != 'queued'
         ORDER BY started_at DESC
         LIMIT 1",
       params = list(step)

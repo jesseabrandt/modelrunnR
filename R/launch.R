@@ -333,6 +333,20 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
     code_body <- paste(readLines(step, warn = FALSE), collapse = "\n")
   }
 
+  # Queued-row pickup: launch(mr_run(id)) against a "queued" row
+  # updates the existing row in place (no new run_id written).
+  if (relaunch_mode && identical(relaunch_kind, "run") &&
+      !is.null(resolved) && identical(resolved$status, "queued")) {
+    return(.mr_pickup_queued_run(
+      run_id          = code$value,
+      resolved        = resolved,
+      label           = label,
+      external_inputs = external_inputs,
+      force           = force,
+      duckdb_seed     = duckdb_seed
+    ))
+  }
+
   # R-mode batch: dispatch once per envelope, sharing the resolved
   # step / code_body / inline_mode / relaunch_expr (none of which
   # depend on rebind). Each envelope contributes its own rebind list
