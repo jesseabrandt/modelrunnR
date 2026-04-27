@@ -42,3 +42,24 @@ test_that("non-queued mr_run() relaunch still writes a new row (Phase 1 semantic
     expect_false(r2$run_id == r1$run_id)         # new row, not in-place
   })
 })
+
+test_that("rebinds survive the queue -> launch(mr_run(id)) round trip and apply at pickup", {
+  withr::with_tempdir({
+    new_test_db()
+    # Queue a body that returns the rebound value, with a literal rebind.
+    q <- queue(
+      { y <- grab("alpha"); stow(data.frame(value = y), "out") },
+      rebind = list(alpha = 0.42)
+    )
+    expect_equal(q$status, "queued")
+    # Pick up — body executes with the staged rebind.
+    r <- launch(mr_run(q$run_id))
+    expect_equal(r$status, "success")
+    # The stowed value should be the rebound 0.42, not whatever a bare
+    # grab("alpha") would have resolved to (which would error since
+    # nothing's stowed under "alpha" in this fresh db).
+    out <- grab("out") |> dplyr::collect()
+    # `out` is a single-row, single-column tibble holding 0.42.
+    expect_equal(out$value[[1]], 0.42)
+  })
+})
