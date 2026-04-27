@@ -466,6 +466,9 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
     total_ram_bytes   = session_info$total_ram_bytes,
     free_ram_bytes    = session_info$free_ram_bytes,
     attached_packages = session_info$attached_packages,
+    git_sha           = session_info$git_sha,
+    git_branch        = session_info$git_branch,
+    git_dirty         = session_info$git_dirty,
     stringsAsFactors  = FALSE
   )
   DBI::dbAppendTable(con, "_mr_runs", row)

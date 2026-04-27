@@ -81,6 +81,15 @@
   # start (attached non-base packages). Variable-length so it stays
   # JSON; deduping into a session_info table is a future refactor.
   .mr_add_column_if_missing(con, "_mr_runs", "attached_packages", "TEXT")
+  # Git context (captured at launch start, best-effort). git_sha is the
+  # working tree's HEAD; git_branch the current branch (or "HEAD" when
+  # detached); git_dirty is `git diff --shortstat HEAD` plus an
+  # untracked-files count when applicable, or NA on a clean tree.
+  # NA across all three when git is unavailable or the working dir
+  # isn't a repo.
+  .mr_add_column_if_missing(con, "_mr_runs", "git_sha",    "TEXT")
+  .mr_add_column_if_missing(con, "_mr_runs", "git_branch", "TEXT")
+  .mr_add_column_if_missing(con, "_mr_runs", "git_dirty",  "TEXT")
   # Earlier draft named this column `inline_code` and only populated
   # it for inline launches. Carry the data forward and drop the old
   # column so `code_body` stays single-source-of-truth.

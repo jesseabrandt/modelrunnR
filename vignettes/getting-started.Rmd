@@ -253,6 +253,14 @@ JSON-shaped ones — `inputs`, `outputs`, `external_inputs`, `helpers`,
 `rebinds`, `attached_packages` — are surfaced as plain `chr`; parse on
 demand with `jsonlite::fromJSON()`.
 
+`git_sha`, `git_branch`, and `git_dirty` stamp each row with the
+working tree's commit at launch time so a run can be traced back to
+the code that produced it. `git_dirty` is a short summary like
+`"3 files changed, 47 insertions(+), 12 deletions(-)"` (plus an
+untracked count when applicable) and is `NA` on a clean tree — its
+presence is the dirty signal. All three are `NA` when the working
+directory isn't a git repo or `git` isn't on `PATH`.
+
 ## Re-running a pipeline by label
 
 Once a pipeline has a label, you don't have to re-type its code to
