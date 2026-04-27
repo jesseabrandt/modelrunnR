@@ -39,6 +39,25 @@
   relaunch_expr <- resolved$expr   # NULL for file steps that exist on disk
   inline_mode   <- startsWith(step, "<inline:")
 
+  # File-step drift detection. The resolver's `code_body` came from
+  # disk (or the snapshot fallback); compare its hash against the
+  # queued row's `code_hash` to detect "the file you queued isn't the
+  # file you're about to run." Inline rows can't drift — `code_body`
+  # came from the queued row itself. When the file is gone the resolver
+  # has already fallen back to the snapshot (relaunch_expr is non-NULL)
+  # and `file.exists(step)` gates us out, so no spurious drift fires.
+  if (!inline_mode && file.exists(step)) {
+    fresh_hash  <- .mr_code_hash(step, list())
+    queued_hash <- prior$code_hash[1]
+    if (!is.na(queued_hash) && !identical(fresh_hash, queued_hash)) {
+      warning(sprintf(
+        "launch(mr_run('%s')): the file '%s' has drifted since queue time (queued hash %s, current %s). Re-sourcing from disk.",
+        run_id, step,
+        substr(queued_hash, 1L, 12L), substr(fresh_hash, 1L, 12L)
+      ), call. = FALSE)
+    }
+  }
+
   # Seed precedence: caller's explicit seed overrides the queued row's.
   if (is.null(duckdb_seed)) {
     queued_seed <- prior$duckdb_seed[1]
@@ -128,8 +147,12 @@
 
   code_hash <- if (inline_mode) {
     .mr_code_hash_inline(code_body, helpers)
-  } else {
+  } else if (file.exists(step)) {
     .mr_code_hash(step, helpers)
+  } else {
+    # File is gone; we ran the stored snapshot (code_body). Hash over
+    # the snapshot text so the row stays self-consistent.
+    .mr_code_hash_inline(code_body, helpers)
   }
 
   .mr_print_timing_summary(

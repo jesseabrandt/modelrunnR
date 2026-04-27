@@ -78,3 +78,43 @@ test_that("queued-row pickup that would be skipped_fresh sets the row's status t
     expect_equal(r2$status, "skipped_fresh")
   })
 })
+
+test_that("file-step queued pickup re-sources from disk and warns when content drifted", {
+  withr::with_tempdir({
+    new_test_db()
+    writeLines("x <- 'before'; stow(x, 'g')", "fit.R")
+    q <- queue("fit.R")
+    writeLines("x <- 'after';  stow(x, 'g')", "fit.R")  # edit
+    expect_warning(launch(mr_run(q$run_id)), "drifted")
+    # Refreshed columns reflect the executed (new) bytes.
+    con <- modelrunnR:::.mr_get_connection()
+    post <- DBI::dbGetQuery(con,
+      "SELECT code_body, code_hash, status FROM _mr_runs WHERE run_id = ?",
+      params = list(q$run_id))
+    expect_match(post$code_body, "after", fixed = TRUE)
+    expect_equal(post$status, "success")
+  })
+})
+
+test_that("file-step queued pickup with no drift does not warn", {
+  withr::with_tempdir({
+    new_test_db()
+    writeLines("x <- 'stable'; stow(x, 'g')", "fit.R")
+    q <- queue("fit.R")
+    expect_no_warning(launch(mr_run(q$run_id)))
+  })
+})
+
+test_that("file-step queued pickup falls back to the snapshot when the file is gone", {
+  withr::with_tempdir({
+    new_test_db()
+    writeLines("x <- 'snap'; stow(x, 'g')", "fit.R")
+    q <- queue("fit.R")
+    file.remove("fit.R")
+    expect_message(launch(mr_run(q$run_id)), "is gone from disk")
+    con <- modelrunnR:::.mr_get_connection()
+    post <- DBI::dbGetQuery(con, "SELECT status FROM _mr_runs WHERE run_id = ?",
+                            params = list(q$run_id))
+    expect_equal(post$status, "success")
+  })
+})
