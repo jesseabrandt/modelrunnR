@@ -60,6 +60,12 @@ test_that(".mr_capture_git_info() summarizes uncommitted edits", {
 })
 
 test_that("R-launch records git context columns", {
+  # Under `R CMD check` the package is unpacked into a tempdir outside
+  # any git working tree, so capture legitimately returns all-NA. Skip
+  # the populate assertion in that case and only verify column wiring.
+  gi <- modelrunnR:::.mr_capture_git_info()
+  in_repo <- !is.na(gi$git_sha) || !is.na(gi$git_branch)
+
   new_test_db()
 
   run <- launch({ stow(data.frame(x = 1), "out") })
@@ -71,12 +77,10 @@ test_that("R-launch records git context columns", {
     params = list(run$run_id)
   )
   expect_equal(nrow(row), 1L)
-  # The package source itself lives in a git repo, so capture should
-  # have populated something. The exact value is environment-specific;
-  # what matters is that the column is present and at least one of the
-  # fields came back non-NA when run from inside the working tree.
-  expect_true(
-    !is.na(row$git_sha) || !is.na(row$git_branch),
-    info = "expected git context to populate when tests run inside a repo"
-  )
+  if (in_repo) {
+    expect_true(
+      !is.na(row$git_sha) || !is.na(row$git_branch),
+      info = "expected git context to populate when tests run inside a repo"
+    )
+  }
 })
