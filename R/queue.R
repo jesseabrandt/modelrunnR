@@ -41,17 +41,20 @@ queue <- function(code, rebind = NULL, label = NULL,
   script_expr <- substitute(code)
   inline_mode <- is.call(script_expr) && identical(script_expr[[1]], as.name("{"))
 
-  # Reject reference objects.
+  # Reject mr_sql() — SQL staging is out of scope (v1). Must come
+  # before the general ref check below: mr_sql() returns a class
+  # c("mr_ref_sql", "mr_ref"), so .mr_is_ref() would match it first
+  # and emit the wrong error message.
+  if (!inline_mode && inherits(code, "mr_ref_sql")) {
+    stop("queue(): SQL staging via mr_sql() is out of scope (v1).", call. = FALSE)
+  }
+
+  # Reject other reference objects.
   if (!inline_mode && .mr_is_ref(code)) {
     stop(sprintf(
       "queue(): mr_%s() is not accepted as a first-argument reference. queue() stages new runs; re-queueing an existing stored run is incoherent.",
       code$kind
     ), call. = FALSE)
-  }
-
-  # Reject mr_sql() inline.
-  if (!inline_mode && inherits(code, "mr_ref_sql")) {
-    stop("queue(): SQL staging via mr_sql() is out of scope (v1).", call. = FALSE)
   }
 
   if (inline_mode) {
