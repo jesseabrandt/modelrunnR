@@ -417,6 +417,66 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
   ), call. = FALSE)
 }
 
+# Resolve a run by run_id for relaunch. Mirrors .mr_resolve_relaunch()
+# (label-based) but keys on run_id. See spec
+# docs/superpowers/specs/2026-04-26-launch-by-run-id-design.md.
+.mr_resolve_relaunch_run_id <- function(run_id) {
+  con <- .mr_get_connection()
+  prior <- DBI::dbGetQuery(
+    con,
+    "SELECT step, code_body, variant_label, status FROM _mr_runs
+      WHERE run_id = ?",
+    params = list(run_id)
+  )
+  if (nrow(prior) == 0L) {
+    stop(sprintf("launch(): no run with run_id '%s'.", run_id), call. = FALSE)
+  }
+  step        <- prior$step[1]
+  stored_body <- prior$code_body[1]
+  status      <- prior$status[1]
+  variant     <- prior$variant_label[1]
+
+  # Synthetic non-launch steps (e.g. "<interactive:...>"). Mirrors the
+  # rule .mr_resolve_relaunch_code() applies for inline tags.
+  if (startsWith(step, "<") && !startsWith(step, "<inline:")) {
+    stop(sprintf(
+      "launch(): run_id '%s' refers to a synthetic step ('%s') that isn't relaunchable.",
+      run_id, step
+    ), call. = FALSE)
+  }
+
+  if (startsWith(step, "<inline:")) {
+    if (is.na(stored_body) || !nzchar(stored_body)) {
+      stop(sprintf(
+        "launch(): run_id '%s' is an inline run with no stored code body.",
+        run_id
+      ), call. = FALSE)
+    }
+    return(list(step = step, code_body = stored_body,
+                expr = parse(text = stored_body),
+                variant_label = variant, status = status))
+  }
+
+  if (file.exists(step)) {
+    file_body <- paste(readLines(step, warn = FALSE), collapse = "\n")
+    return(list(step = step, code_body = file_body, expr = NULL,
+                variant_label = variant, status = status))
+  }
+  if (!is.na(stored_body) && nzchar(stored_body)) {
+    message(sprintf(
+      "launch(): script '%s' is gone from disk; running the stored snapshot from run_id '%s'.",
+      step, run_id
+    ))
+    return(list(step = step, code_body = stored_body,
+                expr = parse(text = stored_body),
+                variant_label = variant, status = status))
+  }
+  stop(sprintf(
+    "launch(): script '%s' is gone and no snapshot is stored for run_id '%s'.",
+    step, run_id
+  ), call. = FALSE)
+}
+
 .mr_eval_inline <- function(expr) {
   envir <- new.env(parent = globalenv())
   envir$grab   <- grab
