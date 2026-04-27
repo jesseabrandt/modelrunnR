@@ -1,5 +1,30 @@
 # modelrunnR TODO
 
+## Surfaced 2026-04-27 (from queue() final-review)
+
+### `launch(mr_run(id), rebind = ...)` silently discards caller's `rebind` for queued rows
+
+When `launch(mr_run(id))` picks up a queued row, the rebinds applied
+to the body are reconstructed from the queued row's stored provenance
+JSON (`.mr_map_from_provenance_json()`). A `rebind = ...` argument
+passed by the caller at pickup time is **silently ignored** — the
+staged rebinds win.
+
+This is correct semantics (the user already staged what they wanted
+at queue time), but the silent ignore is a footgun. A user who runs
+`launch(mr_run(id), rebind = list(alpha = 0.99))` expecting an
+override gets the queue-time rebinds with no signal that the
+override was discarded.
+
+Options:
+- Warn when `rebind` is non-NULL on queued pickup.
+- Reject with an error.
+- Honor the override (and document that pickup can re-stage).
+- Document the silent ignore in `queue()` / `launch()` roxygen and
+  call it a day.
+
+Surfaced by final whole-branch code-quality review of feat/queue.
+
 ## Surfaced 2026-04-27 (from Phase 1 R CMD check, queue work)
 
 ### Test failure in `test-git-info.R:78:3`

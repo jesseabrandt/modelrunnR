@@ -298,7 +298,8 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
     # Non-success source: warn / error / silent per option. Only
     # applies to mr_run() — mr_label() resolves by latest, which by
     # construction usually points at a success row. "queued" is a
-    # normal pre-execution state (Task P2.10), not a failure — skip.
+    # normal pre-execution state (queued rows route through
+    # .mr_pickup_queued_run() further down), not a failure — skip.
     if (identical(relaunch_kind, "run") &&
         !is.na(resolved$status) &&
         !identical(resolved$status, "success") &&
