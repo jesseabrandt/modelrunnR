@@ -89,11 +89,10 @@ queue <- function(code, rebind = NULL, label = NULL,
 
   .mr_get_connection()
 
-  # Resolve rebinds at queue time so the JSON provenance reflects what
-  # the user passed (matches launch()'s recording behavior).
-  resolved_rebinds <- .mr_resolve_rebinds(rebind)
-
-  # Batch path: split here.
+  # Batch path: dispatch before resolving rebinds. Each envelope is
+  # resolved individually inside .mr_queue_batch(), mirroring the
+  # launch() batch dispatcher which also skips the top-level resolve
+  # when rebind is an mr_binds object.
   if (inherits(rebind, "mr_binds")) {
     return(invisible(.mr_queue_batch(
       step        = step,
@@ -104,6 +103,10 @@ queue <- function(code, rebind = NULL, label = NULL,
       duckdb_seed = duckdb_seed
     )))
   }
+
+  # Resolve rebinds at queue time so the JSON provenance reflects what
+  # the user passed (matches launch()'s recording behavior).
+  resolved_rebinds <- .mr_resolve_rebinds(rebind)
 
   run_id <- .mr_new_run_id()
   row <- .mr_write_run_row(
@@ -148,9 +151,45 @@ queue <- function(code, rebind = NULL, label = NULL,
   )
 }
 
-# Batch helper for queue(). Stub — extended in Task P2.8.
+# Batch helper for queue(). Writes N queued rows (one per envelope) to
+# _mr_runs, all sharing one batch_id. Per-envelope rebinds are resolved
+# here, mirroring the per-envelope resolution loop in .mr_launch_batch().
 .mr_queue_batch <- function(step, code_body, code_hash, envelopes,
                             label, duckdb_seed) {
-  stop("queue(): batch staging via mr_binds() is not yet implemented (Task P2.8).",
-       call. = FALSE)
+  batch_id <- .mr_new_batch_id()
+  rows <- vector("list", length(envelopes))
+  for (i in seq_along(envelopes)) {
+    env <- envelopes[[i]]
+    # Envelope's .label takes precedence over the queue-level label
+    # (same precedence as .mr_launch_batch()). Validate the envelope
+    # label only when the envelope supplies one; the queue-level label
+    # was already validated in queue() before dispatch.
+    env_label <- if (".label" %in% names(env)) {
+      .mr_validate_label(env$.label)
+    } else {
+      label
+    }
+    env_rebind <- env[setdiff(names(env), ".label")]
+    resolved   <- .mr_resolve_rebinds(env_rebind)
+    run_id     <- .mr_new_run_id()
+    rows[[i]]  <- .mr_write_run_row(
+      step            = step,
+      run_id          = run_id,
+      inputs          = list(),
+      outputs         = list(),
+      started_at      = NA,
+      duration_ms     = NA_integer_,
+      status          = "queued",
+      code_hash       = code_hash,
+      external_inputs = list(files = list(), env = list()),
+      helpers         = list(),
+      variant_label   = env_label,
+      code_body       = code_body,
+      duckdb_seed     = if (is.null(duckdb_seed)) NA_real_ else duckdb_seed,
+      rebinds         = resolved$provenance,
+      batch_id        = batch_id,
+      session_info    = .mr_blank_session_info()
+    )
+  }
+  do.call(rbind, rows)
 }

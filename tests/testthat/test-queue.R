@@ -80,3 +80,34 @@ test_that("queue('foo.sql') is rejected (out of scope v1)", {
     expect_error(queue("f.sql"), "out of scope")
   })
 })
+
+test_that("queue() with rebind = mr_binds() writes N queued rows under one batch_id", {
+  withr::with_tempdir({
+    new_test_db()
+    r <- queue(
+      { x <- grab("alpha") },
+      rebind = mr_binds(alpha = c(0.1, 0.5, 1.0))
+    )
+    expect_equal(nrow(r), 3L)
+    expect_true(all(r$status == "queued"))
+    expect_equal(length(unique(r$batch_id)), 1L)
+    expect_false(is.na(r$batch_id[1]))
+    expect_equal(length(unique(r$run_id)), 3L)
+  })
+})
+
+test_that("each queued batch row's `rebinds` reflects its envelope's resolved rebinds", {
+  withr::with_tempdir({
+    new_test_db()
+    r <- queue(
+      { x <- grab("alpha") },
+      rebind = mr_binds(alpha = c(0.1, 0.5))
+    )
+    con <- modelrunnR:::.mr_get_connection()
+    rows <- DBI::dbGetQuery(con,
+      "SELECT run_id, rebinds FROM _mr_runs WHERE batch_id = ? ORDER BY run_id",
+      params = list(r$batch_id[1]))
+    expect_match(rows$rebinds[1], "0.1", fixed = TRUE)
+    expect_match(rows$rebinds[2], "0.5", fixed = TRUE)
+  })
+})
