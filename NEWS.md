@@ -16,6 +16,12 @@
 
 ## New features
 
+* `launch()` now accepts `mr_run(run_id)` as a first-argument reference,
+  re-executing the specific stored run by id (in addition to the existing
+  `mr_label()` form). Source row's `variant_label` is auto-inherited.
+  Re-executing a non-`"success"` source row emits a `warning()` by
+  default; configurable via
+  `options(modelrunnR.relaunch_nonsuccess = c("warn","error","silent"))`.
 * `grab(name, run = ...)` — scope an append-table read to a specific
   run id, or pass `run = "all"` for the full-history view (every row
   with `run_id` and `variant_label` surfaced).

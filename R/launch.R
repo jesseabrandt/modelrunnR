@@ -27,6 +27,13 @@
 #'   disk; if the file is gone, the stored snapshot is used and an
 #'   informational message is emitted. The label is auto-inherited
 #'   onto the new run unless the caller passes an explicit `label`.
+#'   `launch(mr_run(run_id))` re-executes the specific stored run by
+#'   id; the source row's `variant_label` (if any) is auto-inherited
+#'   onto the new run unless the caller passes an explicit `label`.
+#'   Re-executing a run whose source status isn't `"success"` warns
+#'   by default (configurable via
+#'   `options(modelrunnR.relaunch_nonsuccess = c("warn","error","silent"))`).
+
 #' - **SQL mode** -- `launch("features.sql")` (file) or
 #'   `launch(mr_sql("..."))` (inline) registers a SQL `SELECT` as a
 #'   tracked step. The body is a bare query (no `CREATE`); modelrunnR
@@ -55,6 +62,8 @@
 #'   - a path to a `.sql` file, or [mr_sql()] (SQL mode).
 #'   - [mr_label()] (relaunch mode -- re-executes the most recent run
 #'     under that label).
+#'   - [mr_run()] (relaunch mode -- re-executes the specific stored
+#'     run by id).
 #' @param rebind Optional named list that overrides what each
 #'   `grab()` inside the script resolves to. List values may be bare
 #'   R objects (stowed inline through the normal versioning path) or
