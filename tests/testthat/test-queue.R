@@ -49,3 +49,34 @@ test_that("queued row's execution columns are NA", {
   expect_true(is.na(row$hostname[1]))
   expect_true(is.na(row$git_sha[1]))
 })
+
+test_that("queue('script.R') captures file bytes into code_body and computes code_hash", {
+  withr::with_tempdir({
+    new_test_db()
+    writeLines(c("x <- 'hello'", "stow(x, 'greeting')"), "fit.R")
+    r <- queue("fit.R")
+    expect_equal(r$status, "queued")
+    expect_equal(normalizePath(r$step), normalizePath("fit.R"))
+    con <- modelrunnR:::.mr_get_connection()
+    stored <- DBI::dbGetQuery(con,
+      "SELECT code_body, code_hash FROM _mr_runs WHERE run_id = ?",
+      params = list(r$run_id))
+    expect_match(stored$code_body[1], "hello", fixed = TRUE)
+    expect_true(nzchar(stored$code_hash[1]))
+  })
+})
+
+test_that("queue('missing.R') errors clearly", {
+  withr::with_tempdir({
+    new_test_db()
+    expect_error(queue("does_not_exist.R"), "file not found")
+  })
+})
+
+test_that("queue('foo.sql') is rejected (out of scope v1)", {
+  withr::with_tempdir({
+    new_test_db()
+    writeLines("SELECT 1", "f.sql")
+    expect_error(queue("f.sql"), "out of scope")
+  })
+})
