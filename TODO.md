@@ -1,5 +1,30 @@
 # modelrunnR TODO
 
+## Surfaced 2026-04-27 (from Phase 1 R CMD check, queue work)
+
+### Test failure in `test-git-info.R:78:3`
+
+Introduced by commit `eddb3a8` (git-context stamping on `_mr_runs`
+rows). Fails on main and on `feat/queue` — pre-existing relative to
+the queue work, but blocks the framework invariant-2 "R CMD check
+clean" gate. Symptom: git context not populating in the test
+environment. Likely cause: the test assumes `git` is on PATH and the
+working tree is a real repo at the moment the assertion fires; if
+the test runs under `devtools::check()`'s isolated build dir, neither
+holds.
+
+### `|>` pipe syntax requirement warning in `R/shape_append.R`
+
+`R CMD check` warns the file uses the native `|>` pipe (R 4.1+) but
+DESCRIPTION's `Depends:` doesn't pin `R (>= 4.1.0)`. Either bump
+DESCRIPTION's R floor or rewrite the pipe(s) in `shape_append.R`.
+
+### Environmental NOTE during R CMD check: "unable to verify current time"
+
+Sandbox has no NTP / outbound network for `R CMD check`'s timestamp
+sanity check. Not a code defect; cosmetic on the check log. Ignore
+unless it starts blocking CI.
+
 ## Surfaced 2026-04-26 (from stow-unification vignette cleanup)
 
 ### "ingested" verb still appears in `vignettes/lazy-data.Rmd`
