@@ -156,8 +156,12 @@ queue <- function(code, rebind = NULL, label = NULL,
 # here, mirroring the per-envelope resolution loop in .mr_launch_batch().
 .mr_queue_batch <- function(step, code_body, code_hash, envelopes,
                             label, duckdb_seed) {
+  n <- length(envelopes)
+  if (n == 0L) {
+    stop("queue(): mr_binds() expanded to zero envelopes.", call. = FALSE)
+  }
   batch_id <- .mr_new_batch_id()
-  rows <- vector("list", length(envelopes))
+  rows <- vector("list", n)
   for (i in seq_along(envelopes)) {
     env <- envelopes[[i]]
     # Envelope's .label takes precedence over the queue-level label
@@ -170,6 +174,7 @@ queue <- function(code, rebind = NULL, label = NULL,
       label
     }
     env_rebind <- env[setdiff(names(env), ".label")]
+    if (length(env_rebind) == 0L) env_rebind <- list()
     resolved   <- .mr_resolve_rebinds(env_rebind)
     run_id     <- .mr_new_run_id()
     rows[[i]]  <- .mr_write_run_row(
