@@ -3,8 +3,12 @@
 ## Called from launch() when launch(mr_run(id)) resolves a row whose
 ## status is "queued". Executes the row's code_body (or re-sources the
 ## file for file steps) and UPDATEs the row in place: status flips,
-## execution columns populate; frozen columns (run_id, step, rebinds,
-## batch_id) stay untouched by the UPDATE.
+## execution columns populate. Truly frozen across the UPDATE:
+## run_id, step, rebinds, batch_id, duckdb_seed. Refreshed (writes
+## occur, but for inline steps the new value equals the old by
+## construction): code_body, code_hash, variant_label. The drift
+## *warning* for file steps where code_body actually changes lands
+## in Task P2.12.
 ##
 ## Key design note — rebind round-trip:
 ##   The queued row's `rebinds` column holds the provenance JSON written
