@@ -27,6 +27,13 @@
 #'   disk; if the file is gone, the stored snapshot is used and an
 #'   informational message is emitted. The label is auto-inherited
 #'   onto the new run unless the caller passes an explicit `label`.
+#'   `launch(mr_run(run_id))` re-executes the specific stored run by
+#'   id; the source row's `variant_label` (if any) is auto-inherited
+#'   onto the new run unless the caller passes an explicit `label`.
+#'   Re-executing a run whose source status isn't `"success"` warns
+#'   by default (configurable via
+#'   `options(modelrunnR.relaunch_nonsuccess = c("warn","error","silent"))`).
+
 #' - **SQL mode** -- `launch("features.sql")` (file) or
 #'   `launch(mr_sql("..."))` (inline) registers a SQL `SELECT` as a
 #'   tracked step. The body is a bare query (no `CREATE`); modelrunnR
@@ -55,6 +62,8 @@
 #'   - a path to a `.sql` file, or [mr_sql()] (SQL mode).
 #'   - [mr_label()] (relaunch mode -- re-executes the most recent run
 #'     under that label).
+#'   - [mr_run()] (relaunch mode -- re-executes the specific stored
+#'     run by id).
 #' @param rebind Optional named list that overrides what each
 #'   `grab()` inside the script resolves to. List values may be bare
 #'   R objects (stowed inline through the normal versioning path) or
@@ -247,15 +256,17 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 
   relaunch_mode <- FALSE
   relaunch_expr <- NULL  # parsed code body for relaunch execution
+  relaunch_kind <- NULL  # "label" or "run" when relaunch_mode is TRUE
 
   if (!inline_mode && .mr_is_ref(code)) {
-    if (!identical(code$kind, "label")) {
+    if (!(code$kind %in% c("label", "run"))) {
       stop(sprintf(
-        "launch(): only mr_label() is accepted as a first argument reference; got mr_%s().",
+        "launch(): only mr_label() and mr_run() are accepted as first argument references; got mr_%s().",
         code$kind
       ), call. = FALSE)
     }
     relaunch_mode <- TRUE
+    relaunch_kind <- code$kind
   }
 
   if (inline_mode) {
@@ -266,12 +277,47 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
     # against an older expression's history.
     step <- sprintf("<inline:%s>", substr(expr_hash, 1L, 12L))
   } else if (relaunch_mode) {
-    resolved <- .mr_resolve_relaunch(code$value)
+    resolved <- if (identical(relaunch_kind, "label")) {
+      .mr_resolve_relaunch(code$value)
+    } else {
+      .mr_resolve_relaunch_run_id(code$value)
+    }
     step          <- resolved$step
     code_body     <- resolved$code_body
     relaunch_expr <- resolved$expr
-    # Auto-inherit the label unless the user passed one explicitly.
-    if (is.na(label)) label <- code$value
+    # Auto-inherit label. For mr_label() the label is the ref's value.
+    # For mr_run() it's the source row's variant_label (may be NA).
+    if (is.na(label)) {
+      label <- if (identical(relaunch_kind, "label")) {
+        code$value
+      } else {
+        resolved$variant_label
+      }
+    }
+
+    # Non-success source: warn / error / silent per option. Only
+    # applies to mr_run() — mr_label() resolves by latest, which by
+    # construction usually points at a success row. "queued" is a
+    # normal pre-execution state (queued rows route through
+    # .mr_pickup_queued_run() further down), not a failure — skip.
+    if (identical(relaunch_kind, "run") &&
+        !is.na(resolved$status) &&
+        !identical(resolved$status, "success") &&
+        !identical(resolved$status, "queued")) {
+      policy <- match.arg(
+        getOption("modelrunnR.relaunch_nonsuccess", "warn"),
+        c("warn", "error", "silent")
+      )
+      msg <- sprintf(
+        "launch(): re-executing run_id '%s' whose source row has status '%s'.",
+        code$value, resolved$status
+      )
+      if (identical(policy, "error")) {
+        stop(paste(msg, "Set options(modelrunnR.relaunch_nonsuccess = \"warn\") to relaunch anyway."),
+             call. = FALSE)
+      }
+      if (identical(policy, "warn")) warning(msg, call. = FALSE)
+    }
   } else {
     stopifnot(
       is.character(code),
@@ -286,6 +332,20 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
     # Capture the file bytes as the run's recovery snapshot. Later the
     # file may be edited or deleted; this keeps the run row self-contained.
     code_body <- paste(readLines(step, warn = FALSE), collapse = "\n")
+  }
+
+  # Queued-row pickup: launch(mr_run(id)) against a "queued" row
+  # updates the existing row in place (no new run_id written).
+  if (relaunch_mode && identical(relaunch_kind, "run") &&
+      !is.null(resolved) && identical(resolved$status, "queued")) {
+    return(.mr_pickup_queued_run(
+      run_id          = code$value,
+      resolved        = resolved,
+      label           = label,
+      external_inputs = external_inputs,
+      force           = force,
+      duckdb_seed     = duckdb_seed
+    ))
   }
 
   # R-mode batch: dispatch once per envelope, sharing the resolved
@@ -414,6 +474,70 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
   stop(sprintf(
     "launch(): script '%s' is gone and no snapshot is stored for label '%s'.",
     step, label
+  ), call. = FALSE)
+}
+
+# Resolve a run by run_id for relaunch. Mirrors .mr_resolve_relaunch()
+# (label-based) but keys on run_id. See spec
+# docs/superpowers/specs/2026-04-26-launch-by-run-id-design.md.
+#
+# Returns a richer list than its sibling — adds `variant_label` and
+# `status`. Both are needed by launch()'s mr_run() dispatch (label
+# auto-inheritance from the source row; warn-on-non-success policy).
+.mr_resolve_relaunch_run_id <- function(run_id) {
+  con <- .mr_get_connection()
+  prior <- DBI::dbGetQuery(
+    con,
+    "SELECT step, code_body, variant_label, status FROM _mr_runs
+      WHERE run_id = ?",
+    params = list(run_id)
+  )
+  if (nrow(prior) == 0L) {
+    stop(sprintf("launch(): no run with run_id '%s'.", run_id), call. = FALSE)
+  }
+  step        <- prior$step[1]
+  stored_body <- prior$code_body[1]
+  status      <- prior$status[1]
+  variant     <- prior$variant_label[1]
+
+  # Synthetic non-launch steps (e.g. "<interactive:...>"). Mirrors the
+  # rule .mr_resolve_relaunch_code() applies for inline tags.
+  if (startsWith(step, "<") && !startsWith(step, "<inline:")) {
+    stop(sprintf(
+      "launch(): run_id '%s' refers to a synthetic step ('%s') that isn't relaunchable.",
+      run_id, step
+    ), call. = FALSE)
+  }
+
+  if (startsWith(step, "<inline:")) {
+    if (is.na(stored_body) || !nzchar(stored_body)) {
+      stop(sprintf(
+        "launch(): run_id '%s' is an inline run with no stored code body.",
+        run_id
+      ), call. = FALSE)
+    }
+    return(list(step = step, code_body = stored_body,
+                expr = parse(text = stored_body),
+                variant_label = variant, status = status))
+  }
+
+  if (file.exists(step)) {
+    file_body <- paste(readLines(step, warn = FALSE), collapse = "\n")
+    return(list(step = step, code_body = file_body, expr = NULL,
+                variant_label = variant, status = status))
+  }
+  if (!is.na(stored_body) && nzchar(stored_body)) {
+    message(sprintf(
+      "launch(): script '%s' is gone from disk; running the stored snapshot from run_id '%s'.",
+      step, run_id
+    ))
+    return(list(step = step, code_body = stored_body,
+                expr = parse(text = stored_body),
+                variant_label = variant, status = status))
+  }
+  stop(sprintf(
+    "launch(): script '%s' is gone and no snapshot is stored for run_id '%s'.",
+    step, run_id
   ), call. = FALSE)
 }
 

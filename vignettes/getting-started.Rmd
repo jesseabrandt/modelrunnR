@@ -277,6 +277,47 @@ launch(mr_label("baseline"))
 The label auto-inherits, so the re-run stays in the same pipeline's
 history.
 
+## Staging runs without executing them
+
+`queue()` registers a run to `_mr_runs` with `status = "queued"` but
+doesn't execute the code. Pickup is `launch(mr_run(id))` — the same
+verb you'd use to relaunch a stored run, now also executing queued
+rows in place.
+
+```{r queue-stage, eval = FALSE}
+# Stage a single run.
+q <- queue({
+  fit <- glm(y ~ x, data = grab("training"))
+  stow(fit, "model")
+})
+
+# Pick it up later — anywhere, any process.
+launch(mr_run(q$run_id))
+```
+
+Batch staging via `mr_binds()` writes N queued rows under one
+`batch_id`:
+
+```{r queue-batch, eval = FALSE}
+qs <- queue(
+  { fit_with(grab("alpha")) |> stow("model") },
+  rebind = mr_binds(alpha = c(0.1, 0.5, 1.0))
+)
+
+# Serial pickup:
+purrr::walk(qs$run_id, ~ launch(mr_run(.x)))
+
+# Or parallel via future / furrr — modelrunnR doesn't drive
+# parallelism itself; compose it from the consumer side.
+# furrr::future_map(qs$run_id, ~ launch(mr_run(.x)))
+```
+
+Pickup is in-place: `run_id`, `step`, `code_body`, and `rebinds` stay
+frozen across queue → pickup, while `status`, timing, and
+session-context columns populate at execution. If the freshness check
+would skip the run, the queued row's `status` becomes `"skipped_fresh"`
+without executing the body.
+
 ## From block to script
 
 `launch()` also accepts a path to a `.R` file. Once a block settles

@@ -1,5 +1,55 @@
 # modelrunnR TODO
 
+## Surfaced 2026-04-27 (from queue() final-review)
+
+### `launch(mr_run(id), rebind = ...)` silently discards caller's `rebind` for queued rows
+
+When `launch(mr_run(id))` picks up a queued row, the rebinds applied
+to the body are reconstructed from the queued row's stored provenance
+JSON (`.mr_map_from_provenance_json()`). A `rebind = ...` argument
+passed by the caller at pickup time is **silently ignored** — the
+staged rebinds win.
+
+This is correct semantics (the user already staged what they wanted
+at queue time), but the silent ignore is a footgun. A user who runs
+`launch(mr_run(id), rebind = list(alpha = 0.99))` expecting an
+override gets the queue-time rebinds with no signal that the
+override was discarded.
+
+Options:
+- Warn when `rebind` is non-NULL on queued pickup.
+- Reject with an error.
+- Honor the override (and document that pickup can re-stage).
+- Document the silent ignore in `queue()` / `launch()` roxygen and
+  call it a day.
+
+Surfaced by final whole-branch code-quality review of feat/queue.
+
+## Surfaced 2026-04-27 (from Phase 1 R CMD check, queue work)
+
+### Test failure in `test-git-info.R:78:3`
+
+Introduced by commit `eddb3a8` (git-context stamping on `_mr_runs`
+rows). Fails on main and on `feat/queue` — pre-existing relative to
+the queue work, but blocks the framework invariant-2 "R CMD check
+clean" gate. Symptom: git context not populating in the test
+environment. Likely cause: the test assumes `git` is on PATH and the
+working tree is a real repo at the moment the assertion fires; if
+the test runs under `devtools::check()`'s isolated build dir, neither
+holds.
+
+### `|>` pipe syntax requirement warning in `R/shape_append.R`
+
+`R CMD check` warns the file uses the native `|>` pipe (R 4.1+) but
+DESCRIPTION's `Depends:` doesn't pin `R (>= 4.1.0)`. Either bump
+DESCRIPTION's R floor or rewrite the pipe(s) in `shape_append.R`.
+
+### Environmental NOTE during R CMD check: "unable to verify current time"
+
+Sandbox has no NTP / outbound network for `R CMD check`'s timestamp
+sanity check. Not a code defect; cosmetic on the check log. Ignore
+unless it starts blocking CI.
+
 ## Surfaced 2026-04-26 (from stow-unification vignette cleanup)
 
 ### "ingested" verb still appears in `vignettes/lazy-data.Rmd`
