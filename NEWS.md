@@ -48,6 +48,20 @@
   producing run_id and using the same append-shape run-filter path as
   `mr_run()`. SQL-launch `@inputs` on append-shape names are also supported
   via on-demand filtered views.
+* **`queue()` verb: register a run to `_mr_runs` with `status = "queued"`**
+  without executing it. Pickup is `launch(mr_run(id))`, which now also
+  drains queued rows in place (preserves `run_id`, `step`, `code_body`,
+  `rebinds`; populates `status`, timing, session-context). Batch staging
+  via `rebind = mr_binds(...)` writes N queued rows under one `batch_id`.
+  Parallelism is composed by the caller (`future`/`furrr`/shell);
+  modelrunnR records and resumes, no built-in worker.
+* New status value **`"queued"`** joins the existing set
+  (`success`, `error`, `skipped_fresh`, `interactive`). No schema
+  migration — `_mr_runs` columns are unchanged.
+* `launch(mr_run(id))` for a file-step queued row warns when the file
+  content has drifted between queue time and pickup. Set
+  `options(modelrunnR.relaunch_nonsuccess = "silent")` to suppress
+  the related non-success-source warning.
 * **`runs()` — tidy accessor for the run log.** Returns the contents
   of `_mr_runs` as an eager tibble — one row per run, all schema
   columns surfaced. Connection is resolved via `getOption("modelrunnR.db")`,
