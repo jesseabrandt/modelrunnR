@@ -88,7 +88,7 @@ test_that("launch() rejects non-label mr_refs in first position (append-shape)",
   hashes <- versions("x_art")$content_hash
   expect_error(
     launch(mr_hash(hashes[1])),
-    "only mr_label\\(\\) is accepted as a first argument reference"
+    "only mr_label\\(\\) and mr_run\\(\\) are accepted as first argument references"
   )
 })
 

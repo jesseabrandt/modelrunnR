@@ -247,15 +247,17 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 
   relaunch_mode <- FALSE
   relaunch_expr <- NULL  # parsed code body for relaunch execution
+  relaunch_kind <- NULL  # "label" or "run" when relaunch_mode is TRUE
 
   if (!inline_mode && .mr_is_ref(code)) {
-    if (!identical(code$kind, "label")) {
+    if (!(code$kind %in% c("label", "run"))) {
       stop(sprintf(
-        "launch(): only mr_label() is accepted as a first argument reference; got mr_%s().",
+        "launch(): only mr_label() and mr_run() are accepted as first argument references; got mr_%s().",
         code$kind
       ), call. = FALSE)
     }
     relaunch_mode <- TRUE
+    relaunch_kind <- code$kind
   }
 
   if (inline_mode) {
@@ -266,12 +268,23 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
     # against an older expression's history.
     step <- sprintf("<inline:%s>", substr(expr_hash, 1L, 12L))
   } else if (relaunch_mode) {
-    resolved <- .mr_resolve_relaunch(code$value)
+    resolved <- if (identical(relaunch_kind, "label")) {
+      .mr_resolve_relaunch(code$value)
+    } else {
+      .mr_resolve_relaunch_run_id(code$value)
+    }
     step          <- resolved$step
     code_body     <- resolved$code_body
     relaunch_expr <- resolved$expr
-    # Auto-inherit the label unless the user passed one explicitly.
-    if (is.na(label)) label <- code$value
+    # Auto-inherit label. For mr_label() the label is the ref's value.
+    # For mr_run() it's the source row's variant_label (may be NA).
+    if (is.na(label)) {
+      label <- if (identical(relaunch_kind, "label")) {
+        code$value
+      } else {
+        resolved$variant_label
+      }
+    }
   } else {
     stopifnot(
       is.character(code),

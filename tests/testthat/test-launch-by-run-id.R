@@ -53,3 +53,50 @@ test_that(".mr_resolve_relaunch_run_id() errors when row's step is a synthetic n
     "synthetic"
   )
 })
+
+test_that("launch(mr_run(id)) re-executes inline pipelines", {
+  new_test_db()
+
+  r1 <- launch({ x <- 21 + 21; stow(x, "answer") })
+  r2 <- launch(mr_run(r1$run_id), force = TRUE)
+  expect_equal(r2$status, "success")
+  expect_match(r2$step, "^<inline:")
+  expect_equal(r2$step, r1$step)
+  expect_false(r2$run_id == r1$run_id)
+})
+
+test_that("launch(mr_run(id)) re-sources the file for file pipelines", {
+  new_test_db()
+
+  writeLines("y <- 7; stow(y, 'seven')", "f.R")
+  r1 <- launch("f.R")
+  writeLines("y <- 8; stow(y, 'eight')", "f.R")
+  r2 <- launch(mr_run(r1$run_id))
+  expect_equal(r2$status, "success")
+  con <- modelrunnR:::.mr_get_connection()
+  latest <- DBI::dbGetQuery(con,
+    "SELECT logical_name FROM _mr_versions WHERE logical_name = 'eight'")
+  expect_true(nrow(latest) >= 1)
+})
+
+test_that("launch(mr_run(id)) errors when no row matches", {
+  new_test_db()
+
+  expect_error(launch(mr_run("run_no_such")), "no run with run_id")
+})
+
+test_that("launch(mr_run(id)) auto-inherits the source row's variant_label when caller passes none", {
+  new_test_db()
+
+  r1 <- launch({ z <- 1 }, label = "exp_a")
+  r2 <- launch(mr_run(r1$run_id), force = TRUE)
+  expect_equal(r2$variant_label, "exp_a")
+})
+
+test_that("launch(mr_run(id)) lets caller override variant_label", {
+  new_test_db()
+
+  r1 <- launch({ z <- 1 }, label = "exp_a")
+  r2 <- launch(mr_run(r1$run_id), label = "exp_b")
+  expect_equal(r2$variant_label, "exp_b")
+})
