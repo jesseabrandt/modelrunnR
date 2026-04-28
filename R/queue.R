@@ -188,8 +188,18 @@ queue <- function(code, rebind = NULL, label = NULL,
 }
 
 # Batch helper for queue(). Writes N queued rows (one per envelope) to
-# _mr_runs, all sharing one batch_id. Per-envelope rebinds are resolved
-# here, mirroring the per-envelope resolution loop in .mr_launch_batch().
+# _mr_runs, all sharing one batch_id. Two phases so that any per-
+# envelope failure leaves _mr_runs untouched:
+#
+#   Phase 1: validate labels and resolve all rebinds. Literal stows
+#     happen here and use their own inner transactions, so this phase
+#     can't run inside a dbWithTransaction (DuckDB doesn't support
+#     nested transactions). If envelope K errors here, no _mr_runs
+#     rows have been written yet — earlier envelopes' literal-rebind
+#     artifacts may sit in _mr_versions, but the queued rows that
+#     would have referenced them never appear.
+#   Phase 2: write every row inside one dbWithTransaction so a row-
+#     write failure rolls back the whole batch.
 .mr_queue_batch <- function(step, code_body, code_hash, envelopes,
                             label, duckdb_seed) {
   n <- length(envelopes)
@@ -197,7 +207,9 @@ queue <- function(code, rebind = NULL, label = NULL,
     stop("queue(): mr_binds() expanded to zero envelopes.", call. = FALSE)
   }
   batch_id <- .mr_new_batch_id()
-  rows <- vector("list", n)
+
+  # Phase 1: resolve every envelope before touching _mr_runs.
+  prepared <- vector("list", n)
   for (i in seq_along(envelopes)) {
     env <- envelopes[[i]]
     # Envelope's .label takes precedence over the queue-level label
@@ -211,26 +223,38 @@ queue <- function(code, rebind = NULL, label = NULL,
     }
     env_rebind <- env[setdiff(names(env), ".label")]
     if (length(env_rebind) == 0L) env_rebind <- list()
-    resolved   <- .mr_resolve_rebinds(env_rebind)
-    run_id     <- .mr_new_run_id()
-    rows[[i]]  <- .mr_write_run_row(
-      step            = step,
-      run_id          = run_id,
-      inputs          = list(),
-      outputs         = list(),
-      started_at      = NA,
-      duration_ms     = NA_integer_,
-      status          = "queued",
-      code_hash       = code_hash,
-      external_inputs = list(files = list(), env = list()),
-      helpers         = list(),
-      variant_label   = env_label,
-      code_body       = code_body,
-      duckdb_seed     = if (is.null(duckdb_seed)) NA_real_ else duckdb_seed,
-      rebinds         = resolved$provenance,
-      batch_id        = batch_id,
-      session_info    = .mr_blank_session_info()
+    prepared[[i]] <- list(
+      label    = env_label,
+      resolved = .mr_resolve_rebinds(env_rebind),
+      run_id   = .mr_new_run_id()
     )
   }
+
+  # Phase 2: write every row in one transaction.
+  con  <- .mr_get_connection()
+  rows <- vector("list", n)
+  DBI::dbWithTransaction(con, {
+    for (i in seq_along(prepared)) {
+      p <- prepared[[i]]
+      rows[[i]] <- .mr_write_run_row(
+        step            = step,
+        run_id          = p$run_id,
+        inputs          = list(),
+        outputs         = list(),
+        started_at      = NA,
+        duration_ms     = NA_integer_,
+        status          = "queued",
+        code_hash       = code_hash,
+        external_inputs = list(files = list(), env = list()),
+        helpers         = list(),
+        variant_label   = p$label,
+        code_body       = code_body,
+        duckdb_seed     = if (is.null(duckdb_seed)) NA_real_ else duckdb_seed,
+        rebinds         = p$resolved$provenance,
+        batch_id        = batch_id,
+        session_info    = .mr_blank_session_info()
+      )
+    }
+  })
   do.call(rbind, rows)
 }

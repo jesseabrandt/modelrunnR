@@ -140,3 +140,26 @@ test_that("queue(mr_sql('SELECT 1')) errors with out-of-scope message", {
     expect_error(queue(mr_sql("SELECT 1")), "out of scope")
   })
 })
+
+test_that("batch queue is atomic: a mid-batch error rolls back prior rows", {
+  withr::with_tempdir({
+    new_test_db()
+    con <- modelrunnR:::.mr_get_connection()
+    n_before <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM _mr_runs")$n
+
+    # Envelope 2 has an invalid `.label` (whitespace-only). Validation
+    # fires inside .mr_queue_batch, after envelope 1's row was written.
+    # With transactional rollback, both rows must be absent after error.
+    expect_error(
+      queue(
+        { x <- grab("alpha") },
+        rebind = mr_binds(alpha = c(1, 2, 3),
+                          .label = c("ok", "  ", "ok2"))
+      ),
+      regexp = "label"
+    )
+
+    n_after <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM _mr_runs")$n
+    expect_equal(n_after, n_before)
+  })
+})
