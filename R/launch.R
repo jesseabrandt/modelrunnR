@@ -30,8 +30,10 @@
 #'   `launch(mr_run(run_id))` re-executes the specific stored run by
 #'   id; the source row's `variant_label` (if any) is auto-inherited
 #'   onto the new run unless the caller passes an explicit `label`.
-#'   Re-executing a run whose source status isn't `"success"` warns
-#'   by default (configurable via
+#'   When the source row's `status` is `"queued"` (see [queue()]),
+#'   the call updates that row in place rather than writing a new run.
+#'   Re-executing a run whose source status isn't `"success"` or
+#'   `"queued"` warns by default (configurable via
 #'   `options(modelrunnR.relaunch_nonsuccess = c("warn","error","silent"))`).
 
 #' - **SQL mode** -- `launch("features.sql")` (file) or

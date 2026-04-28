@@ -7,8 +7,13 @@
 #' - Inside `launch(rebind = list(<name> = <ref>))`, a reference
 #'   resolves to a content hash that overrides the named `grab()`
 #'   inside the script.
-#' - As `launch()`'s first argument, `mr_label()` (only) addresses
-#'   a labeled pipeline's most recent run and re-executes its code.
+#' - As `launch()`'s first argument:
+#'   - `mr_label()` addresses a labeled pipeline's most recent run
+#'     and re-executes its code.
+#'   - `mr_run()` addresses a stored run by id. Against a row whose
+#'     status is `"queued"` (see [queue()]), the call updates that row
+#'     in place; against any other status it re-executes the stored
+#'     code as a new row.
 #'
 #' Use a bare R value in `rebind` when you want the value stowed
 #' inline; use one of these constructors when you want to address

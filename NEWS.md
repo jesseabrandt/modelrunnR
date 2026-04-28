@@ -50,11 +50,14 @@
   via on-demand filtered views.
 * **`queue()` verb: register a run to `_mr_runs` with `status = "queued"`**
   without executing it. Pickup is `launch(mr_run(id))`, which now also
-  drains queued rows in place (preserves `run_id`, `step`, `code_body`,
-  `rebinds`; populates `status`, timing, session-context). Batch staging
-  via `rebind = mr_binds(...)` writes N queued rows under one `batch_id`.
-  Parallelism is composed by the caller (`future`/`furrr`/shell);
-  modelrunnR records and resumes, no built-in worker.
+  drains queued rows in place (preserves `run_id`, `step`, `rebinds`,
+  `batch_id`, `duckdb_seed`; populates `status`, timing, session-context).
+  `code_body` is frozen for inline steps; for file steps it refreshes
+  from disk at pickup, with a drift warning if the file changed. Batch
+  staging via `rebind = mr_binds(...)` writes N queued rows under one
+  `batch_id`. Parallelism is composed by the caller
+  (`future`/`furrr`/shell); modelrunnR records and resumes, no built-in
+  worker. See `?queue` for the full freeze-vs-refresh contract.
 * New status value **`"queued"`** joins the existing set
   (`success`, `error`, `skipped_fresh`, `interactive`). No schema
   migration — `_mr_runs` columns are unchanged.

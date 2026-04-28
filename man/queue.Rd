@@ -43,3 +43,31 @@ Parallel execution is not built in. Compose with \code{future}/\code{furrr},
 base R loops, or shell-level job runners (e.g. \code{tsp}, an HPC submit
 script). modelrunnR records; the consumer executes.
 }
+\section{What's frozen vs refreshed at pickup}{
+
+When \code{launch(mr_run(id))} picks up a queued row, the row is updated
+\strong{in place} (no new \code{run_id} written). Some columns stay frozen
+across the update; others are populated for the first time or
+refreshed.
+
+\strong{Frozen} (preserved exactly as queued): \code{run_id}, \code{step},
+\code{rebinds}, \code{batch_id}, \code{duckdb_seed}.
+
+\strong{Refreshed by execution} (NA at queue time, populated at pickup):
+\code{started_at}, \code{duration_ms}, \code{inputs}, \code{outputs}, \code{helpers},
+\code{external_inputs}, plus session/host columns (\code{hostname}, \code{os},
+\code{arch}, \code{r_version}, \code{n_cpu}, \code{total_ram_bytes}, \code{free_ram_bytes},
+\code{attached_packages}, \code{git_sha}, \code{git_branch}, \code{git_dirty}).
+
+\strong{Caller-overridable at pickup}: \code{variant_label} (the queued
+value carries forward unless \code{launch(label = ...)} is passed).
+
+\strong{\code{code_body} and \code{code_hash}}: frozen for \strong{inline steps} (the
+captured body never changes). For \strong{file steps}, the file is
+re-sourced from disk at pickup; if the bytes have drifted since
+queue time, a \code{warning()} fires naming the queued and current
+hashes, and the columns refresh to what actually executed. If the
+file has been deleted, the queue-time snapshot is used and an
+informational message is emitted.
+}
+

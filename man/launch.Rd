@@ -119,8 +119,10 @@ onto the new run unless the caller passes an explicit \code{label}.
 \code{launch(mr_run(run_id))} re-executes the specific stored run by
 id; the source row's \code{variant_label} (if any) is auto-inherited
 onto the new run unless the caller passes an explicit \code{label}.
-Re-executing a run whose source status isn't \code{"success"} warns
-by default (configurable via
+When the source row's \code{status} is \code{"queued"} (see \code{\link[=queue]{queue()}}),
+the call updates that row in place rather than writing a new run.
+Re-executing a run whose source status isn't \code{"success"} or
+\code{"queued"} warns by default (configurable via
 \code{options(modelrunnR.relaunch_nonsuccess = c("warn","error","silent"))}).
 \item \strong{SQL mode} -- \code{launch("features.sql")} (file) or
 \code{launch(mr_sql("..."))} (inline) registers a SQL \code{SELECT} as a
