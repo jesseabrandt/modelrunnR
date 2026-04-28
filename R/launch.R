@@ -337,9 +337,29 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
   }
 
   # Queued-row pickup: launch(mr_run(id)) against a "queued" row
-  # updates the existing row in place (no new run_id written).
+  # updates the existing row in place (no new run_id written). The
+  # staged rebinds and external_inputs win — caller-supplied values
+  # at pickup time would silently change what the queued row records,
+  # which conflicts with "the queued row is what got staged." Warn
+  # and use the staged values. Spawning a new run from a queued body
+  # with caller bindings is a future feature (TODO §queue).
   if (relaunch_mode && identical(relaunch_kind, "run") &&
       !is.null(resolved) && identical(resolved$status, "queued")) {
+    if (!is.null(rebind)) {
+      warning(
+        "launch(mr_run(id)): caller's `rebind` is ignored on queued-row pickup; the staged rebinds win. ",
+        "To run the queued body with new bindings, queue or launch a fresh body with those bindings.",
+        call. = FALSE
+      )
+    }
+    if (!is.null(external_inputs)) {
+      warning(
+        "launch(mr_run(id)): caller's `external_inputs` is ignored on queued-row pickup; the staged value wins. ",
+        "Stage external_inputs at queue time via queue(..., external_inputs = ...).",
+        call. = FALSE
+      )
+      external_inputs <- NULL
+    }
     return(.mr_pickup_queued_run(
       run_id          = code$value,
       resolved        = resolved,
@@ -433,14 +453,31 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 # informational message, matching launch_code()'s behavior.
 .mr_resolve_relaunch <- function(label) {
   con <- .mr_get_connection()
+  # Exclude queued rows from the label resolver: a queued row is staged
+  # but not executed, so picking it up via mr_label() would silently
+  # write a *new* row and orphan the queued one. Direct pickup must go
+  # through launch(mr_run(id)).
   prior <- DBI::dbGetQuery(
     con,
     "SELECT step, code_body FROM _mr_runs
       WHERE variant_label = ?
+        AND status != 'queued'
       ORDER BY started_at DESC LIMIT 1",
     params = list(label)
   )
   if (nrow(prior) == 0L) {
+    only_queued <- DBI::dbGetQuery(
+      con,
+      "SELECT COUNT(*) AS n FROM _mr_runs
+        WHERE variant_label = ? AND status = 'queued'",
+      params = list(label)
+    )$n
+    if (isTRUE(only_queued > 0L)) {
+      stop(sprintf(
+        "launch(): label '%s' has only queued rows. Use launch(mr_run(id)) to pick up a queued run by id.",
+        label
+      ), call. = FALSE)
+    }
     stop(sprintf(
       "launch(): no run with label '%s'. Label a pipeline first via launch(..., label = \"%s\").",
       label, label

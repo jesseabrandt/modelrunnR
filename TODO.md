@@ -1,29 +1,32 @@
 # modelrunnR TODO
 
-## Surfaced 2026-04-27 (from queue() final-review)
+## Surfaced 2026-04-28 (from queue() audit fixes)
 
-### `launch(mr_run(id), rebind = ...)` silently discards caller's `rebind` for queued rows
+### Queued-row pickup with caller bindings should spawn a new run
 
-When `launch(mr_run(id))` picks up a queued row, the rebinds applied
-to the body are reconstructed from the queued row's stored provenance
-JSON (`.mr_map_from_provenance_json()`). A `rebind = ...` argument
-passed by the caller at pickup time is **silently ignored** — the
-staged rebinds win.
+Today `launch(mr_run(qid), rebind = ...)` against a queued row warns
+that the caller's rebind is ignored and proceeds with the staged
+binding (see `R/launch.R` queued-pickup branch). The same applies to
+`external_inputs`. The user's framing: "if you rebind based on a
+queued row, you're not running the queued row anymore — you're
+running a different thing, same as with an already-run row."
 
-This is correct semantics (the user already staged what they wanted
-at queue time), but the silent ignore is a footgun. A user who runs
-`launch(mr_run(id), rebind = list(alpha = 0.99))` expecting an
-override gets the queue-time rebinds with no signal that the
-override was discarded.
+The intended future behavior: when caller bindings are supplied,
+treat the queued row as a *template body* — write a *new* run row
+(fresh `run_id`) that uses the queued body with the caller's
+bindings. The original queued row stays "queued" for someone else
+to drain. Mirrors how `launch(mr_run(success_id))` already spawns a
+new row from a finalized one.
 
-Options:
-- Warn when `rebind` is non-NULL on queued pickup.
-- Reject with an error.
-- Honor the override (and document that pickup can re-stage).
-- Document the silent ignore in `queue()` / `launch()` roxygen and
-  call it a day.
-
-Surfaced by final whole-branch code-quality review of feat/queue.
+Edge cases to design through:
+- Should this also apply when `rebind = mr_binds(...)` at pickup?
+  Likely yes — fan out a queued template into N new rows.
+- Auto-inherited `variant_label` semantics: same as the current
+  non-queued relaunch path (queue-time label carries forward unless
+  caller passes `label = ...`).
+- Does the queued row stay queued, or does the spawn drain it?
+  Almost certainly stay-queued, since the caller didn't ask for
+  pickup; they asked for "a new run from this template."
 
 ## Surfaced 2026-04-27 (from Phase 1 R CMD check, queue work)
 

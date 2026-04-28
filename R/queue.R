@@ -176,7 +176,11 @@ queue <- function(code, rebind = NULL, label = NULL,
     n_cpu             = NA_integer_,
     total_ram_bytes   = NA_real_,
     free_ram_bytes    = NA_real_,
-    attached_packages = NA_character_,
+    # `"[]"` not NA: terminal rows store an empty JSON array as the
+    # "no packages" sentinel (see .mr_capture_session_info()), so a
+    # downstream `jsonlite::fromJSON()` against runs() can parse this
+    # column uniformly across queued and finalized rows.
+    attached_packages = "[]",
     git_sha           = NA_character_,
     git_branch        = NA_character_,
     git_dirty         = NA_character_

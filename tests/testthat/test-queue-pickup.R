@@ -152,26 +152,64 @@ test_that("queue() with a Shape B rebind does not leak pending filter to the nex
   })
 })
 
-test_that("queued-row pickup that errors before execution stamps the row 'error' in place", {
+test_that("launch(mr_label(lbl)) with only queued rows under that label errors clearly", {
+  withr::with_tempdir({
+    new_test_db()
+    queue({ x <- 1 }, label = "exp_a")
+    expect_error(
+      launch(mr_label("exp_a")),
+      "only queued rows"
+    )
+  })
+})
+
+test_that("queued row's attached_packages is a parseable empty JSON array, not NA", {
   withr::with_tempdir({
     new_test_db()
     q <- queue({ x <- 1 })
-    # external_inputs validation runs before the body — a missing
-    # declared file errors before any execution.
-    expect_error(
-      launch(mr_run(q$run_id), external_inputs = list(files = "no_such_file.txt")),
-      "declared external input file not found"
+    con <- modelrunnR:::.mr_get_connection()
+    row <- DBI::dbGetQuery(
+      con, "SELECT attached_packages FROM _mr_runs WHERE run_id = ?",
+      params = list(q$run_id)
+    )
+    expect_equal(row$attached_packages, "[]")
+    expect_silent(jsonlite::fromJSON(row$attached_packages))
+  })
+})
+
+test_that("queued-row pickup warns and ignores caller-supplied rebind", {
+  withr::with_tempdir({
+    new_test_db()
+    q <- queue(
+      { y <- grab("alpha"); stow(data.frame(value = y), "out") },
+      rebind = list(alpha = 0.5)
+    )
+    expect_warning(
+      launch(mr_run(q$run_id), rebind = list(alpha = 999)),
+      "staged rebinds win"
+    )
+    out <- grab("out") |> dplyr::collect()
+    expect_equal(out$value[[1]], 0.5)  # staged binding wins, not 999
+  })
+})
+
+test_that("queued-row pickup warns and ignores caller-supplied external_inputs", {
+  withr::with_tempdir({
+    new_test_db()
+    q <- queue({ x <- 1 })
+    # If the caller's external_inputs were honored (and it had a
+    # missing file), pickup would error. Instead it must warn and
+    # proceed with the staged (empty) external_inputs.
+    expect_warning(
+      launch(mr_run(q$run_id),
+             external_inputs = list(files = "no_such_file.txt")),
+      "staged value wins"
     )
     con <- modelrunnR:::.mr_get_connection()
     row <- DBI::dbGetQuery(
       con, "SELECT status FROM _mr_runs WHERE run_id = ?",
       params = list(q$run_id)
     )
-    expect_equal(row$status, "error")  # not stranded as 'queued'
-    n <- DBI::dbGetQuery(
-      con, "SELECT COUNT(*) AS n FROM _mr_runs WHERE run_id = ?",
-      params = list(q$run_id)
-    )$n
-    expect_equal(n, 1L)  # in-place: still one row
+    expect_equal(row$status, "success")
   })
 })
