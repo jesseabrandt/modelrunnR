@@ -15,22 +15,68 @@ test_that("launch(mr_run(id)) on a queued row updates the same row in place", {
   })
 })
 
-test_that("queued row's frozen columns are preserved across pickup", {
+test_that("queued row's frozen columns are preserved across inline pickup", {
   withr::with_tempdir({
     new_test_db()
-    q <- queue({ y <- 7 }, label = "exp_a")
+    q <- queue({ y <- 7 }, label = "exp_a", duckdb_seed = 0.25)
+    cols <- "step, code_body, code_hash, variant_label, rebinds, batch_id, duckdb_seed"
     pre  <- modelrunnR:::.mr_get_connection() |>
-      DBI::dbGetQuery("SELECT step, code_body, code_hash, variant_label, rebinds FROM _mr_runs WHERE run_id = ?",
+      DBI::dbGetQuery(sprintf("SELECT %s FROM _mr_runs WHERE run_id = ?", cols),
                       params = list(q$run_id))
     launch(mr_run(q$run_id))
     post <- modelrunnR:::.mr_get_connection() |>
-      DBI::dbGetQuery("SELECT step, code_body, code_hash, variant_label, rebinds FROM _mr_runs WHERE run_id = ?",
+      DBI::dbGetQuery(sprintf("SELECT %s FROM _mr_runs WHERE run_id = ?", cols),
                       params = list(q$run_id))
     expect_equal(pre$step,          post$step)
     expect_equal(pre$code_body,     post$code_body)
     expect_equal(pre$code_hash,     post$code_hash)
     expect_equal(pre$variant_label, post$variant_label)
     expect_equal(pre$rebinds,       post$rebinds)
+    expect_equal(pre$batch_id,      post$batch_id)
+    expect_equal(pre$duckdb_seed,   post$duckdb_seed)
+  })
+})
+
+test_that("file-step queued pickup with no drift preserves code_body and code_hash", {
+  withr::with_tempdir({
+    new_test_db()
+    writeLines("x <- 'stable'; stow(x, 'g')", "fit.R")
+    q <- queue("fit.R")
+    cols <- "step, code_body, code_hash"
+    pre <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery(sprintf("SELECT %s FROM _mr_runs WHERE run_id = ?", cols),
+                      params = list(q$run_id))
+    launch(mr_run(q$run_id))
+    post <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery(sprintf("SELECT %s FROM _mr_runs WHERE run_id = ?", cols),
+                      params = list(q$run_id))
+    expect_equal(pre$step,      post$step)
+    expect_equal(pre$code_body, post$code_body)
+    expect_equal(pre$code_hash, post$code_hash)
+  })
+})
+
+test_that("batch-queued row's batch_id is preserved across pickup", {
+  withr::with_tempdir({
+    new_test_db()
+    qs <- queue({ y <- grab("alpha") },
+                rebind = mr_binds(alpha = c(1, 2, 3)))
+    expect_equal(nrow(qs), 3L)
+    expect_true(all(!is.na(qs$batch_id)))
+    expect_equal(length(unique(qs$batch_id)), 1L)
+
+    launch(mr_run(qs$run_id[1]))
+    post <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery("SELECT batch_id, status FROM _mr_runs WHERE run_id = ?",
+                      params = list(qs$run_id[1]))
+    expect_equal(post$batch_id, qs$batch_id[1])
+    expect_equal(post$status,   "success")
+
+    # Sibling rows in the same batch stay queued.
+    sibling <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery("SELECT status FROM _mr_runs WHERE run_id = ?",
+                      params = list(qs$run_id[2]))
+    expect_equal(sibling$status, "queued")
   })
 })
 
