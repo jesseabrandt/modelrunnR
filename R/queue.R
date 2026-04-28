@@ -15,6 +15,32 @@
 #' base R loops, or shell-level job runners (e.g. `tsp`, an HPC submit
 #' script). modelrunnR records; the consumer executes.
 #'
+#' @section What's frozen vs refreshed at pickup:
+#' When `launch(mr_run(id))` picks up a queued row, the row is updated
+#' **in place** (no new `run_id` written). Some columns stay frozen
+#' across the update; others are populated for the first time or
+#' refreshed.
+#'
+#' **Frozen** (preserved exactly as queued): `run_id`, `step`,
+#' `rebinds`, `batch_id`, `duckdb_seed`.
+#'
+#' **Refreshed by execution** (NA at queue time, populated at pickup):
+#' `started_at`, `duration_ms`, `inputs`, `outputs`, `helpers`,
+#' `external_inputs`, plus session/host columns (`hostname`, `os`,
+#' `arch`, `r_version`, `n_cpu`, `total_ram_bytes`, `free_ram_bytes`,
+#' `attached_packages`, `git_sha`, `git_branch`, `git_dirty`).
+#'
+#' **Caller-overridable at pickup**: `variant_label` (the queued
+#' value carries forward unless `launch(label = ...)` is passed).
+#'
+#' **`code_body` and `code_hash`**: frozen for **inline steps** (the
+#' captured body never changes). For **file steps**, the file is
+#' re-sourced from disk at pickup; if the bytes have drifted since
+#' queue time, a `warning()` fires naming the queued and current
+#' hashes, and the columns refresh to what actually executed. If the
+#' file has been deleted, the queue-time snapshot is used and an
+#' informational message is emitted.
+#'
 #' @param code A braced `{ ... }` block (inline) or a path to an
 #'   `.R` script (file step). Reference objects ([mr_run()],
 #'   [mr_label()], [mr_hash()]) and `.sql` paths / [mr_sql()] are
@@ -88,6 +114,12 @@ queue <- function(code, rebind = NULL, label = NULL,
   }
 
   .mr_get_connection()
+
+  # .mr_resolve_rebinds() writes .mr_state$pending_shape_b_filters as a
+  # side effect so launch()'s caller can pick it up; queue() doesn't
+  # execute, so it must clear that state itself or the next launch()
+  # will inherit a stale Shape B filter.
+  on.exit(.mr_state$pending_shape_b_filters <- NULL, add = TRUE)
 
   # Batch path: dispatch before resolving rebinds. Each envelope is
   # resolved individually inside .mr_queue_batch(), mirroring the

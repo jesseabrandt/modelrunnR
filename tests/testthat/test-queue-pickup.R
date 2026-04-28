@@ -118,3 +118,60 @@ test_that("file-step queued pickup falls back to the snapshot when the file is g
     expect_equal(post$status, "success")
   })
 })
+
+test_that("Shape B rebind on a queued row does not leak pending filter after pickup", {
+  withr::with_tempdir({
+    new_test_db()
+    r1 <- launch({ stow(data.frame(x = 1L), "seq") })
+    launch({ stow(data.frame(x = 2L:3L), "seq") })
+
+    q <- queue(
+      { stow(data.frame(n = nrow(grab("seq") |> dplyr::collect())), "size") },
+      rebind = list(seq = mr_run(r1$run_id))
+    )
+    launch(mr_run(q$run_id))
+
+    # After pickup the per-call state slot must be clear; otherwise the
+    # next .mr_launch_one() reads it via .mr_state$pending_shape_b_filters
+    # and applies the leaked filter.
+    expect_null(modelrunnR:::.mr_state$pending_shape_b_filters)
+  })
+})
+
+test_that("queue() with a Shape B rebind does not leak pending filter to the next launch", {
+  withr::with_tempdir({
+    new_test_db()
+    r1 <- launch({ stow(data.frame(x = 1L), "seq") })
+    launch({ stow(data.frame(x = 2L:3L), "seq") })
+
+    queue(
+      { stow(data.frame(n = nrow(grab("seq") |> dplyr::collect())), "z") },
+      rebind = list(seq = mr_run(r1$run_id))
+    )
+    expect_null(modelrunnR:::.mr_state$pending_shape_b_filters)
+  })
+})
+
+test_that("queued-row pickup that errors before execution stamps the row 'error' in place", {
+  withr::with_tempdir({
+    new_test_db()
+    q <- queue({ x <- 1 })
+    # external_inputs validation runs before the body — a missing
+    # declared file errors before any execution.
+    expect_error(
+      launch(mr_run(q$run_id), external_inputs = list(files = "no_such_file.txt")),
+      "declared external input file not found"
+    )
+    con <- modelrunnR:::.mr_get_connection()
+    row <- DBI::dbGetQuery(
+      con, "SELECT status FROM _mr_runs WHERE run_id = ?",
+      params = list(q$run_id)
+    )
+    expect_equal(row$status, "error")  # not stranded as 'queued'
+    n <- DBI::dbGetQuery(
+      con, "SELECT COUNT(*) AS n FROM _mr_runs WHERE run_id = ?",
+      params = list(q$run_id)
+    )$n
+    expect_equal(n, 1L)  # in-place: still one row
+  })
+})
