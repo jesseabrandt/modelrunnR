@@ -238,8 +238,11 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 
     resolved_ext       <- .mr_resolve_external_inputs(external_inputs)
     resolved_rebinds   <- .mr_resolve_rebinds(rebind)
-    .mr_state$pending_shape_b_filters <- NULL
+    .mr_state$pending_shape_b_filters <- NULL   # SQL path: no R grab(); discard
     skip_on_fresh      <- isTRUE(getOption("modelrunnR.skip_if_fresh", TRUE))
+    # Nested-launch guard mirrors the R-mode rule: a SQL launch that
+    # would run from inside an active R-mode recording would clobber
+    # the outer's state on the recording side and confuse provenance.
     .mr_guard_no_nested_launch()
     return(.mr_launch_sql(
       src_kind                = src_kind,
@@ -660,10 +663,15 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
                                      batch_id = NA_character_,
                                      session_info = NULL) {
   con <- .mr_get_connection()
+  # Constrain inheritance to `status = 'success'` rows. A prior row in
+  # any other status (skipped_fresh with NA code_hash, error, queued)
+  # is a poor anchor: NA chains forward, error/queued misattribute the
+  # code identity. The success row that ground-truths this step is
+  # what we want.
   prior <- DBI::dbGetQuery(
     con,
     "SELECT variant_label, code_hash FROM _mr_runs
-      WHERE step = ?
+      WHERE step = ? AND status = 'success'
       ORDER BY started_at DESC LIMIT 1",
     params = list(step)
   )
