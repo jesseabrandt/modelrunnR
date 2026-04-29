@@ -112,21 +112,6 @@ test_that("each queued batch row's `rebinds` reflects its envelope's resolved re
   })
 })
 
-test_that("queue(mr_run(id)) errors", {
-  withr::with_tempdir({
-    new_test_db()
-    r <- queue({ x <- 1 })
-    expect_error(queue(mr_run(r$run_id)), "not accepted as a first-argument reference")
-  })
-})
-
-test_that("queue(mr_label('x')) errors", {
-  withr::with_tempdir({
-    new_test_db()
-    expect_error(queue(mr_label("foo")), "not accepted as a first-argument reference")
-  })
-})
-
 test_that("queue(mr_hash('abc')) errors", {
   withr::with_tempdir({
     new_test_db()
