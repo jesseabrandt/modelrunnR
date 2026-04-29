@@ -76,13 +76,75 @@ queue <- function(code, rebind = NULL, label = NULL,
   dispatch <- .mr_dispatch_code_arg(
     code         = code,
     script_expr  = script_expr,
-    accept_refs  = character(0),   # Part 2 (Task 5) flips this
+    accept_refs  = c("label", "run"),
     accept_sql   = FALSE,
     caller       = "queue"
   )
-  step      <- dispatch$step
-  code_body <- dispatch$code_body
-  code_hash <- dispatch$code_hash
+  step          <- dispatch$step
+  code_body     <- dispatch$code_body
+  relaunch_mode <- dispatch$kind %in% c("ref_label", "ref_run")
+  relaunch_kind <- if (relaunch_mode) sub("^ref_", "", dispatch$kind) else NULL
+  resolved      <- dispatch$ref
+
+  # code_hash for ref kinds: match what launch() would have written.
+  # See spec §"Resolution" for the inline-vs-file rule.
+  code_hash <- if (relaunch_mode) {
+    if (startsWith(step, "<inline:")) {
+      .mr_code_hash_inline(code_body, list())
+    } else if (file.exists(step)) {
+      .mr_code_hash(step, list())
+    } else {
+      # Resolver fell back to the snapshot; hash over the snapshot.
+      .mr_code_hash_inline(code_body, list())
+    }
+  } else {
+    dispatch$code_hash
+  }
+
+  # Queued-source circular check (mr_run only). Rejects re-queueing a
+  # queued row with no changes; rebind = ... opens the template path.
+  if (relaunch_mode && identical(relaunch_kind, "run") &&
+      identical(resolved$status, "queued") &&
+      is.null(rebind)) {
+    stop(sprintf(
+      "queue(mr_run('%s')): the source row is itself queued and no rebind was supplied. Re-queueing a queued run with no changes is circular. Either supply rebind = ... to stage a variant, or drain the queued row first via launch(mr_run('%s')).",
+      code$value, code$value
+    ), call. = FALSE)
+  }
+
+  # Non-success source policy (mr_run only). Mirrors launch().
+  if (relaunch_mode && identical(relaunch_kind, "run") &&
+      !is.na(resolved$status) &&
+      !identical(resolved$status, "success") &&
+      !identical(resolved$status, "queued")) {
+    policy <- match.arg(
+      getOption("modelrunnR.relaunch_nonsuccess", "warn"),
+      c("warn", "error", "silent")
+    )
+    msg <- sprintf(
+      "queue(): staging from run_id '%s' whose source row has status '%s'.",
+      code$value, resolved$status
+    )
+    if (identical(policy, "error")) {
+      stop(paste(msg, "Set options(modelrunnR.relaunch_nonsuccess = \"warn\") to stage anyway."),
+           call. = FALSE)
+    }
+    if (identical(policy, "warn")) warning(msg, call. = FALSE)
+  }
+
+  # Label inheritance for refs. Caller's `label` wins; otherwise inherit
+  # from the label ref's value (mr_label) or source row's variant_label
+  # (mr_run). This must happen BEFORE the existing .mr_validate_label()
+  # call so the inherited value is also validated.
+  if (relaunch_mode && is.null(label)) {
+    label <- if (identical(relaunch_kind, "label")) {
+      code$value
+    } else {
+      # mr_run: source row's variant_label may be NA (unlabeled run)
+      vl <- resolved$variant_label
+      if (is.na(vl)) NULL else vl
+    }
+  }
 
   label <- .mr_validate_label(label)
 
