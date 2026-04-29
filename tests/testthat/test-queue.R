@@ -237,3 +237,93 @@ test_that("batch queue(external_inputs=) shares the resolved record across rows"
     expect_equal(parsed1$files[[1]]$hash, parsed2$files[[1]]$hash)
   })
 })
+
+test_that("queue(mr_label('x')) stages a queued row carrying the labeled body", {
+  new_test_db()
+
+  # Seed a labeled run so mr_label("seed") resolves to something.
+  launch({ stow(1L, "out_a") }, label = "seed")
+
+  q <- queue(mr_label("seed"))
+  expect_equal(q$status, "queued")
+  expect_match(q$code_body, "stow(1L", fixed = TRUE)
+  # Auto-inherits label from the ref unless overridden.
+  expect_equal(q$variant_label, "seed")
+})
+
+test_that("queue(mr_label(...), label = 'override') uses the caller's label", {
+  new_test_db()
+  launch({ stow(1L, "out_b") }, label = "seed2")
+
+  q <- queue(mr_label("seed2"), label = "new_thread")
+  expect_equal(q$variant_label, "new_thread")
+})
+
+test_that("queue(mr_run(id)) against a success row writes a fresh queued row", {
+  new_test_db()
+  src <- launch({ stow(1L, "out_c") })
+
+  q <- queue(mr_run(src$run_id))
+  expect_equal(q$status, "queued")
+  expect_false(identical(q$run_id, src$run_id))
+  expect_match(q$code_body, "stow(1L", fixed = TRUE)
+})
+
+test_that("queue(mr_run(qid)) against a queued source with no rebind errors as circular", {
+  new_test_db()
+  q1 <- queue({ stow(1L, "out_d") })
+
+  expect_error(
+    queue(mr_run(q1$run_id)),
+    "circular"
+  )
+})
+
+test_that("queue(mr_run(qid)) against a queued source WITH rebind succeeds and leaves source queued", {
+  new_test_db()
+  q1 <- queue({ stow(grab("x"), "out_e") }, rebind = list(x = 1L))
+
+  q2 <- queue(mr_run(q1$run_id), rebind = list(x = 2L))
+  expect_equal(q2$status, "queued")
+  expect_false(identical(q2$run_id, q1$run_id))
+
+  # Source stays queued.
+  con <- modelrunnR:::.mr_get_connection()
+  src <- DBI::dbGetQuery(
+    con, "SELECT status FROM _mr_runs WHERE run_id = ?",
+    params = list(q1$run_id)
+  )
+  expect_equal(src$status, "queued")
+})
+
+test_that("queue(mr_run(failed_id)) warns under default relaunch_nonsuccess policy", {
+  new_test_db()
+  on.exit(options(modelrunnR.relaunch_nonsuccess = NULL), add = TRUE)
+
+  src <- tryCatch(launch({ stop("boom") }), error = function(e) NULL)
+  failed_id <- DBI::dbGetQuery(
+    modelrunnR:::.mr_get_connection(),
+    "SELECT run_id FROM _mr_runs WHERE status = 'error' ORDER BY started_at DESC LIMIT 1"
+  )$run_id[1]
+
+  expect_warning(
+    queue(mr_run(failed_id)),
+    "status 'error'"
+  )
+})
+
+test_that("queue(mr_label('x'), rebind = mr_binds(...)) fans out as a queued batch", {
+  new_test_db()
+  launch({ stow(grab("alpha"), "out_f") },
+         rebind = list(alpha = 0.1),
+         label  = "seed3")
+
+  qs <- queue(
+    mr_label("seed3"),
+    rebind = mr_binds(alpha = c(0.1, 0.5, 1.0))
+  )
+  expect_equal(nrow(qs), 3L)
+  expect_true(all(qs$status == "queued"))
+  expect_equal(length(unique(qs$batch_id)), 1L)
+  expect_true(all(qs$variant_label == "seed3"))
+})
