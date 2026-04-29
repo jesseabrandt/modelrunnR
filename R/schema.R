@@ -9,6 +9,7 @@
   .mr_migrate_versions(con)
   .mr_migrate_artifacts(con)
   .mr_migrate_append_tables(con)
+  .mr_migrate_append_chunks(con)
   invisible(NULL)
 }
 
@@ -150,6 +151,32 @@
     )
   "
   .mr_execute(con, sql)
+  invisible(NULL)
+}
+
+# Per-chunk lookup table for append-shape data. One row per
+# (logical_name, run_id, chunk_hash) tuple, populated at stow-commit
+# time inside the same transaction as the row INSERT. Replaces the
+# O(n_runs) JSON-scan over `_mr_runs.outputs` that earlier code paths
+# used to resolve chunk_hash <-> run_id; also makes prune-cascades
+# tractable (delete by run_id without re-walking every run row).
+.mr_migrate_append_chunks <- function(con) {
+  sql <- "
+    CREATE TABLE IF NOT EXISTS _mr_append_chunks (
+      logical_name   TEXT NOT NULL,
+      run_id         TEXT NOT NULL,
+      chunk_hash     TEXT NOT NULL,
+      rows_appended  INTEGER,
+      started_at     TIMESTAMP,
+      PRIMARY KEY (logical_name, chunk_hash)
+    )
+  "
+  .mr_execute(con, sql)
+  .mr_execute(
+    con,
+    "CREATE INDEX IF NOT EXISTS _mr_append_chunks_logical_runid
+       ON _mr_append_chunks (logical_name, run_id)"
+  )
   invisible(NULL)
 }
 
