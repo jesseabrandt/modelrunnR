@@ -42,6 +42,15 @@ test_that(".mr_validate_name accepts normal names", {
   expect_silent(.mr_validate_name("_leading_underscore"))
 })
 
+test_that(".mr_validate_name rejects the `_mr_` reserved prefix", {
+  expect_error(.mr_validate_name("_mr_runs"),         "reserved")
+  expect_error(.mr_validate_name("_mr_versions"),     "reserved")
+  expect_error(.mr_validate_name("_mr_anything"),     "reserved")
+  # Single underscore-leading names that aren't `_mr_*` are still fine:
+  expect_silent(.mr_validate_name("_my_thing"))
+  expect_silent(.mr_validate_name("_mr"))     # exact `_mr` (no trailing _)
+})
+
 test_that("stow() rejects names with path traversal", {
   new_test_db()
   expect_error(stow(data.frame(x = 1), "../evil"), "letters, digits, and underscores")

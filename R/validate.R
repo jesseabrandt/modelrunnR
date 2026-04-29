@@ -43,6 +43,12 @@
       context, sQuote(name)
     ), call. = FALSE)
   }
+  if (startsWith(name, "_mr_")) {
+    stop(sprintf(
+      "%s(): names starting with `_mr_` are reserved for modelrunnR's metadata tables (`_mr_runs`, `_mr_versions`, `_mr_append_tables`, ...). Got: %s",
+      context, sQuote(name)
+    ), call. = FALSE)
+  }
   invisible(name)
 }
 
