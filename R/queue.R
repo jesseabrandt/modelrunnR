@@ -72,41 +72,18 @@ queue <- function(code, rebind = NULL, label = NULL,
          call. = FALSE)
   }
   script_expr <- substitute(code)
-  inline_mode <- is.call(script_expr) && identical(script_expr[[1]], as.name("{"))
 
-  # Reject mr_sql() — SQL staging is out of scope (v1). Must come
-  # before the general ref check below: mr_sql() returns a class
-  # c("mr_ref_sql", "mr_ref"), so .mr_is_ref() would match it first
-  # and emit the wrong error message.
-  if (!inline_mode && inherits(code, "mr_ref_sql")) {
-    stop("queue(): SQL staging via mr_sql() is out of scope (v1).", call. = FALSE)
-  }
-
-  # Reject other reference objects.
-  if (!inline_mode && .mr_is_ref(code)) {
-    stop(sprintf(
-      "queue(): mr_%s() is not accepted as a first-argument reference. queue() stages new runs; re-queueing an existing stored run is incoherent.",
-      code$kind
-    ), call. = FALSE)
-  }
-
-  if (inline_mode) {
-    code_body <- paste(deparse(script_expr, width.cutoff = 500L), collapse = "\n")
-    expr_hash <- .mr_hash_bytes(charToRaw(code_body))
-    step      <- sprintf("<inline:%s>", substr(expr_hash, 1L, 12L))
-    code_hash <- .mr_code_hash_inline(code_body, list())
-  } else {
-    stopifnot(is.character(code), length(code) == 1L, nzchar(code))
-    if (tolower(tools::file_ext(code)) == "sql") {
-      stop("queue(): SQL file staging is out of scope (v1).", call. = FALSE)
-    }
-    if (!file.exists(code)) {
-      stop(sprintf("queue(): file not found: %s", code), call. = FALSE)
-    }
-    step      <- normalizePath(code, mustWork = TRUE)
-    code_body <- paste(readLines(step, warn = FALSE), collapse = "\n")
-    code_hash <- .mr_code_hash(step, list())
-  }
+  dispatch <- .mr_dispatch_code_arg(
+    code         = code,
+    script_expr  = script_expr,
+    accept_refs  = character(0),   # Part 2 (Task 5) flips this
+    accept_sql   = FALSE,
+    caller       = "queue"
+  )
+  inline_mode <- dispatch$inline_mode
+  step        <- dispatch$step
+  code_body   <- dispatch$code_body
+  code_hash   <- dispatch$code_hash
 
   label <- .mr_validate_label(label)
 
