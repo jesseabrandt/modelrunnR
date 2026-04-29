@@ -80,10 +80,9 @@ queue <- function(code, rebind = NULL, label = NULL,
     accept_sql   = FALSE,
     caller       = "queue"
   )
-  inline_mode <- dispatch$inline_mode
-  step        <- dispatch$step
-  code_body   <- dispatch$code_body
-  code_hash   <- dispatch$code_hash
+  step      <- dispatch$step
+  code_body <- dispatch$code_body
+  code_hash <- dispatch$code_hash
 
   label <- .mr_validate_label(label)
 
