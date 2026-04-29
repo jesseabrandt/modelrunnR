@@ -28,7 +28,18 @@
     ),
     error = function(e) NULL
   )
-  if (is.null(info) || nrow(info) == 0L) return(fallback)
+  if (is.null(info) || nrow(info) == 0L) {
+    # The fallback is exactly the silent-failure surface the 2026-04-24
+    # PRAGMA-driven rewrite was meant to remove (parsed JSON key order
+    # is not guaranteed across jsonlite versions). Surface a warning so
+    # any regression that re-routes through the fallback shows up
+    # instead of silently misaligning INSERT column order.
+    warning(sprintf(
+      ".mr_append_user_col_order(): PRAGMA table_info(%s) failed or returned no rows; falling back to schema key order.",
+      .mr_quote_ident(physical)
+    ), call. = FALSE)
+    return(fallback)
+  }
   setdiff(info$name, .mr_append_reserved_cols)
 }
 
