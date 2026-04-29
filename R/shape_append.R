@@ -75,6 +75,27 @@
   "TEXT"
 }
 
+# Stamp a row into _mr_append_chunks for the just-committed append.
+# Called inside the stow transaction in both the frame and the lazy
+# write paths so the chunk record is atomic with the row INSERT.
+# After this commits, downstream lookups (chunk_hash <-> run_id,
+# latest run for a name, etc.) hit a keyed query against this table
+# instead of scanning every `_mr_runs.outputs` JSON.
+.mr_append_record_chunk <- function(con, name, run_id, chunk_hash,
+                                    rows_appended, started_at) {
+  DBI::dbExecute(
+    con,
+    "INSERT INTO _mr_append_chunks
+       (logical_name, run_id, chunk_hash, rows_appended, started_at)
+     VALUES (?, ?, ?, ?, ?)",
+    params = list(
+      name, run_id, as.character(chunk_hash),
+      as.integer(rows_appended), started_at
+    )
+  )
+  invisible(NULL)
+}
+
 # First-write path: create the physical table with user columns +
 # system columns, insert the row, register in _mr_append_tables.
 .mr_append_ensure_table <- function(con, name, frame_types) {
@@ -189,6 +210,9 @@
       logical_name  = name,
       rows_appended = nrow(value),
       chunk_hash    = chunk_hash
+    )
+    .mr_append_record_chunk(
+      con, name, run_id, chunk_hash, nrow(value), now
     )
     if (interactive) {
       .mr_write_interactive_run_row(con, run_id, list(output_entry), now)
@@ -558,6 +582,9 @@
       logical_name  = name,
       rows_appended = rows_inserted,
       chunk_hash    = chunk_hash
+    )
+    .mr_append_record_chunk(
+      con, name, run_id, chunk_hash, rows_inserted, now
     )
     if (interactive) {
       .mr_write_interactive_run_row(con, run_id, list(output_entry), now)

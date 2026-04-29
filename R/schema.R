@@ -161,17 +161,27 @@
 # used to resolve chunk_hash <-> run_id; also makes prune-cascades
 # tractable (delete by run_id without re-walking every run row).
 .mr_migrate_append_chunks <- function(con) {
+  # No PRIMARY KEY: two distinct runs can legitimately produce the
+  # same (logical_name, chunk_hash) when stowing deterministic
+  # content, and a single run can stow the same chunk multiple times
+  # within one launch. Use composite indexes for fast lookups by
+  # (logical_name, chunk_hash) and (logical_name, run_id) without
+  # the uniqueness constraint a PRIMARY KEY would impose.
   sql <- "
     CREATE TABLE IF NOT EXISTS _mr_append_chunks (
       logical_name   TEXT NOT NULL,
       run_id         TEXT NOT NULL,
       chunk_hash     TEXT NOT NULL,
       rows_appended  INTEGER,
-      started_at     TIMESTAMP,
-      PRIMARY KEY (logical_name, chunk_hash)
+      started_at     TIMESTAMP
     )
   "
   .mr_execute(con, sql)
+  .mr_execute(
+    con,
+    "CREATE INDEX IF NOT EXISTS _mr_append_chunks_logical_hash
+       ON _mr_append_chunks (logical_name, chunk_hash)"
+  )
   .mr_execute(
     con,
     "CREATE INDEX IF NOT EXISTS _mr_append_chunks_logical_runid
