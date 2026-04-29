@@ -96,9 +96,14 @@
   invisible(NULL)
 }
 
-# First-write path: create the physical table with user columns +
-# system columns, insert the row, register in _mr_append_tables.
-.mr_append_ensure_table <- function(con, name, frame_types) {
+# First-write physical-table DDL. MUST be called BEFORE the caller's
+# dbBegin/dbCommit fence: DuckDB auto-commits DDL in standard mode,
+# so a CREATE TABLE inside a transaction is not rolled back if the
+# subsequent registry INSERT or row INSERT fails. Pulling it outside
+# the fence keeps the failure mode clean: either both physical-table
+# DDL and registry INSERT succeed, or only the DDL "leaks" — which
+# is harmless because CREATE TABLE IF NOT EXISTS is idempotent.
+.mr_append_create_physical_table <- function(con, name, frame_types) {
   physical <- .mr_append_physical_name(name)
   cols <- c(
     vapply(names(frame_types),
@@ -113,8 +118,15 @@
             .mr_quote_ident(physical),
             paste(cols, collapse = ", "))
   )
+  physical
+}
+
+# Registry-side first-write: INSERT a row into _mr_append_tables for
+# this logical name. MUST be called INSIDE the caller's dbBegin/
+# dbCommit fence so the registry stays in sync with the data INSERT.
+.mr_append_insert_registry_row <- function(con, name, physical,
+                                           frame_types, now) {
   schema_json <- jsonlite::toJSON(frame_types, auto_unbox = TRUE)
-  now <- Sys.time()
   DBI::dbExecute(
     con,
     "INSERT INTO _mr_append_tables
@@ -123,7 +135,7 @@
      VALUES (?, ?, ?, ?, ?, 0, 0)",
     params = list(name, physical, as.character(schema_json), now, now)
   )
-  physical
+  invisible(NULL)
 }
 
 # Top-level append for materialized frames. When called inside an active
@@ -160,16 +172,26 @@
   physical <- .mr_append_physical_name(name)
   frame_types <- .mr_append_frame_types(value)
 
+  # Pre-fence: registration check + physical-table DDL. The DDL is
+  # outside dbBegin/dbCommit because DuckDB auto-commits DDL anyway;
+  # leaving it here makes that explicit and prevents a "physical
+  # table exists, registry doesn't" inconsistency on a mid-fence
+  # failure.
+  registered <- DBI::dbGetQuery(
+    con,
+    "SELECT * FROM _mr_append_tables WHERE logical_name = ?",
+    params = list(name)
+  )
+  first_write <- nrow(registered) == 0L
+  if (first_write) {
+    .mr_append_create_physical_table(con, name, frame_types)
+  }
+
   now <- Sys.time()
   DBI::dbBegin(con)
   tryCatch({
-    registered <- DBI::dbGetQuery(
-      con,
-      "SELECT * FROM _mr_append_tables WHERE logical_name = ?",
-      params = list(name)
-    )
-    if (nrow(registered) == 0L) {
-      .mr_append_ensure_table(con, name, frame_types)
+    if (first_write) {
+      .mr_append_insert_registry_row(con, name, physical, frame_types, now)
       schema <- frame_types
     } else {
       schema <- .mr_append_reconcile_schema(con, name, registered, value)
@@ -498,15 +520,22 @@
   physical <- .mr_append_physical_name(name)
   now <- Sys.time()
 
+  # Pre-fence: registration check + DDL outside dbBegin/dbCommit (see
+  # comment in .mr_append_write_frame for the rationale).
+  registered <- DBI::dbGetQuery(
+    con,
+    "SELECT * FROM _mr_append_tables WHERE logical_name = ?",
+    params = list(name)
+  )
+  first_write <- nrow(registered) == 0L
+  if (first_write) {
+    .mr_append_create_physical_table(con, name, frame_types)
+  }
+
   DBI::dbBegin(con)
   tryCatch({
-    registered <- DBI::dbGetQuery(
-      con,
-      "SELECT * FROM _mr_append_tables WHERE logical_name = ?",
-      params = list(name)
-    )
-    if (nrow(registered) == 0L) {
-      .mr_append_ensure_table(con, name, frame_types)
+    if (first_write) {
+      .mr_append_insert_registry_row(con, name, physical, frame_types, now)
       schema <- frame_types
     } else {
       schema <- .mr_append_reconcile_schema(con, name, registered, zero_head)
