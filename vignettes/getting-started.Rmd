@@ -321,6 +321,24 @@ purrr::walk(qs$run_id, ~ launch(mr_run(.x)))
 # furrr::future_map(qs$run_id, ~ launch(mr_run(.x)))
 ```
 
+### Queueing a re-run
+
+`queue()` accepts the same reference shapes as `launch()`'s relaunch
+mode. Use `mr_label()` to stage a labeled pipeline's body for later
+execution under different bindings:
+
+```r
+launch({ ... }, label = "ridge_pf")
+
+queue(
+  mr_label("ridge_pf"),
+  rebind = mr_binds(panel = list(mr_variant("placebo_panel"))),
+  label  = "ridge_pbo"
+)
+```
+
+`mr_run(id)` works the same way against a specific historical run.
+
 Pickup is in-place: `run_id`, `step`, `rebinds`, and `batch_id` stay
 frozen across queue → pickup, while `status`, timing, and
 session-context columns populate at execution. `code_body` is frozen

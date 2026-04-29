@@ -1,3 +1,17 @@
+# modelrunnR (development version)
+
+## New features
+
+* `queue()` now accepts `mr_label()` and `mr_run()` as first-argument
+  references, mirroring `launch()`. This stages a queued row carrying the
+  resolved body — useful for batching re-runs of an existing labeled
+  pipeline or specific historical run for later parallel execution. The
+  only remaining circular case (`queue(mr_run(qid))` against a queued
+  source with no rebind) errors with a clear message.
+* Internal: `launch()` and `queue()` now share a single first-argument
+  dispatcher (`.mr_dispatch_code_arg()`). No user-visible behavior change
+  from the refactor.
+
 # modelrunnR 0.0.0.9000
 
 ## Breaking semantic changes

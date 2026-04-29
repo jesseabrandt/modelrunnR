@@ -41,10 +41,24 @@
 #' file has been deleted, the queue-time snapshot is used and an
 #' informational message is emitted.
 #'
-#' @param code A braced `{ ... }` block (inline) or a path to an
-#'   `.R` script (file step). Reference objects ([mr_run()],
-#'   [mr_label()], [mr_hash()]) and `.sql` paths / [mr_sql()] are
-#'   rejected — re-queueing or staging SQL is out of scope.
+#' @param code A braced `{ ... }` block (inline), a path to an `.R`
+#'   script (file step), [mr_label()] (stages the labeled pipeline's
+#'   body), or [mr_run()] (stages a specific run's body). `.sql` paths,
+#'   [mr_sql()], and [mr_hash()] are rejected — SQL queueing is out of
+#'   scope (v1) and `mr_hash()` addresses content, not pipelines.
+#'
+#'   `mr_label()` resolution mirrors `launch(mr_label(...))`: re-reads
+#'   the file from disk for file steps; uses the stored snapshot for
+#'   inline steps. The label is auto-inherited onto the queued row
+#'   unless `label = ...` is passed.
+#'
+#'   `mr_run()` resolution mirrors `launch(mr_run(id))` for
+#'   non-queued sources: a new queued row is written from that run's
+#'   body. The source row's `variant_label` is auto-inherited unless
+#'   `label = ...` is passed. Against a queued source: with `rebind =
+#'   ...` the queued row is treated as a template (parallels
+#'   `launch(mr_run(qid), rebind = ...)`); without `rebind`, errors
+#'   as circular.
 #' @param rebind Optional named list, or [mr_binds()] / [mr_envelopes()]
 #'   for batch staging (writes N queued rows under one `batch_id`).
 #'   Same semantics as `launch(rebind = ...)`.

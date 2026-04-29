@@ -14,10 +14,23 @@ queue(
 )
 }
 \arguments{
-\item{code}{A braced \code{{ ... }} block (inline) or a path to an
-\code{.R} script (file step). Reference objects (\code{\link[=mr_run]{mr_run()}},
-\code{\link[=mr_label]{mr_label()}}, \code{\link[=mr_hash]{mr_hash()}}) and \code{.sql} paths / \code{\link[=mr_sql]{mr_sql()}} are
-rejected — re-queueing or staging SQL is out of scope.}
+\item{code}{A braced \code{{ ... }} block (inline), a path to an \code{.R}
+script (file step), \code{\link[=mr_label]{mr_label()}} (stages the labeled pipeline's
+body), or \code{\link[=mr_run]{mr_run()}} (stages a specific run's body). \code{.sql} paths,
+\code{\link[=mr_sql]{mr_sql()}}, and \code{\link[=mr_hash]{mr_hash()}} are rejected — SQL queueing is out of
+scope (v1) and \code{mr_hash()} addresses content, not pipelines.
+
+\code{mr_label()} resolution mirrors \code{launch(mr_label(...))}: re-reads
+the file from disk for file steps; uses the stored snapshot for
+inline steps. The label is auto-inherited onto the queued row
+unless \code{label = ...} is passed.
+
+\code{mr_run()} resolution mirrors \code{launch(mr_run(id))} for
+non-queued sources: a new queued row is written from that run's
+body. The source row's \code{variant_label} is auto-inherited unless
+\code{label = ...} is passed. Against a queued source: with \code{rebind = ...} the queued row is treated as a template (parallels
+\code{launch(mr_run(qid), rebind = ...)}); without \code{rebind}, errors
+as circular.}
 
 \item{rebind}{Optional named list, or \code{\link[=mr_binds]{mr_binds()}} / \code{\link[=mr_envelopes]{mr_envelopes()}}
 for batch staging (writes N queued rows under one \code{batch_id}).
