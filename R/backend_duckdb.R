@@ -74,14 +74,14 @@
   # contain embedded nuls natively, but a file system or external API
   # could still smuggle one in).
   if (any(charToRaw(path) == as.raw(0L))) {
-    stop("ingest(): path contains a null byte.", call. = FALSE)
+    stop("stow(): path contains a null byte.", call. = FALSE)
   }
   # Normalize first so `file.exists` and the SQL interpolation agree
   # on the canonical path (closes a small TOCTOU gap where a relative
   # path could resolve differently between the two calls).
   normalized <- normalizePath(path, mustWork = FALSE)
   if (!file.exists(normalized)) {
-    stop(sprintf("ingest(): file does not exist: %s", path), call. = FALSE)
+    stop(sprintf("stow(): file does not exist: %s", path), call. = FALSE)
   }
   ext <- tolower(tools::file_ext(normalized))
   reader <- switch(
@@ -90,7 +90,7 @@
     tsv     = "read_csv_auto",
     parquet = "read_parquet",
     pq      = "read_parquet",
-    stop(sprintf("ingest(): unsupported file extension '%s'", ext), call. = FALSE)
+    stop(sprintf("stow(): unsupported file extension '%s'", ext), call. = FALSE)
   )
   escaped <- gsub("'", "''", normalized, fixed = TRUE)
   sql <- sprintf("SELECT * FROM %s('%s')", reader, escaped)
@@ -106,11 +106,11 @@
 # and cleaning up on error.
 .mr_ingest_file_to_table <- function(con, path, dest_table) {
   if (any(charToRaw(path) == as.raw(0L))) {
-    stop("ingest(): path contains a null byte.", call. = FALSE)
+    stop("stow(): path contains a null byte.", call. = FALSE)
   }
   normalized <- normalizePath(path, mustWork = FALSE)
   if (!file.exists(normalized)) {
-    stop(sprintf("ingest(): file does not exist: %s", path), call. = FALSE)
+    stop(sprintf("stow(): file does not exist: %s", path), call. = FALSE)
   }
   ext <- tolower(tools::file_ext(normalized))
   reader <- switch(
@@ -119,7 +119,7 @@
     tsv     = "read_csv_auto",
     parquet = "read_parquet",
     pq      = "read_parquet",
-    stop(sprintf("ingest(): unsupported file extension '%s'", ext), call. = FALSE)
+    stop(sprintf("stow(): unsupported file extension '%s'", ext), call. = FALSE)
   )
   escaped <- gsub("'", "''", normalized, fixed = TRUE)
   sql <- sprintf(
