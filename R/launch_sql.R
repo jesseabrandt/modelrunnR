@@ -414,7 +414,7 @@
       )
     }
     DBI::dbCommit(con)
-    staging_alive <<- FALSE
+    staging_alive <- FALSE
   }, error = function(e) {
     DBI::dbRollback(con)
     stop(e)
