@@ -267,55 +267,40 @@ vignette, this file) but deferred the ~20 test files under
 
 ## Surfaced 2026-04-23 (from consolidated-branch audit)
 
-### Append-shape non-interactive provenance gap
+### ✓ Append-shape non-interactive provenance gap
 
-Inside a `launch()`, `stow(df, name)` commits the data row + the
-registry update in a DuckDB transaction, but the `_mr_runs.outputs`
-entry (which records the `chunk_hash` for the run) is written later
-by `.mr_write_run_row` outside that transaction. A process crash
-between the stow commit and the run-row write leaves the rows
-committed but the chunk_hash untracked in `outputs`. The data is still
-queryable via `grab()` (the row's `_mr_run_id` is stamped in the
-table), but `versions(name)` will omit that chunk and `mr_hash()`
-rebinds against the orphaned hash can't resolve. Fix probably needs
-either (a) passing `run_id` into `.mr_append_write_frame` / `_write_lazy`
-and appending the output entry to `_mr_runs.outputs` inside the same
-transaction, or (b) a dedicated `_mr_append_chunks` table populated
-at commit time. Interacts with the chunk-entries scan performance
-below — doing both at once may be cleaner.
+Closed 2026-04-29. Chunk records now land in a dedicated
+`_mr_append_chunks` table at stow-commit time, inside the same
+DuckDB transaction as the row INSERT. A process crash between stow
+commit and the later `_mr_runs.outputs` write no longer orphans the
+chunk identity: `versions(name)` and `mr_hash()` resolution read
+from the new table, which is durably committed alongside the data.
 
-### `.mr_append_chunk_entries` is O(n_runs) per call — full `_mr_runs` scan
+### ✓ `.mr_append_chunk_entries` replaced by keyed `_mr_append_chunks` queries
 
-Currently scans every `_mr_runs` row with a non-empty `outputs` column
-and JSON-parses each one, for every append-shape grab / versions() /
-mr_hash() resolution / SQL `@inputs` on a append-shape name. Acceptable
-today; hits a wall once a store accumulates thousands of runs.
-Cleanest fix is a dedicated `_mr_append_chunks (run_id, logical_name,
-chunk_hash, rows_appended, started_at)` populated at stow commit time
-and scanned by keyed query. Also resolves the "ghost chunk_hashes
-after prune" issue below in the same refactor.
+Closed 2026-04-29. Read paths (`.mr_append_run_id_for_chunk_hash`,
+`.mr_append_latest_run_id`, `.mr_append_chunk_hash_for_run`,
+`versions(name)` Shape B branch) now hit the keyed
+`_mr_append_chunks` table instead of scanning every `_mr_runs.outputs`
+JSON. The old `.mr_append_chunk_entries` helper was deleted.
 
-### Ghost chunk_hashes after `prune(name, by = "run")`
+### ✓ Ghost chunk_hashes after `prune(name, by = "run")`
 
-Pruning rows from a append-shape physical table doesn't remove the
-`append_table` entries from `_mr_runs.outputs` JSON. `versions(name)`
-afterward still lists the pruned chunk's hash; `grab(run = pruned_id)`
-returns zero rows silently; `mr_hash(<pruned_hash>)` rebinds resolve
-to a run whose rows no longer exist. Fix alongside the
-chunk-entries lookup table above — prune both in one pass.
+Closed 2026-04-29. `.mr_prune_shape_b_one()` now cascades the by-run
+prune into `_mr_append_chunks` inside the same `dbBegin`/`dbCommit`
+fence, so `versions(name)` and `mr_hash()` resolution don't surface
+entries for runs whose rows we just removed.
 
-### DDL auto-commit around `_mr_append_tables` first-write
+### ✓ DDL auto-commit around `_mr_append_tables` first-write
 
-`CREATE TABLE IF NOT EXISTS <physical>__append` in `.mr_append_ensure_table`
-runs inside the outer `dbBegin`/`dbCommit` fence in `.mr_append_write_frame`.
-DuckDB auto-commits DDL in standard mode, so the CREATE TABLE is not
-actually rolled back if the subsequent registry INSERT or the row
-INSERT fails. Next call sees the physical table but no registry row,
-ensures-table is a no-op (exists), and inserts a fresh registry row
-with wrong `row_count` / `first_seen`. Needs a test against DuckDB's
-actual DDL rollback behavior and, if auto-commit confirmed, a
-restructure: create the physical table pre-transaction and fence only
-the registry INSERT + row INSERT.
+Closed 2026-04-29. Split `.mr_append_ensure_table` into a DDL-only
+`.mr_append_create_physical_table` (called BEFORE `dbBegin`, so
+DuckDB's DDL auto-commit is explicit) and a registry-only
+`.mr_append_insert_registry_row` (called INSIDE `dbBegin`/`dbCommit`).
+Both `.mr_append_write_frame` and `.mr_append_write_lazy` updated.
+ALTER TABLE inside `.mr_append_reconcile_schema` has the same
+auto-commit shape but is a separate concern (schema-drift recovery)
+— left for a follow-up.
 
 ### Lazy-path vs frame-path chunk_hash semantic mismatch
 

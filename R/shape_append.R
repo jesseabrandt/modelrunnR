@@ -630,66 +630,6 @@
   invisible(chunk_hash)
 }
 
-# Scan `_mr_runs.outputs` for append_table entries naming this logical
-# name. Returns a data frame with columns run_id, started_at, chunk_hash,
-# rows_appended — one row per append (i.e. one row per run that wrote
-# to `name`), ordered by started_at ascending. Used by `versions(name)`
-# for Shape B names and by the mr_hash() -> run_id reverse lookup.
-.mr_append_chunk_entries <- function(con, name) {
-  runs <- DBI::dbGetQuery(
-    con,
-    "SELECT run_id, started_at, outputs
-       FROM _mr_runs
-      WHERE outputs IS NOT NULL AND outputs <> '[]'
-      ORDER BY started_at"
-  )
-  if (nrow(runs) == 0L) {
-    return(data.frame(
-      run_id        = character(),
-      started_at    = as.POSIXct(character()),
-      chunk_hash    = character(),
-      rows_appended = integer(),
-      stringsAsFactors = FALSE
-    ))
-  }
-  out <- vector("list", nrow(runs))
-  for (i in seq_len(nrow(runs))) {
-    entries <- tryCatch(
-      jsonlite::fromJSON(runs$outputs[i], simplifyVector = FALSE),
-      error = function(e) list()
-    )
-    rid <- character(); hash <- character(); nrows <- integer()
-    for (e in entries) {
-      if (identical(e$kind, "append_table") &&
-          identical(e$logical_name, name)) {
-        rid   <- c(rid,   runs$run_id[i])
-        hash  <- c(hash,  as.character(e$chunk_hash))
-        nrows <- c(nrows, as.integer(e$rows_appended))
-      }
-    }
-    if (length(rid) > 0L) {
-      out[[i]] <- data.frame(
-        run_id        = rid,
-        started_at    = rep(runs$started_at[i], length(rid)),
-        chunk_hash    = hash,
-        rows_appended = nrows,
-        stringsAsFactors = FALSE
-      )
-    }
-  }
-  out <- out[!vapply(out, is.null, logical(1))]
-  if (length(out) == 0L) {
-    return(data.frame(
-      run_id        = character(),
-      started_at    = as.POSIXct(character()),
-      chunk_hash    = character(),
-      rows_appended = integer(),
-      stringsAsFactors = FALSE
-    ))
-  }
-  do.call(rbind, out)
-}
-
 # Resolve a chunk_hash to the run_id that wrote it, for a given Shape B
 # logical name. Returns NA_character_ if no match. If the same
 # chunk_hash appears for multiple runs (possible when two runs append
