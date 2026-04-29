@@ -666,28 +666,45 @@
 # chunk_hash appears for multiple runs (possible when two runs append
 # identical content), the most recent run wins.
 .mr_append_run_id_for_chunk_hash <- function(con, name, chunk_hash) {
-  entries <- .mr_append_chunk_entries(con, name)
-  hits <- entries[entries$chunk_hash == as.character(chunk_hash), , drop = FALSE]
+  hits <- DBI::dbGetQuery(
+    con,
+    "SELECT run_id FROM _mr_append_chunks
+      WHERE logical_name = ? AND chunk_hash = ?
+      ORDER BY started_at DESC
+      LIMIT 1",
+    params = list(name, as.character(chunk_hash))
+  )
   if (nrow(hits) == 0L) return(NA_character_)
-  hits <- hits[order(hits$started_at, decreasing = TRUE), , drop = FALSE]
   hits$run_id[1]
 }
 
 # Latest run_id that wrote to a Shape B logical name, or NA_character_
 # if the name has no appended chunks yet.
 .mr_append_latest_run_id <- function(con, name) {
-  entries <- .mr_append_chunk_entries(con, name)
-  if (nrow(entries) == 0L) return(NA_character_)
-  entries <- entries[order(entries$started_at, decreasing = TRUE), , drop = FALSE]
-  entries$run_id[1]
+  hits <- DBI::dbGetQuery(
+    con,
+    "SELECT run_id FROM _mr_append_chunks
+      WHERE logical_name = ?
+      ORDER BY started_at DESC
+      LIMIT 1",
+    params = list(name)
+  )
+  if (nrow(hits) == 0L) return(NA_character_)
+  hits$run_id[1]
 }
 
 # chunk_hash of a specific run's append on a Shape B logical name, or
 # NA_character_ if none. Used by the SQL-launch path to record which
 # chunk was read even when the caller didn't pass an explicit mr_hash().
 .mr_append_chunk_hash_for_run <- function(con, name, run_id) {
-  entries <- .mr_append_chunk_entries(con, name)
-  hits <- entries[entries$run_id == run_id, , drop = FALSE]
+  hits <- DBI::dbGetQuery(
+    con,
+    "SELECT chunk_hash FROM _mr_append_chunks
+      WHERE logical_name = ? AND run_id = ?
+      ORDER BY started_at
+      LIMIT 1",
+    params = list(name, run_id)
+  )
   if (nrow(hits) == 0L) return(NA_character_)
   hits$chunk_hash[1]
 }

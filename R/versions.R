@@ -23,10 +23,17 @@ versions <- function(name) {
   con <- .mr_get_connection()
 
   # Shape B names don't use `_mr_versions`. Each append's chunk_hash,
-  # recorded in the producing run's outputs JSON, functions as the
-  # version identifier. One row per append, latest first.
+  # recorded in `_mr_append_chunks`, functions as the version
+  # identifier. One row per append, latest first.
   if (identical(.mr_lookup_shape(name), "B")) {
-    entries <- .mr_append_chunk_entries(con, name)
+    entries <- DBI::dbGetQuery(
+      con,
+      "SELECT run_id, started_at, chunk_hash
+         FROM _mr_append_chunks
+        WHERE logical_name = ?
+        ORDER BY started_at DESC",
+      params = list(name)
+    )
     if (nrow(entries) == 0L) {
       out <- data.frame(
         content_hash = character(),
@@ -38,8 +45,6 @@ versions <- function(name) {
       out$produced_by_runs <- list()
       return(out)
     }
-    ord <- order(entries$started_at, decreasing = TRUE)
-    entries <- entries[ord, , drop = FALSE]
     out <- data.frame(
       content_hash = entries$chunk_hash,
       first_seen   = entries$started_at,
