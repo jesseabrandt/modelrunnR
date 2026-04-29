@@ -31,7 +31,8 @@
   con <- .mr_get_connection()
   prior <- DBI::dbGetQuery(
     con,
-    "SELECT step, code_body, code_hash, variant_label, rebinds, batch_id, duckdb_seed
+    "SELECT step, code_body, code_hash, variant_label, rebinds, batch_id,
+            duckdb_seed, external_inputs
        FROM _mr_runs WHERE run_id = ?",
     params = list(run_id)
   )
@@ -114,7 +115,15 @@
   }, add = TRUE)
 
   session_info <- .mr_capture_session_info()
-  resolved_ext <- .mr_resolve_external_inputs(external_inputs)
+
+  # external_inputs is staged on the queued row at queue time. The
+  # caller's pickup-time external_inputs has already been warned about
+  # and nulled by launch.R's queued-pickup branch. Re-resolve the
+  # staged declarations against current state so hashes reflect the
+  # files / env vars at pickup time (drift detection happens through
+  # the next launch's staleness check, not here).
+  staged_ext_decl <- .mr_external_inputs_decl_from_json(prior$external_inputs[1])
+  resolved_ext    <- .mr_resolve_external_inputs(staged_ext_decl)
 
   # Freshness check at pickup, not queue time (per spec).
   staleness     <- .mr_is_stale(step, variant_label = label, rebind = rebinds_map)

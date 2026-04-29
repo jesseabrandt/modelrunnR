@@ -4,7 +4,14 @@
 \alias{queue}
 \title{Stage a tracked run without executing it}
 \usage{
-queue(code, rebind = NULL, label = NULL, duckdb_seed = NULL, ...)
+queue(
+  code,
+  rebind = NULL,
+  label = NULL,
+  external_inputs = NULL,
+  duckdb_seed = NULL,
+  ...
+)
 }
 \arguments{
 \item{code}{A braced \code{{ ... }} block (inline) or a path to an
@@ -17,6 +24,13 @@ for batch staging (writes N queued rows under one \code{batch_id}).
 Same semantics as \code{launch(rebind = ...)}.}
 
 \item{label}{Optional \code{variant_label} for the queued run.}
+
+\item{external_inputs}{Optional named list with fields \code{files} (a
+character vector of paths) and/or \code{env} (a character vector of
+environment variable names), same shape as \code{launch(external_inputs = ...)}. Each declared input is hashed at queue time and recorded
+on the queued row; pickup re-resolves the same declarations
+against current state. Missing declared files error at queue
+time, before any row is written.}
 
 \item{duckdb_seed}{Optional numeric seed in \verb{[-1, 1]}, recorded on
 the queued row and applied at pickup time.}

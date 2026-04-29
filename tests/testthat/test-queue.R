@@ -163,3 +163,77 @@ test_that("batch queue is atomic: a mid-batch error rolls back prior rows", {
     expect_equal(n_after, n_before)
   })
 })
+
+test_that("queue(external_inputs=) hashes the file at queue time and stores on the row", {
+  withr::with_tempdir({
+    new_test_db()
+    writeLines("hello world", "ext.txt")
+    q <- queue(
+      { x <- 1 },
+      external_inputs = list(files = "ext.txt")
+    )
+    con <- modelrunnR:::.mr_get_connection()
+    row <- DBI::dbGetQuery(
+      con, "SELECT external_inputs FROM _mr_runs WHERE run_id = ?",
+      params = list(q$run_id)
+    )
+    parsed <- jsonlite::fromJSON(row$external_inputs[1], simplifyVector = FALSE)
+    expect_length(parsed$files, 1L)
+    expect_match(parsed$files[[1]]$path, "ext\\.txt$")
+    expect_match(parsed$files[[1]]$hash, "^[0-9a-f]+$")
+  })
+})
+
+test_that("queue(external_inputs=) errors at queue time when a declared file is missing", {
+  withr::with_tempdir({
+    new_test_db()
+    expect_error(
+      queue({ x <- 1 }, external_inputs = list(files = "no_such.txt")),
+      "declared external input file not found"
+    )
+    con <- modelrunnR:::.mr_get_connection()
+    n <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM _mr_runs")$n
+    expect_equal(n, 0L)
+  })
+})
+
+test_that("staged external_inputs survive queue -> pickup; deleted file at pickup stamps row 'error'", {
+  withr::with_tempdir({
+    new_test_db()
+    writeLines("v1", "ext.txt")
+    q <- queue(
+      { x <- 1 },
+      external_inputs = list(files = "ext.txt")
+    )
+    file.remove("ext.txt")
+    expect_error(launch(mr_run(q$run_id)),
+                 "declared external input file not found")
+    con <- modelrunnR:::.mr_get_connection()
+    row <- DBI::dbGetQuery(
+      con, "SELECT status FROM _mr_runs WHERE run_id = ?",
+      params = list(q$run_id)
+    )
+    expect_equal(row$status, "error")
+  })
+})
+
+test_that("batch queue(external_inputs=) shares the resolved record across rows", {
+  withr::with_tempdir({
+    new_test_db()
+    writeLines("data", "ext.txt")
+    qs <- queue(
+      { x <- grab("alpha") },
+      rebind = mr_binds(alpha = c(1, 2)),
+      external_inputs = list(files = "ext.txt")
+    )
+    expect_equal(nrow(qs), 2L)
+    con <- modelrunnR:::.mr_get_connection()
+    rows <- DBI::dbGetQuery(
+      con, "SELECT external_inputs FROM _mr_runs WHERE run_id IN (?, ?)",
+      params = list(qs$run_id[1], qs$run_id[2])
+    )
+    parsed1 <- jsonlite::fromJSON(rows$external_inputs[1], simplifyVector = FALSE)
+    parsed2 <- jsonlite::fromJSON(rows$external_inputs[2], simplifyVector = FALSE)
+    expect_equal(parsed1$files[[1]]$hash, parsed2$files[[1]]$hash)
+  })
+})

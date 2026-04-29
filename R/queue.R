@@ -48,6 +48,13 @@
 #' @param rebind Optional named list, or [mr_binds()] / [mr_envelopes()]
 #'   for batch staging (writes N queued rows under one `batch_id`).
 #'   Same semantics as `launch(rebind = ...)`.
+#' @param external_inputs Optional named list with fields `files` (a
+#'   character vector of paths) and/or `env` (a character vector of
+#'   environment variable names), same shape as `launch(external_inputs
+#'   = ...)`. Each declared input is hashed at queue time and recorded
+#'   on the queued row; pickup re-resolves the same declarations
+#'   against current state. Missing declared files error at queue
+#'   time, before any row is written.
 #' @param label Optional `variant_label` for the queued run.
 #' @param duckdb_seed Optional numeric seed in `[-1, 1]`, recorded on
 #'   the queued row and applied at pickup time.
@@ -57,7 +64,7 @@
 #'   a batch) with `status = "queued"`, invisibly.
 #' @export
 queue <- function(code, rebind = NULL, label = NULL,
-                  duckdb_seed = NULL, ...) {
+                  external_inputs = NULL, duckdb_seed = NULL, ...) {
   dots <- list(...)
   if (length(dots) > 0L) {
     stop(sprintf("queue(): unknown arguments: %s",
@@ -115,6 +122,11 @@ queue <- function(code, rebind = NULL, label = NULL,
 
   .mr_get_connection()
 
+  # Resolve external_inputs at queue time. Missing files error here,
+  # before _mr_runs is touched, matching launch()'s "missing-files
+  # error before the script runs" contract.
+  resolved_ext <- .mr_resolve_external_inputs(external_inputs)
+
   # .mr_resolve_rebinds() writes .mr_state$pending_shape_b_filters as a
   # side effect so launch()'s caller can pick it up; queue() doesn't
   # execute, so it must clear that state itself or the next launch()
@@ -127,12 +139,13 @@ queue <- function(code, rebind = NULL, label = NULL,
   # when rebind is an mr_binds object.
   if (inherits(rebind, "mr_binds")) {
     return(invisible(.mr_queue_batch(
-      step        = step,
-      code_body   = code_body,
-      code_hash   = code_hash,
-      envelopes   = unclass(rebind),
-      label       = label,
-      duckdb_seed = duckdb_seed
+      step            = step,
+      code_body       = code_body,
+      code_hash       = code_hash,
+      envelopes       = unclass(rebind),
+      label           = label,
+      external_inputs = resolved_ext,
+      duckdb_seed     = duckdb_seed
     )))
   }
 
@@ -150,7 +163,7 @@ queue <- function(code, rebind = NULL, label = NULL,
     duration_ms     = NA_integer_,
     status          = "queued",
     code_hash       = code_hash,
-    external_inputs = list(files = list(), env = list()),
+    external_inputs = resolved_ext,
     helpers         = list(),
     variant_label   = label,
     code_body       = code_body,
@@ -201,7 +214,7 @@ queue <- function(code, rebind = NULL, label = NULL,
 #   Phase 2: write every row inside one dbWithTransaction so a row-
 #     write failure rolls back the whole batch.
 .mr_queue_batch <- function(step, code_body, code_hash, envelopes,
-                            label, duckdb_seed) {
+                            label, external_inputs, duckdb_seed) {
   n <- length(envelopes)
   if (n == 0L) {
     stop("queue(): mr_binds() expanded to zero envelopes.", call. = FALSE)
@@ -245,7 +258,7 @@ queue <- function(code, rebind = NULL, label = NULL,
         duration_ms     = NA_integer_,
         status          = "queued",
         code_hash       = code_hash,
-        external_inputs = list(files = list(), env = list()),
+        external_inputs = external_inputs,
         helpers         = list(),
         variant_label   = p$label,
         code_body       = code_body,

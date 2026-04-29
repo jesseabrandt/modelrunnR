@@ -53,11 +53,20 @@
   drains queued rows in place (preserves `run_id`, `step`, `rebinds`,
   `batch_id`, `duckdb_seed`; populates `status`, timing, session-context).
   `code_body` is frozen for inline steps; for file steps it refreshes
-  from disk at pickup, with a drift warning if the file changed. Batch
-  staging via `rebind = mr_binds(...)` writes N queued rows under one
-  `batch_id`. Parallelism is composed by the caller
-  (`future`/`furrr`/shell); modelrunnR records and resumes, no built-in
-  worker. See `?queue` for the full freeze-vs-refresh contract.
+  from disk at pickup, with a drift warning if the file changed.
+  `queue(external_inputs = ...)` accepts the same shape as
+  `launch(external_inputs = ...)` — files are validated and hashed at
+  queue time, re-resolved at pickup. Batch staging via
+  `rebind = mr_binds(...)` writes N queued rows under one `batch_id`,
+  atomically: a per-envelope error rolls back the whole batch.
+  Parallelism is composed by the caller (`future`/`furrr`/shell);
+  modelrunnR records and resumes, no built-in worker. See `?queue`
+  for the full freeze-vs-refresh contract.
+* `launch(mr_run(qid), rebind = ...)` and `launch(mr_run(qid),
+  external_inputs = ...)` against a queued row warn that the staged
+  values win and proceed with pickup. Spawning a new run from a
+  queued template with caller bindings is a future feature
+  (see `TODO.md`).
 * New status value **`"queued"`** joins the existing set
   (`success`, `error`, `skipped_fresh`, `interactive`). No schema
   migration — `_mr_runs` columns are unchanged.
