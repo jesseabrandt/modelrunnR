@@ -223,7 +223,7 @@ test_that("queued row's attached_packages is a parseable empty JSON array, not N
   })
 })
 
-test_that("queued-row pickup warns and ignores caller-supplied rebind", {
+test_that("caller rebind on a queued row spawns a new run; queued row stays queued", {
   withr::with_tempdir({
     new_test_db()
     q <- queue(
@@ -231,31 +231,85 @@ test_that("queued-row pickup warns and ignores caller-supplied rebind", {
       rebind = list(alpha = 0.5)
     )
     expect_warning(
-      launch(mr_run(q$run_id), rebind = list(alpha = 999)),
-      "staged rebinds win"
+      r <- launch(mr_run(q$run_id), rebind = list(alpha = 999)),
+      "queued row remains queued"
     )
+    expect_false(r$run_id == q$run_id)            # new row, not in-place
+    expect_equal(r$status, "success")
     out <- grab("out") |> dplyr::collect()
-    expect_equal(out$value[[1]], 0.5)  # staged binding wins, not 999
+    expect_equal(out$value[[1]], 999)             # caller's binding wins
+    # Queued row is untouched.
+    qpost <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery("SELECT status FROM _mr_runs WHERE run_id = ?",
+                      params = list(q$run_id))
+    expect_equal(qpost$status, "queued")
   })
 })
 
-test_that("queued-row pickup warns and ignores caller-supplied external_inputs", {
+test_that("caller external_inputs on a queued row spawns a new run; queued row stays queued", {
   withr::with_tempdir({
     new_test_db()
     q <- queue({ x <- 1 })
-    # If the caller's external_inputs were honored (and it had a
-    # missing file), pickup would error. Instead it must warn and
-    # proceed with the staged (empty) external_inputs.
+    writeLines("hello", "ext.txt")
     expect_warning(
-      launch(mr_run(q$run_id),
-             external_inputs = list(files = "no_such_file.txt")),
-      "staged value wins"
+      r <- launch(mr_run(q$run_id),
+                  external_inputs = list(files = "ext.txt")),
+      "queued row remains queued"
     )
-    con <- modelrunnR:::.mr_get_connection()
-    row <- DBI::dbGetQuery(
-      con, "SELECT status FROM _mr_runs WHERE run_id = ?",
-      params = list(q$run_id)
+    expect_false(r$run_id == q$run_id)
+    expect_equal(r$status, "success")
+    qpost <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery("SELECT status FROM _mr_runs WHERE run_id = ?",
+                      params = list(q$run_id))
+    expect_equal(qpost$status, "queued")
+  })
+})
+
+test_that("caller mr_binds() on a queued row fans out N new runs; queued row stays queued", {
+  withr::with_tempdir({
+    new_test_db()
+    q <- queue(
+      { y <- grab("alpha"); stow(data.frame(value = y), "out") }
     )
-    expect_equal(row$status, "success")
+    expect_warning(
+      rs <- launch(mr_run(q$run_id), rebind = mr_binds(alpha = c(1, 2, 3))),
+      "queued row remains queued"
+    )
+    expect_equal(nrow(rs), 3L)
+    expect_true(all(rs$status == "success"))
+    expect_false(any(rs$run_id == q$run_id))      # all new ids
+    expect_equal(length(unique(rs$run_id)), 3L)
+    # Queued template untouched.
+    qpost <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery("SELECT status FROM _mr_runs WHERE run_id = ?",
+                      params = list(q$run_id))
+    expect_equal(qpost$status, "queued")
+  })
+})
+
+test_that("spawn-from-queued inherits the queued row's variant_label by default", {
+  withr::with_tempdir({
+    new_test_db()
+    q <- queue({ x <- grab("a") }, rebind = list(a = 1), label = "exp_a")
+    r <- suppressWarnings(
+      launch(mr_run(q$run_id), rebind = list(a = 2))
+    )
+    expect_equal(r$variant_label, "exp_a")
+  })
+})
+
+test_that("spawn-from-queued honors caller's `label = ` over the queued row's label", {
+  withr::with_tempdir({
+    new_test_db()
+    q <- queue({ x <- grab("a") }, rebind = list(a = 1), label = "exp_a")
+    r <- suppressWarnings(
+      launch(mr_run(q$run_id), rebind = list(a = 2), label = "exp_b")
+    )
+    expect_equal(r$variant_label, "exp_b")
+    # Queued row's label is unchanged.
+    qpost <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery("SELECT variant_label FROM _mr_runs WHERE run_id = ?",
+                      params = list(q$run_id))
+    expect_equal(qpost$variant_label, "exp_a")
   })
 })

@@ -31,7 +31,12 @@
 #'   id; the source row's `variant_label` (if any) is auto-inherited
 #'   onto the new run unless the caller passes an explicit `label`.
 #'   When the source row's `status` is `"queued"` (see [queue()]),
-#'   the call updates that row in place rather than writing a new run.
+#'   the call updates that row in place rather than writing a new run
+#'   --- *unless* the caller also supplies `rebind` or `external_inputs`,
+#'   in which case the queued row is treated as a template body: a new
+#'   `run_id` is written using the caller's bindings, and the queued
+#'   row stays queued for someone else to drain. `rebind = mr_binds(...)`
+#'   fans the template out into one new run per envelope.
 #'   Re-executing a run whose source status isn't `"success"` or
 #'   `"queued"` warns by default (configurable via
 #'   `options(modelrunnR.relaunch_nonsuccess = c("warn","error","silent"))`).
@@ -336,38 +341,45 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
     code_body <- paste(readLines(step, warn = FALSE), collapse = "\n")
   }
 
-  # Queued-row pickup: launch(mr_run(id)) against a "queued" row
-  # updates the existing row in place (no new run_id written). The
-  # staged rebinds and external_inputs win — caller-supplied values
-  # at pickup time would silently change what the queued row records,
-  # which conflicts with "the queued row is what got staged." Warn
-  # and use the staged values. Spawning a new run from a queued body
-  # with caller bindings is a future feature (TODO §queue).
+  # Queued-row pickup: launch(mr_run(id)) against a "queued" row.
+  #
+  # Two paths:
+  #
+  # 1. No caller bindings -> pickup-in-place. The queued row's staged
+  #    rebinds / external_inputs run; the row is updated in place
+  #    (same run_id, status flips to success/error/skipped_fresh).
+  #
+  # 2. Caller supplied `rebind` or `external_inputs` -> spawn a new
+  #    run from the queued body. The queued row is treated as a
+  #    template: its `step` / `code_body` / `variant_label` already
+  #    flowed into the relaunch_resolve block above; we just fall
+  #    through to the normal launch path, which writes a fresh run_id
+  #    using the caller's bindings. The original queued row is
+  #    untouched and remains queued for someone else to drain.
+  #    Mirrors how `launch(mr_run(success_id))` already spawns a new
+  #    row from a finalized one — caller bindings mean "I am running
+  #    a different thing, not picking up the queued one."
   if (relaunch_mode && identical(relaunch_kind, "run") &&
       !is.null(resolved) && identical(resolved$status, "queued")) {
-    if (!is.null(rebind)) {
-      warning(
-        "launch(mr_run(id)): caller's `rebind` is ignored on queued-row pickup; the staged rebinds win. ",
-        "To run the queued body with new bindings, queue or launch a fresh body with those bindings.",
-        call. = FALSE
-      )
+    if (!is.null(rebind) || !is.null(external_inputs)) {
+      warning(sprintf(
+        "launch(mr_run(id)): caller bindings supplied against queued run_id '%s'; spawning a new run from the queued body. The queued row remains queued.",
+        code$value
+      ), call. = FALSE)
+      # Fall through to the normal R-mode launch path. relaunch_mode
+      # stays TRUE so the resolved step/code_body/expr are used; the
+      # new row's variant_label was already inherited (or overridden
+      # by caller `label`) earlier in this function.
+    } else {
+      return(.mr_pickup_queued_run(
+        run_id          = code$value,
+        resolved        = resolved,
+        label           = label,
+        external_inputs = external_inputs,
+        force           = force,
+        duckdb_seed     = duckdb_seed
+      ))
     }
-    if (!is.null(external_inputs)) {
-      warning(
-        "launch(mr_run(id)): caller's `external_inputs` is ignored on queued-row pickup; the staged value wins. ",
-        "Stage external_inputs at queue time via queue(..., external_inputs = ...).",
-        call. = FALSE
-      )
-      external_inputs <- NULL
-    }
-    return(.mr_pickup_queued_run(
-      run_id          = code$value,
-      resolved        = resolved,
-      label           = label,
-      external_inputs = external_inputs,
-      force           = force,
-      duckdb_seed     = duckdb_seed
-    ))
   }
 
   # R-mode batch: dispatch once per envelope, sharing the resolved

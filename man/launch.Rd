@@ -120,7 +120,12 @@ onto the new run unless the caller passes an explicit \code{label}.
 id; the source row's \code{variant_label} (if any) is auto-inherited
 onto the new run unless the caller passes an explicit \code{label}.
 When the source row's \code{status} is \code{"queued"} (see \code{\link[=queue]{queue()}}),
-the call updates that row in place rather than writing a new run.
+the call updates that row in place rather than writing a new run
+--- \emph{unless} the caller also supplies \code{rebind} or \code{external_inputs},
+in which case the queued row is treated as a template body: a new
+\code{run_id} is written using the caller's bindings, and the queued
+row stays queued for someone else to drain. \code{rebind = mr_binds(...)}
+fans the template out into one new run per envelope.
 Re-executing a run whose source status isn't \code{"success"} or
 \code{"queued"} warns by default (configurable via
 \code{options(modelrunnR.relaunch_nonsuccess = c("warn","error","silent"))}).

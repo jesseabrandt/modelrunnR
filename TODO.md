@@ -2,31 +2,15 @@
 
 ## Surfaced 2026-04-28 (from queue() audit fixes)
 
-### Queued-row pickup with caller bindings should spawn a new run
+### ✓ Queued-row pickup with caller bindings spawns a new run
 
-Today `launch(mr_run(qid), rebind = ...)` against a queued row warns
-that the caller's rebind is ignored and proceeds with the staged
-binding (see `R/launch.R` queued-pickup branch). The same applies to
-`external_inputs`. The user's framing: "if you rebind based on a
-queued row, you're not running the queued row anymore — you're
-running a different thing, same as with an already-run row."
-
-The intended future behavior: when caller bindings are supplied,
-treat the queued row as a *template body* — write a *new* run row
-(fresh `run_id`) that uses the queued body with the caller's
-bindings. The original queued row stays "queued" for someone else
-to drain. Mirrors how `launch(mr_run(success_id))` already spawns a
-new row from a finalized one.
-
-Edge cases to design through:
-- Should this also apply when `rebind = mr_binds(...)` at pickup?
-  Likely yes — fan out a queued template into N new rows.
-- Auto-inherited `variant_label` semantics: same as the current
-  non-queued relaunch path (queue-time label carries forward unless
-  caller passes `label = ...`).
-- Does the queued row stay queued, or does the spawn drain it?
-  Almost certainly stay-queued, since the caller didn't ask for
-  pickup; they asked for "a new run from this template."
+Closed 2026-04-29: `launch(mr_run(qid), rebind = ...)` (or
+`external_inputs = ...`) against a queued row now warns and spawns
+a fresh `run_id` from the queued body with the caller's bindings;
+the queued row stays queued. `mr_binds()` fans out into N new runs
+under the same rule. `variant_label` inherits from the queued row
+unless caller passes `label = ...`. See `R/launch.R` queued branch
+and `tests/testthat/test-queue-pickup.R`.
 
 ## Surfaced 2026-04-27 (from Phase 1 R CMD check, queue work)
 
