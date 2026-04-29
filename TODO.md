@@ -163,36 +163,24 @@ Not urgent. The cookbook pattern (`vignettes/nested-sweeps.Rmd`) works
 today with the explicit stow; this removes three lines of boilerplate
 from sweep code once the design questions are answered.
 
-### Skip-on-fresh collapses batch envelopes with identical grabs but different rebinds
+### ✓ Skip-on-fresh respects per-envelope rebinds
 
-Staleness is keyed on `(step, label)` plus the recorded `inputs` hash
-(from grabs). Rebind values are recorded on `_mr_runs.rebinds` but do
-not enter the staleness hash. Consequence: a batch where every
-envelope grabs the same upstream names and shares one label runs
-envelope 1, then marks envelopes 2..N as `skipped_fresh` because each
-check finds a prior run under the same `(step, label)` with the same
-input hashes — the differing rebinds are invisible to the check.
+Closed 2026-04-29: verified-and-locked-in. The fix landed in
+`6b95c15` (2026-04-24, audit sweep) via the rebind-aware branch of
+`.mr_check_inputs`: when the about-to-fire launch has a rebind on a
+recorded input name, the check compares the rebound hash against
+the prior input's hash rather than against `latest(name)`. So a
+sweep where every envelope rebinds (say) `alpha` to a different
+literal records different `_mr_runs.inputs` content hashes per
+envelope, and staleness flags `input:alpha` for envelopes 2..N
+instead of skipping them.
 
-Surfaced while building `vignettes/nested-sweeps.Rmd`: a 15-envelope
-`mr_binds(alpha = ..., fold = ..., mode = "cross")` sweep ran envelope 1
-and skipped envelopes 2..15. Vignette works around it by passing
-unique `.labels` per envelope so staleness becomes per-envelope. A
-user who doesn't set `.labels` gets a batch-of-1 with 14 silent skips.
-
-Related to the existing "SQL-launch records append-shape chunk_hash on
-`_mr_runs.inputs`; R-launch records `NA`" item but distinct — that one
-is about grab freshness detection; this is about rebind identity
-participating in freshness.
-
-Fix candidates:
-
-- Include the resolved rebind hashes (already in `_mr_runs.rebinds`)
-  in the staleness hash. Per-envelope rebinds → per-envelope identity,
-  no workaround needed.
-- Auto-derive a per-envelope variant label from the sweep values when
-  `.labels` is `NULL`. Spec explicitly rejected this path (2026-04-19
-  batch-launch spec §Labels) — rebinds column is the preferred
-  provenance surface. If fixed via option 1, this rejection stands.
+The `vignettes/nested-sweeps.Rmd` `.labels` workaround still works
+but is no longer required — could be relaxed in a vignette pass.
+Tests in `tests/testthat/test-staleness-rebind.R` lock in the
+contract: same step + same label + different rebind values run; same
+rebind values skip; `mr_binds()` sweeps under one label run every
+envelope.
 
 ### Skipped-fresh run rows can chain `NA` code_hash across skips
 
@@ -204,7 +192,13 @@ own metadata tables (`_mr_runs`, `_mr_versions`, `_mr_append_tables`).
 A user stowing under `_mr_runs` would collide in `.mr_guard_namespace`
 later, with a less-actionable error. Cheap close: append `&& !startsWith(name, "_mr_")` with an explicit reserved-prefix message.
 
-### Direct unit test for rebind-aware staleness
+### ✓ Direct unit test for rebind-aware staleness
+
+Closed 2026-04-29: see `tests/testthat/test-staleness-rebind.R`,
+added alongside the verify-and-close pass on the rebind-staleness
+TODO above.
+
+(Original note kept below for reference.)
 
 The test-launch-batch updates exercise the new rebind threading
 indirectly via batch skip-on-fresh under labeled envelopes. A direct
