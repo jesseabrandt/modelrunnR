@@ -126,8 +126,16 @@
     ), call. = FALSE)
   }
 
-  # Character path. Validate shape, then route on extension.
-  stopifnot(is.character(code), length(code) == 1L, nzchar(code))
+  # Character path. Validate shape, then route on extension. Explicit
+  # check (rather than stopifnot) so the user sees a caller-attributed
+  # message — this helper is the only place that error lives once
+  # launch() and queue() route through it.
+  if (!is.character(code) || length(code) != 1L || is.na(code) || !nzchar(code)) {
+    stop(sprintf(
+      "%s(): `code` must be a non-empty length-1 character path, an mr_*() reference, or a `{ ... }` block.",
+      caller
+    ), call. = FALSE)
+  }
   ext <- tolower(tools::file_ext(code))
   if (ext == "sql") {
     if (!accept_sql) {
