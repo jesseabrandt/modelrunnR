@@ -30,8 +30,15 @@
 #'   `launch(mr_run(run_id))` re-executes the specific stored run by
 #'   id; the source row's `variant_label` (if any) is auto-inherited
 #'   onto the new run unless the caller passes an explicit `label`.
-#'   Re-executing a run whose source status isn't `"success"` warns
-#'   by default (configurable via
+#'   When the source row's `status` is `"queued"` (see [queue()]),
+#'   the call updates that row in place rather than writing a new run
+#'   --- *unless* the caller also supplies `rebind` or `external_inputs`,
+#'   in which case the queued row is treated as a template body: a new
+#'   `run_id` is written using the caller's bindings, and the queued
+#'   row stays queued for someone else to drain. `rebind = mr_binds(...)`
+#'   fans the template out into one new run per envelope.
+#'   Re-executing a run whose source status isn't `"success"` or
+#'   `"queued"` warns by default (configurable via
 #'   `options(modelrunnR.relaunch_nonsuccess = c("warn","error","silent"))`).
 
 #' - **SQL mode** -- `launch("features.sql")` (file) or
@@ -66,10 +73,12 @@
 #'     run by id).
 #' @param rebind Optional named list that overrides what each
 #'   `grab()` inside the script resolves to. List values may be bare
-#'   R objects (stowed inline through the normal versioning path) or
-#'   reference constructors ([mr_hash()], [mr_run()], [mr_variant()],
-#'   [mr_as_of()]) that resolve to existing versions without
-#'   round-tripping through R memory.
+#'   R objects (stowed inline as a versioned-shape row tagged
+#'   `is_rebind = TRUE`, so a sample value rebound for one launch
+#'   does not shadow the real upstream for naked `grab(name)` later)
+#'   or reference constructors ([mr_hash()], [mr_run()],
+#'   [mr_variant()], [mr_as_of()]) that resolve to existing versions
+#'   without round-tripping through R memory.
 #' @param external_inputs Optional named list with fields `files` (a
 #'   character vector of paths) and/or `env` (a character vector of
 #'   environment variable names). Each declared input is hashed and
@@ -191,33 +200,30 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
     }
   }
 
-  # Dispatch: a literal `{ ... }` block triggers inline mode. `script_expr`
-  # was captured at the top of the body (from `substitute(code)` or from
-  # the deprecation shim's match.call(), so the braced block form works
-  # under both argument names).
-  inline_mode <- is.call(script_expr) && identical(script_expr[[1]], as.name("{"))
+  dispatch <- .mr_dispatch_code_arg(
+    code         = code,
+    script_expr  = script_expr,
+    accept_refs  = c("label", "run"),
+    accept_sql   = TRUE,
+    caller       = "launch"
+  )
 
-  # SQL dispatch: handled before the R-mode dispatch ladder. Two routes:
-  #   - inline  : first arg is mr_sql("...")
-  #   - file    : first arg is a path with `.sql` extension (case-
-  #               insensitive)
-  # `materialize` only applies here; non-SQL launches that pass it
-  # silently ignore (spec keeps the signature clean).
-  is_inline_sql <- !inline_mode && inherits(code, "mr_ref_sql")
-  is_file_sql <- FALSE
-  if (!inline_mode && !is_inline_sql && is.character(code) &&
-      length(code) == 1L && !is.na(code) && nzchar(code)) {
-    ext <- tolower(tools::file_ext(code))
-    if (ext == "sql") is_file_sql <- TRUE
-  }
+  inline_mode    <- dispatch$inline_mode
+  step           <- dispatch$step
+  code_body      <- dispatch$code_body
+  is_inline_sql  <- identical(dispatch$kind, "sql_inline")
+  is_file_sql    <- identical(dispatch$kind, "sql_file")
+  relaunch_mode  <- dispatch$kind %in% c("ref_label", "ref_run")
+  relaunch_kind  <- if (relaunch_mode) sub("^ref_", "", dispatch$kind) else NULL
+  resolved       <- dispatch$ref           # NULL for non-ref kinds
+  relaunch_expr  <- if (relaunch_mode) resolved$expr else NULL
+
+  # SQL dispatch — same shape as before, but body/path now come from
+  # the dispatcher.
   if (is_inline_sql || is_file_sql) {
     src_kind     <- if (is_inline_sql) "inline" else "file"
-    body_or_path <- if (is_inline_sql) code$body else code
+    body_or_path <- if (is_inline_sql) dispatch$code_body else code
 
-    # Batch: one .mr_launch_sql() call per envelope. step/code_body
-    # depend only on src_kind+body, not rebind, so they're resolved
-    # once inside the SQL launcher per envelope (cheap; no I/O for
-    # inline; one read for file).
     if (inherits(rebind, "mr_binds")) {
       return(.mr_launch_batch_sql(
         src_kind        = src_kind,
@@ -254,98 +260,74 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
     ))
   }
 
-  relaunch_mode <- FALSE
-  relaunch_expr <- NULL  # parsed code body for relaunch execution
-  relaunch_kind <- NULL  # "label" or "run" when relaunch_mode is TRUE
-
-  if (!inline_mode && .mr_is_ref(code)) {
-    if (!(code$kind %in% c("label", "run"))) {
-      stop(sprintf(
-        "launch(): only mr_label() and mr_run() are accepted as first argument references; got mr_%s().",
-        code$kind
-      ), call. = FALSE)
-    }
-    relaunch_mode <- TRUE
-    relaunch_kind <- code$kind
-  }
-
-  if (inline_mode) {
-    code_body <- paste(deparse(script_expr, width.cutoff = 500L), collapse = "\n")
-    expr_hash <- .mr_hash_bytes(charToRaw(code_body))
-    # Step identifier is derived from the expression hash so editing the
-    # block yields a new logical step rather than a false "stale" report
-    # against an older expression's history.
-    step <- sprintf("<inline:%s>", substr(expr_hash, 1L, 12L))
-  } else if (relaunch_mode) {
-    resolved <- if (identical(relaunch_kind, "label")) {
-      .mr_resolve_relaunch(code$value)
+  # Relaunch label inheritance (auto-inherit unless caller passed label=).
+  if (relaunch_mode && is.na(label)) {
+    label <- if (identical(relaunch_kind, "label")) {
+      code$value
     } else {
-      .mr_resolve_relaunch_run_id(code$value)
+      resolved$variant_label
     }
-    step          <- resolved$step
-    code_body     <- resolved$code_body
-    relaunch_expr <- resolved$expr
-    # Auto-inherit label. For mr_label() the label is the ref's value.
-    # For mr_run() it's the source row's variant_label (may be NA).
-    if (is.na(label)) {
-      label <- if (identical(relaunch_kind, "label")) {
-        code$value
-      } else {
-        resolved$variant_label
-      }
-    }
-
-    # Non-success source: warn / error / silent per option. Only
-    # applies to mr_run() — mr_label() resolves by latest, which by
-    # construction usually points at a success row. "queued" is a
-    # normal pre-execution state (queued rows route through
-    # .mr_pickup_queued_run() further down), not a failure — skip.
-    if (identical(relaunch_kind, "run") &&
-        !is.na(resolved$status) &&
-        !identical(resolved$status, "success") &&
-        !identical(resolved$status, "queued")) {
-      policy <- match.arg(
-        getOption("modelrunnR.relaunch_nonsuccess", "warn"),
-        c("warn", "error", "silent")
-      )
-      msg <- sprintf(
-        "launch(): re-executing run_id '%s' whose source row has status '%s'.",
-        code$value, resolved$status
-      )
-      if (identical(policy, "error")) {
-        stop(paste(msg, "Set options(modelrunnR.relaunch_nonsuccess = \"warn\") to relaunch anyway."),
-             call. = FALSE)
-      }
-      if (identical(policy, "warn")) warning(msg, call. = FALSE)
-    }
-  } else {
-    stopifnot(
-      is.character(code),
-      length(code) == 1L,
-      nzchar(code)
-    )
-    if (!file.exists(code)) {
-      stop(sprintf("launch(): file not found: %s", code), call. = FALSE)
-    }
-    # Normalize path so the `step` column is stable relative to resolution.
-    step <- normalizePath(code, mustWork = TRUE)
-    # Capture the file bytes as the run's recovery snapshot. Later the
-    # file may be edited or deleted; this keeps the run row self-contained.
-    code_body <- paste(readLines(step, warn = FALSE), collapse = "\n")
   }
 
-  # Queued-row pickup: launch(mr_run(id)) against a "queued" row
-  # updates the existing row in place (no new run_id written).
+  # Non-success source policy for mr_run() relaunches.
+  if (relaunch_mode && identical(relaunch_kind, "run") &&
+      !is.na(resolved$status) &&
+      !identical(resolved$status, "success") &&
+      !identical(resolved$status, "queued")) {
+    policy <- match.arg(
+      getOption("modelrunnR.relaunch_nonsuccess", "warn"),
+      c("warn", "error", "silent")
+    )
+    msg <- sprintf(
+      "launch(): re-executing run_id '%s' whose source row has status '%s'.",
+      code$value, resolved$status
+    )
+    if (identical(policy, "error")) {
+      stop(paste(msg, "Set options(modelrunnR.relaunch_nonsuccess = \"warn\") to relaunch anyway."),
+           call. = FALSE)
+    }
+    if (identical(policy, "warn")) warning(msg, call. = FALSE)
+  }
+
+  # Queued-row pickup: launch(mr_run(id)) against a "queued" row.
+  #
+  # Two paths:
+  #
+  # 1. No caller bindings -> pickup-in-place. The queued row's staged
+  #    rebinds / external_inputs run; the row is updated in place
+  #    (same run_id, status flips to success/error/skipped_fresh).
+  #
+  # 2. Caller supplied `rebind` or `external_inputs` -> spawn a new
+  #    run from the queued body. The queued row is treated as a
+  #    template: its `step` / `code_body` / `variant_label` already
+  #    flowed into the relaunch_resolve block above; we just fall
+  #    through to the normal launch path, which writes a fresh run_id
+  #    using the caller's bindings. The original queued row is
+  #    untouched and remains queued for someone else to drain.
+  #    Mirrors how `launch(mr_run(success_id))` already spawns a new
+  #    row from a finalized one — caller bindings mean "I am running
+  #    a different thing, not picking up the queued one."
   if (relaunch_mode && identical(relaunch_kind, "run") &&
       !is.null(resolved) && identical(resolved$status, "queued")) {
-    return(.mr_pickup_queued_run(
-      run_id          = code$value,
-      resolved        = resolved,
-      label           = label,
-      external_inputs = external_inputs,
-      force           = force,
-      duckdb_seed     = duckdb_seed
-    ))
+    if (!is.null(rebind) || !is.null(external_inputs)) {
+      warning(sprintf(
+        "launch(mr_run(id)): caller bindings supplied against queued run_id '%s'; spawning a new run from the queued body. The queued row remains queued.",
+        code$value
+      ), call. = FALSE)
+      # Fall through to the normal R-mode launch path. relaunch_mode
+      # stays TRUE so the resolved step/code_body/expr are used; the
+      # new row's variant_label was already inherited (or overridden
+      # by caller `label`) earlier in this function.
+    } else {
+      return(.mr_pickup_queued_run(
+        run_id          = code$value,
+        resolved        = resolved,
+        label           = label,
+        external_inputs = external_inputs,
+        force           = force,
+        duckdb_seed     = duckdb_seed
+      ))
+    }
   }
 
   # R-mode batch: dispatch once per envelope, sharing the resolved
@@ -431,14 +413,31 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 # informational message, matching launch_code()'s behavior.
 .mr_resolve_relaunch <- function(label) {
   con <- .mr_get_connection()
+  # Exclude queued rows from the label resolver: a queued row is staged
+  # but not executed, so picking it up via mr_label() would silently
+  # write a *new* row and orphan the queued one. Direct pickup must go
+  # through launch(mr_run(id)).
   prior <- DBI::dbGetQuery(
     con,
     "SELECT step, code_body FROM _mr_runs
       WHERE variant_label = ?
+        AND status != 'queued'
       ORDER BY started_at DESC LIMIT 1",
     params = list(label)
   )
   if (nrow(prior) == 0L) {
+    only_queued <- DBI::dbGetQuery(
+      con,
+      "SELECT COUNT(*) AS n FROM _mr_runs
+        WHERE variant_label = ? AND status = 'queued'",
+      params = list(label)
+    )$n
+    if (isTRUE(only_queued > 0L)) {
+      stop(sprintf(
+        "launch(): label '%s' has only queued rows. Use launch(mr_run(id)) to pick up a queued run by id.",
+        label
+      ), call. = FALSE)
+    }
     stop(sprintf(
       "launch(): no run with label '%s'. Label a pipeline first via launch(..., label = \"%s\").",
       label, label
@@ -666,10 +665,15 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
                                      batch_id = NA_character_,
                                      session_info = NULL) {
   con <- .mr_get_connection()
+  # Constrain inheritance to `status = 'success'` rows. A prior row in
+  # any other status (skipped_fresh with NA code_hash, error, queued)
+  # is a poor anchor: NA chains forward, error/queued misattribute the
+  # code identity. The success row that ground-truths this step is
+  # what we want.
   prior <- DBI::dbGetQuery(
     con,
     "SELECT variant_label, code_hash FROM _mr_runs
-      WHERE step = ?
+      WHERE step = ? AND status = 'success'
       ORDER BY started_at DESC LIMIT 1",
     params = list(step)
   )

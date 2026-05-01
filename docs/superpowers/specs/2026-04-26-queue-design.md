@@ -130,10 +130,10 @@ actual `_mr_runs` schema (see `R/schema.R`):
 | `variant_label`                        | yes (if provided)                      |
 | `batch_id`                             | yes (batch only)                       |
 | `duckdb_seed`                          | yes (if provided)                      |
-| `inputs` (JSON)                        | NA — resolved at pickup                |
-| `outputs` (JSON)                       | NA — set at pickup                     |
-| `external_inputs` (JSON)               | NA — set at pickup                     |
-| `helpers` (JSON)                       | NA — set at pickup                     |
+| `inputs` (JSON)                        | `"[]"` — resolved at pickup            |
+| `outputs` (JSON)                       | `"[]"` — set at pickup                 |
+| `external_inputs` (JSON)               | yes — `queue(external_inputs=)` (post-audit revision; see below) |
+| `helpers` (JSON)                       | `"[]"` — set at pickup                 |
 | `started_at`                           | NA — set at pickup                     |
 | `duration_ms`                          | NA — set at pickup                     |
 | `hostname`, `os`, `arch`, `r_version`  | NA — set at pickup                     |
@@ -142,12 +142,25 @@ actual `_mr_runs` schema (see `R/schema.R`):
 
 Rationale for the NAs: session-context columns describe *where the run
 executed*, which is unknown at queue time (the consumer may be on a different
-host). Inputs / external_inputs / helpers are resolved by parsing-and-executing
-the body, which is the work `queue()` declines to do.
+host). Inputs / helpers are resolved by parsing-and-executing the body, which
+is the work `queue()` declines to do.
 
 **Inputs are not statically pre-resolved at queue time.** Inputs come from
 `grab()` calls inside the body and are resolved when the body executes. This
 matches existing `launch()` semantics and keeps `queue()` as a thin recorder.
+
+**Post-audit revision (2026-04-28): `external_inputs` accepted at queue time.**
+The original spec deferred `external_inputs` to pickup. The audit found this
+left users with no way to declare external file dependencies on queued rows
+(the pickup branch in `launch.R` didn't forward the caller's `external_inputs`
+either, so neither queue-time nor pickup-time worked). Resolution: `queue()`
+gains an `external_inputs = NULL` argument with the same shape and contract
+as `launch(external_inputs = ...)`. Files are validated and hashed at queue
+time (missing files error before any row is written). Pickup reads the
+declarations off the row, re-resolves so recorded hashes reflect what the
+body saw at pickup, and writes them back. The `launch(mr_run(qid),
+external_inputs = ...)` form warns and ignores the caller's value, mirroring
+the same treatment for `rebind`.
 
 ### Inline vs. file-step capture
 

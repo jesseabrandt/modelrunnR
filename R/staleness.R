@@ -191,11 +191,18 @@
     # hash reports stale (the resulting run would differ).
     current <- if (!is.null(rebind[[p$name]])) {
       as.character(rebind[[p$name]])
+    } else if (identical(.mr_lookup_shape(p$name), "B")) {
+      # Shape B "head" lives in `_mr_append_chunks` keyed by
+      # chunk_hash, not in `_mr_versions`. Without this dispatch a
+      # real append-shape chunk_hash would never match and the
+      # consumer would always report stale.
+      .mr_append_latest_chunk_hash(con, p$name)
     } else {
       row <- DBI::dbGetQuery(
         con,
         "SELECT content_hash FROM _mr_versions
           WHERE logical_name = ?
+            AND (is_rebind IS NOT TRUE)
           ORDER BY first_seen DESC
           LIMIT 1",
         params = list(p$name)

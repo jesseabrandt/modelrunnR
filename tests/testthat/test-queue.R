@@ -112,21 +112,6 @@ test_that("each queued batch row's `rebinds` reflects its envelope's resolved re
   })
 })
 
-test_that("queue(mr_run(id)) errors", {
-  withr::with_tempdir({
-    new_test_db()
-    r <- queue({ x <- 1 })
-    expect_error(queue(mr_run(r$run_id)), "not accepted as a first-argument reference")
-  })
-})
-
-test_that("queue(mr_label('x')) errors", {
-  withr::with_tempdir({
-    new_test_db()
-    expect_error(queue(mr_label("foo")), "not accepted as a first-argument reference")
-  })
-})
-
 test_that("queue(mr_hash('abc')) errors", {
   withr::with_tempdir({
     new_test_db()
@@ -139,4 +124,191 @@ test_that("queue(mr_sql('SELECT 1')) errors with out-of-scope message", {
     new_test_db()
     expect_error(queue(mr_sql("SELECT 1")), "out of scope")
   })
+})
+
+test_that("batch queue is atomic: a mid-batch error rolls back prior rows", {
+  withr::with_tempdir({
+    new_test_db()
+    con <- modelrunnR:::.mr_get_connection()
+    n_before <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM _mr_runs")$n
+
+    # Envelope 2 has an invalid `.label` (whitespace-only). Validation
+    # fires inside .mr_queue_batch, after envelope 1's row was written.
+    # With transactional rollback, both rows must be absent after error.
+    expect_error(
+      queue(
+        { x <- grab("alpha") },
+        rebind = mr_binds(alpha = c(1, 2, 3),
+                          .label = c("ok", "  ", "ok2"))
+      ),
+      regexp = "label"
+    )
+
+    n_after <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM _mr_runs")$n
+    expect_equal(n_after, n_before)
+  })
+})
+
+test_that("queue(external_inputs=) hashes the file at queue time and stores on the row", {
+  withr::with_tempdir({
+    new_test_db()
+    writeLines("hello world", "ext.txt")
+    q <- queue(
+      { x <- 1 },
+      external_inputs = list(files = "ext.txt")
+    )
+    con <- modelrunnR:::.mr_get_connection()
+    row <- DBI::dbGetQuery(
+      con, "SELECT external_inputs FROM _mr_runs WHERE run_id = ?",
+      params = list(q$run_id)
+    )
+    parsed <- jsonlite::fromJSON(row$external_inputs[1], simplifyVector = FALSE)
+    expect_length(parsed$files, 1L)
+    expect_match(parsed$files[[1]]$path, "ext\\.txt$")
+    expect_match(parsed$files[[1]]$hash, "^[0-9a-f]+$")
+  })
+})
+
+test_that("queue(external_inputs=) errors at queue time when a declared file is missing", {
+  withr::with_tempdir({
+    new_test_db()
+    expect_error(
+      queue({ x <- 1 }, external_inputs = list(files = "no_such.txt")),
+      "declared external input file not found"
+    )
+    con <- modelrunnR:::.mr_get_connection()
+    n <- DBI::dbGetQuery(con, "SELECT COUNT(*) AS n FROM _mr_runs")$n
+    expect_equal(n, 0L)
+  })
+})
+
+test_that("staged external_inputs survive queue -> pickup; deleted file at pickup stamps row 'error'", {
+  withr::with_tempdir({
+    new_test_db()
+    writeLines("v1", "ext.txt")
+    q <- queue(
+      { x <- 1 },
+      external_inputs = list(files = "ext.txt")
+    )
+    file.remove("ext.txt")
+    expect_error(launch(mr_run(q$run_id)),
+                 "declared external input file not found")
+    con <- modelrunnR:::.mr_get_connection()
+    row <- DBI::dbGetQuery(
+      con, "SELECT status FROM _mr_runs WHERE run_id = ?",
+      params = list(q$run_id)
+    )
+    expect_equal(row$status, "error")
+  })
+})
+
+test_that("batch queue(external_inputs=) shares the resolved record across rows", {
+  withr::with_tempdir({
+    new_test_db()
+    writeLines("data", "ext.txt")
+    qs <- queue(
+      { x <- grab("alpha") },
+      rebind = mr_binds(alpha = c(1, 2)),
+      external_inputs = list(files = "ext.txt")
+    )
+    expect_equal(nrow(qs), 2L)
+    con <- modelrunnR:::.mr_get_connection()
+    rows <- DBI::dbGetQuery(
+      con, "SELECT external_inputs FROM _mr_runs WHERE run_id IN (?, ?)",
+      params = list(qs$run_id[1], qs$run_id[2])
+    )
+    parsed1 <- jsonlite::fromJSON(rows$external_inputs[1], simplifyVector = FALSE)
+    parsed2 <- jsonlite::fromJSON(rows$external_inputs[2], simplifyVector = FALSE)
+    expect_equal(parsed1$files[[1]]$hash, parsed2$files[[1]]$hash)
+  })
+})
+
+test_that("queue(mr_label('x')) stages a queued row carrying the labeled body", {
+  new_test_db()
+
+  # Seed a labeled run so mr_label("seed") resolves to something.
+  launch({ stow(1L, "out_a") }, label = "seed")
+
+  q <- queue(mr_label("seed"))
+  expect_equal(q$status, "queued")
+  expect_match(q$code_body, "stow(1L", fixed = TRUE)
+  # Auto-inherits label from the ref unless overridden.
+  expect_equal(q$variant_label, "seed")
+})
+
+test_that("queue(mr_label(...), label = 'override') uses the caller's label", {
+  new_test_db()
+  launch({ stow(1L, "out_b") }, label = "seed2")
+
+  q <- queue(mr_label("seed2"), label = "new_thread")
+  expect_equal(q$variant_label, "new_thread")
+})
+
+test_that("queue(mr_run(id)) against a success row writes a fresh queued row", {
+  new_test_db()
+  src <- launch({ stow(1L, "out_c") })
+
+  q <- queue(mr_run(src$run_id))
+  expect_equal(q$status, "queued")
+  expect_false(identical(q$run_id, src$run_id))
+  expect_match(q$code_body, "stow(1L", fixed = TRUE)
+})
+
+test_that("queue(mr_run(qid)) against a queued source with no rebind errors as circular", {
+  new_test_db()
+  q1 <- queue({ stow(1L, "out_d") })
+
+  expect_error(
+    queue(mr_run(q1$run_id)),
+    "circular"
+  )
+})
+
+test_that("queue(mr_run(qid)) against a queued source WITH rebind succeeds and leaves source queued", {
+  new_test_db()
+  q1 <- queue({ stow(grab("x"), "out_e") }, rebind = list(x = 1L))
+
+  q2 <- queue(mr_run(q1$run_id), rebind = list(x = 2L))
+  expect_equal(q2$status, "queued")
+  expect_false(identical(q2$run_id, q1$run_id))
+
+  # Source stays queued.
+  con <- modelrunnR:::.mr_get_connection()
+  src <- DBI::dbGetQuery(
+    con, "SELECT status FROM _mr_runs WHERE run_id = ?",
+    params = list(q1$run_id)
+  )
+  expect_equal(src$status, "queued")
+})
+
+test_that("queue(mr_run(failed_id)) warns under default relaunch_nonsuccess policy", {
+  new_test_db()
+  on.exit(options(modelrunnR.relaunch_nonsuccess = NULL), add = TRUE)
+
+  src <- tryCatch(launch({ stop("boom") }), error = function(e) NULL)
+  failed_id <- DBI::dbGetQuery(
+    modelrunnR:::.mr_get_connection(),
+    "SELECT run_id FROM _mr_runs WHERE status = 'error' ORDER BY started_at DESC LIMIT 1"
+  )$run_id[1]
+
+  expect_warning(
+    queue(mr_run(failed_id)),
+    "status 'error'"
+  )
+})
+
+test_that("queue(mr_label('x'), rebind = mr_binds(...)) fans out as a queued batch", {
+  new_test_db()
+  launch({ stow(grab("alpha"), "out_f") },
+         rebind = list(alpha = 0.1),
+         label  = "seed3")
+
+  qs <- queue(
+    mr_label("seed3"),
+    rebind = mr_binds(alpha = c(0.1, 0.5, 1.0))
+  )
+  expect_equal(nrow(qs), 3L)
+  expect_true(all(qs$status == "queued"))
+  expect_equal(length(unique(qs$batch_id)), 1L)
+  expect_true(all(qs$variant_label == "seed3"))
 })

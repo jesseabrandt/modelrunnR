@@ -441,6 +441,19 @@ prune <- function(name = NULL,
           .mr_quote_ident(physical), .mr_quote_ident(tmp)
         )
       )
+      # Cascade-delete the matching _mr_append_chunks records so
+      # versions(name) and mr_hash() resolution don't surface ghost
+      # entries for runs whose rows we just removed.
+      DBI::dbExecute(
+        con,
+        sprintf(
+          "DELETE FROM _mr_append_chunks
+            WHERE logical_name = ?
+              AND run_id IN (SELECT id FROM %s)",
+          .mr_quote_ident(tmp)
+        ),
+        params = list(logical)
+      )
       DBI::dbExecute(
         con,
         "UPDATE _mr_append_tables

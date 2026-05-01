@@ -41,3 +41,31 @@
 .mr_external_inputs_to_json <- function(resolved) {
   jsonlite::toJSON(resolved, auto_unbox = TRUE)
 }
+
+# Inverse of .mr_external_inputs_to_json for the queue -> pickup round
+# trip: extract just the *declarations* (paths, env names) from a
+# previously-resolved JSON record. Hashes from queue time are
+# discarded -- pickup re-resolves so the recorded hashes reflect what
+# the body actually saw.
+.mr_external_inputs_decl_from_json <- function(json_text) {
+  if (is.na(json_text) || !nzchar(json_text)) return(NULL)
+  parsed <- tryCatch(
+    jsonlite::fromJSON(json_text, simplifyVector = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(parsed)) return(NULL)
+  files <- vapply(
+    parsed$files %||% list(),
+    function(e) e$path %||% NA_character_,
+    character(1)
+  )
+  envs <- vapply(
+    parsed$env %||% list(),
+    function(e) e$name %||% NA_character_,
+    character(1)
+  )
+  files <- files[!is.na(files) & nzchar(files)]
+  envs  <- envs[!is.na(envs)   & nzchar(envs)]
+  if (length(files) == 0L && length(envs) == 0L) return(NULL)
+  list(files = files, env = envs)
+}

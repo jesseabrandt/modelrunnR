@@ -31,7 +31,8 @@
   con <- .mr_get_connection()
   prior <- DBI::dbGetQuery(
     con,
-    "SELECT step, code_body, code_hash, variant_label, rebinds, batch_id, duckdb_seed
+    "SELECT step, code_body, code_hash, variant_label, rebinds, batch_id,
+            duckdb_seed, external_inputs
        FROM _mr_runs WHERE run_id = ?",
     params = list(run_id)
   )
@@ -75,19 +76,54 @@
 
   # Reconstruct the rebinds map + shape_b_filters directly from the
   # stored provenance JSON. This is non-lossy: all hashes were resolved
-  # at queue time and are sitting in the JSON.
+  # at queue time and are sitting in the JSON. The local
+  # `shape_b_filters` is passed straight to .mr_start_rebinding() below;
+  # we never write .mr_state$pending_shape_b_filters here, since pickup
+  # has its own start-rebinding call and leaving that state set would
+  # leak into the next launch().
   maps <- .mr_map_from_provenance_json(prior$rebinds[1])
   rebinds_map     <- maps$rebinds_map
   shape_b_filters <- maps$shape_b_filters
-  if (length(shape_b_filters) > 0L) {
-    .mr_state$pending_shape_b_filters <- shape_b_filters
-  }
 
   started_at   <- Sys.time()
   start_secs   <- as.numeric(started_at)
+
+  # Pre-execution error guard: any error before the row is finalized
+  # leaves the queued row stranded as "queued". Track whether we hit a
+  # terminal-status update; if not, on.exit stamps the row "error" so
+  # the user sees the failure rather than an indefinitely-queued row.
+  row_finalized <- FALSE
+  session_info  <- .mr_blank_session_info()
+  on.exit({
+    if (!row_finalized) {
+      try(.mr_update_queued_row(
+        run_id          = run_id,
+        status          = "error",
+        started_at      = started_at,
+        duration_ms     = as.integer(round(
+          (as.numeric(Sys.time()) - start_secs) * 1000)),
+        inputs          = list(),
+        outputs         = list(),
+        external_inputs = list(files = list(), env = list()),
+        helpers         = list(),
+        session_info    = session_info,
+        code_body       = code_body,
+        code_hash       = prior$code_hash[1],
+        variant_label   = if (is.na(label)) prior$variant_label[1] else label
+      ), silent = TRUE)
+    }
+  }, add = TRUE)
+
   session_info <- .mr_capture_session_info()
 
-  resolved_ext <- .mr_resolve_external_inputs(external_inputs)
+  # external_inputs is staged on the queued row at queue time. The
+  # caller's pickup-time external_inputs has already been warned about
+  # and nulled by launch.R's queued-pickup branch. Re-resolve the
+  # staged declarations against current state so hashes reflect the
+  # files / env vars at pickup time (drift detection happens through
+  # the next launch's staleness check, not here).
+  staged_ext_decl <- .mr_external_inputs_decl_from_json(prior$external_inputs[1])
+  resolved_ext    <- .mr_resolve_external_inputs(staged_ext_decl)
 
   # Freshness check at pickup, not queue time (per spec).
   staleness     <- .mr_is_stale(step, variant_label = label, rebind = rebinds_map)
@@ -115,7 +151,7 @@
       code_hash       = skip_code_hash,
       variant_label   = label
     )
-    .mr_state$pending_shape_b_filters <- NULL
+    row_finalized <- TRUE
     return(invisible(.mr_runs_row(run_id)))
   }
 
@@ -182,6 +218,7 @@
     code_hash       = code_hash,
     variant_label   = label
   )
+  row_finalized <- TRUE
 
   if (!is.null(err_obj)) stop(err_obj)
   invisible(.mr_runs_row(run_id))

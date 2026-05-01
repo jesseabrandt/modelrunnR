@@ -42,8 +42,15 @@ versions or runs by identity. Each returns a tagged list that
 \item Inside \verb{launch(rebind = list(<name> = <ref>))}, a reference
 resolves to a content hash that overrides the named \code{grab()}
 inside the script.
-\item As \code{launch()}'s first argument, \code{mr_label()} (only) addresses
-a labeled pipeline's most recent run and re-executes its code.
+\item As \code{launch()}'s first argument:
+\itemize{
+\item \code{mr_label()} addresses a labeled pipeline's most recent run
+and re-executes its code.
+\item \code{mr_run()} addresses a stored run by id. Against a row whose
+status is \code{"queued"} (see \code{\link[=queue]{queue()}}), the call updates that row
+in place; against any other status it re-executes the stored
+code as a new row.
+}
 }
 
 Use a bare R value in \code{rebind} when you want the value stowed

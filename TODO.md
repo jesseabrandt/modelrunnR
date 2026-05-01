@@ -1,29 +1,16 @@
 # modelrunnR TODO
 
-## Surfaced 2026-04-27 (from queue() final-review)
+## Surfaced 2026-04-28 (from queue() audit fixes)
 
-### `launch(mr_run(id), rebind = ...)` silently discards caller's `rebind` for queued rows
+### ✓ Queued-row pickup with caller bindings spawns a new run
 
-When `launch(mr_run(id))` picks up a queued row, the rebinds applied
-to the body are reconstructed from the queued row's stored provenance
-JSON (`.mr_map_from_provenance_json()`). A `rebind = ...` argument
-passed by the caller at pickup time is **silently ignored** — the
-staged rebinds win.
-
-This is correct semantics (the user already staged what they wanted
-at queue time), but the silent ignore is a footgun. A user who runs
-`launch(mr_run(id), rebind = list(alpha = 0.99))` expecting an
-override gets the queue-time rebinds with no signal that the
-override was discarded.
-
-Options:
-- Warn when `rebind` is non-NULL on queued pickup.
-- Reject with an error.
-- Honor the override (and document that pickup can re-stage).
-- Document the silent ignore in `queue()` / `launch()` roxygen and
-  call it a day.
-
-Surfaced by final whole-branch code-quality review of feat/queue.
+Closed 2026-04-29: `launch(mr_run(qid), rebind = ...)` (or
+`external_inputs = ...`) against a queued row now warns and spawns
+a fresh `run_id` from the queued body with the caller's bindings;
+the queued row stays queued. `mr_binds()` fans out into N new runs
+under the same rule. `variant_label` inherits from the queued row
+unless caller passes `label = ...`. See `R/launch.R` queued branch
+and `tests/testthat/test-queue-pickup.R`.
 
 ## Surfaced 2026-04-27 (from Phase 1 R CMD check, queue work)
 
@@ -176,36 +163,24 @@ Not urgent. The cookbook pattern (`vignettes/nested-sweeps.Rmd`) works
 today with the explicit stow; this removes three lines of boilerplate
 from sweep code once the design questions are answered.
 
-### Skip-on-fresh collapses batch envelopes with identical grabs but different rebinds
+### ✓ Skip-on-fresh respects per-envelope rebinds
 
-Staleness is keyed on `(step, label)` plus the recorded `inputs` hash
-(from grabs). Rebind values are recorded on `_mr_runs.rebinds` but do
-not enter the staleness hash. Consequence: a batch where every
-envelope grabs the same upstream names and shares one label runs
-envelope 1, then marks envelopes 2..N as `skipped_fresh` because each
-check finds a prior run under the same `(step, label)` with the same
-input hashes — the differing rebinds are invisible to the check.
+Closed 2026-04-29: verified-and-locked-in. The fix landed in
+`6b95c15` (2026-04-24, audit sweep) via the rebind-aware branch of
+`.mr_check_inputs`: when the about-to-fire launch has a rebind on a
+recorded input name, the check compares the rebound hash against
+the prior input's hash rather than against `latest(name)`. So a
+sweep where every envelope rebinds (say) `alpha` to a different
+literal records different `_mr_runs.inputs` content hashes per
+envelope, and staleness flags `input:alpha` for envelopes 2..N
+instead of skipping them.
 
-Surfaced while building `vignettes/nested-sweeps.Rmd`: a 15-envelope
-`mr_binds(alpha = ..., fold = ..., mode = "cross")` sweep ran envelope 1
-and skipped envelopes 2..15. Vignette works around it by passing
-unique `.labels` per envelope so staleness becomes per-envelope. A
-user who doesn't set `.labels` gets a batch-of-1 with 14 silent skips.
-
-Related to the existing "SQL-launch records append-shape chunk_hash on
-`_mr_runs.inputs`; R-launch records `NA`" item but distinct — that one
-is about grab freshness detection; this is about rebind identity
-participating in freshness.
-
-Fix candidates:
-
-- Include the resolved rebind hashes (already in `_mr_runs.rebinds`)
-  in the staleness hash. Per-envelope rebinds → per-envelope identity,
-  no workaround needed.
-- Auto-derive a per-envelope variant label from the sweep values when
-  `.labels` is `NULL`. Spec explicitly rejected this path (2026-04-19
-  batch-launch spec §Labels) — rebinds column is the preferred
-  provenance surface. If fixed via option 1, this rejection stands.
+The `vignettes/nested-sweeps.Rmd` `.labels` workaround still works
+but is no longer required — could be relaxed in a vignette pass.
+Tests in `tests/testthat/test-staleness-rebind.R` lock in the
+contract: same step + same label + different rebind values run; same
+rebind values skip; `mr_binds()` sweeps under one label run every
+envelope.
 
 ### Skipped-fresh run rows can chain `NA` code_hash across skips
 
@@ -217,7 +192,13 @@ own metadata tables (`_mr_runs`, `_mr_versions`, `_mr_append_tables`).
 A user stowing under `_mr_runs` would collide in `.mr_guard_namespace`
 later, with a less-actionable error. Cheap close: append `&& !startsWith(name, "_mr_")` with an explicit reserved-prefix message.
 
-### Direct unit test for rebind-aware staleness
+### ✓ Direct unit test for rebind-aware staleness
+
+Closed 2026-04-29: see `tests/testthat/test-staleness-rebind.R`,
+added alongside the verify-and-close pass on the rebind-staleness
+TODO above.
+
+(Original note kept below for reference.)
 
 The test-launch-batch updates exercise the new rebind threading
 indirectly via batch skip-on-fresh under labeled envelopes. A direct
@@ -286,55 +267,40 @@ vignette, this file) but deferred the ~20 test files under
 
 ## Surfaced 2026-04-23 (from consolidated-branch audit)
 
-### Append-shape non-interactive provenance gap
+### ✓ Append-shape non-interactive provenance gap
 
-Inside a `launch()`, `stow(df, name)` commits the data row + the
-registry update in a DuckDB transaction, but the `_mr_runs.outputs`
-entry (which records the `chunk_hash` for the run) is written later
-by `.mr_write_run_row` outside that transaction. A process crash
-between the stow commit and the run-row write leaves the rows
-committed but the chunk_hash untracked in `outputs`. The data is still
-queryable via `grab()` (the row's `_mr_run_id` is stamped in the
-table), but `versions(name)` will omit that chunk and `mr_hash()`
-rebinds against the orphaned hash can't resolve. Fix probably needs
-either (a) passing `run_id` into `.mr_append_write_frame` / `_write_lazy`
-and appending the output entry to `_mr_runs.outputs` inside the same
-transaction, or (b) a dedicated `_mr_append_chunks` table populated
-at commit time. Interacts with the chunk-entries scan performance
-below — doing both at once may be cleaner.
+Closed 2026-04-29. Chunk records now land in a dedicated
+`_mr_append_chunks` table at stow-commit time, inside the same
+DuckDB transaction as the row INSERT. A process crash between stow
+commit and the later `_mr_runs.outputs` write no longer orphans the
+chunk identity: `versions(name)` and `mr_hash()` resolution read
+from the new table, which is durably committed alongside the data.
 
-### `.mr_append_chunk_entries` is O(n_runs) per call — full `_mr_runs` scan
+### ✓ `.mr_append_chunk_entries` replaced by keyed `_mr_append_chunks` queries
 
-Currently scans every `_mr_runs` row with a non-empty `outputs` column
-and JSON-parses each one, for every append-shape grab / versions() /
-mr_hash() resolution / SQL `@inputs` on a append-shape name. Acceptable
-today; hits a wall once a store accumulates thousands of runs.
-Cleanest fix is a dedicated `_mr_append_chunks (run_id, logical_name,
-chunk_hash, rows_appended, started_at)` populated at stow commit time
-and scanned by keyed query. Also resolves the "ghost chunk_hashes
-after prune" issue below in the same refactor.
+Closed 2026-04-29. Read paths (`.mr_append_run_id_for_chunk_hash`,
+`.mr_append_latest_run_id`, `.mr_append_chunk_hash_for_run`,
+`versions(name)` Shape B branch) now hit the keyed
+`_mr_append_chunks` table instead of scanning every `_mr_runs.outputs`
+JSON. The old `.mr_append_chunk_entries` helper was deleted.
 
-### Ghost chunk_hashes after `prune(name, by = "run")`
+### ✓ Ghost chunk_hashes after `prune(name, by = "run")`
 
-Pruning rows from a append-shape physical table doesn't remove the
-`append_table` entries from `_mr_runs.outputs` JSON. `versions(name)`
-afterward still lists the pruned chunk's hash; `grab(run = pruned_id)`
-returns zero rows silently; `mr_hash(<pruned_hash>)` rebinds resolve
-to a run whose rows no longer exist. Fix alongside the
-chunk-entries lookup table above — prune both in one pass.
+Closed 2026-04-29. `.mr_prune_shape_b_one()` now cascades the by-run
+prune into `_mr_append_chunks` inside the same `dbBegin`/`dbCommit`
+fence, so `versions(name)` and `mr_hash()` resolution don't surface
+entries for runs whose rows we just removed.
 
-### DDL auto-commit around `_mr_append_tables` first-write
+### ✓ DDL auto-commit around `_mr_append_tables` first-write
 
-`CREATE TABLE IF NOT EXISTS <physical>__append` in `.mr_append_ensure_table`
-runs inside the outer `dbBegin`/`dbCommit` fence in `.mr_append_write_frame`.
-DuckDB auto-commits DDL in standard mode, so the CREATE TABLE is not
-actually rolled back if the subsequent registry INSERT or the row
-INSERT fails. Next call sees the physical table but no registry row,
-ensures-table is a no-op (exists), and inserts a fresh registry row
-with wrong `row_count` / `first_seen`. Needs a test against DuckDB's
-actual DDL rollback behavior and, if auto-commit confirmed, a
-restructure: create the physical table pre-transaction and fence only
-the registry INSERT + row INSERT.
+Closed 2026-04-29. Split `.mr_append_ensure_table` into a DDL-only
+`.mr_append_create_physical_table` (called BEFORE `dbBegin`, so
+DuckDB's DDL auto-commit is explicit) and a registry-only
+`.mr_append_insert_registry_row` (called INSIDE `dbBegin`/`dbCommit`).
+Both `.mr_append_write_frame` and `.mr_append_write_lazy` updated.
+ALTER TABLE inside `.mr_append_reconcile_schema` has the same
+auto-commit shape but is a separate concern (schema-drift recovery)
+— left for a follow-up.
 
 ### Lazy-path vs frame-path chunk_hash semantic mismatch
 

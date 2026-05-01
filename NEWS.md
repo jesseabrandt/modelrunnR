@@ -1,3 +1,29 @@
+# modelrunnR (development version)
+
+## Bug fixes
+
+* `launch(rebind = list(name = <bare value>))` no longer shadows the
+  real upstream of `name`. Bare-value rebinds still write a
+  `_mr_versions` row (so the value is provenance-tracked,
+  hash-resolvable, and visible in `versions(name)`), but the row is now
+  flagged with a new `is_rebind = TRUE` column and excluded by the
+  latest-version resolver. Naked `grab(name)` after a launch with a
+  sample rebind returns the canonical upstream version, as expected.
+  `versions(name, include_rebinds = FALSE)` filters rebind rows from
+  the listing.
+
+## New features
+
+* `queue()` now accepts `mr_label()` and `mr_run()` as first-argument
+  references, mirroring `launch()`. This stages a queued row carrying the
+  resolved body — useful for batching re-runs of an existing labeled
+  pipeline or specific historical run for later parallel execution. The
+  only remaining circular case (`queue(mr_run(qid))` against a queued
+  source with no rebind) errors with a clear message.
+* Internal: `launch()` and `queue()` now share a single first-argument
+  dispatcher (`.mr_dispatch_code_arg()`). No user-visible behavior change
+  from the refactor.
+
 # modelrunnR 0.0.0.9000
 
 ## Breaking semantic changes
@@ -50,11 +76,23 @@
   via on-demand filtered views.
 * **`queue()` verb: register a run to `_mr_runs` with `status = "queued"`**
   without executing it. Pickup is `launch(mr_run(id))`, which now also
-  drains queued rows in place (preserves `run_id`, `step`, `code_body`,
-  `rebinds`; populates `status`, timing, session-context). Batch staging
-  via `rebind = mr_binds(...)` writes N queued rows under one `batch_id`.
+  drains queued rows in place (preserves `run_id`, `step`, `rebinds`,
+  `batch_id`, `duckdb_seed`; populates `status`, timing, session-context).
+  `code_body` is frozen for inline steps; for file steps it refreshes
+  from disk at pickup, with a drift warning if the file changed.
+  `queue(external_inputs = ...)` accepts the same shape as
+  `launch(external_inputs = ...)` — files are validated and hashed at
+  queue time, re-resolved at pickup. Batch staging via
+  `rebind = mr_binds(...)` writes N queued rows under one `batch_id`,
+  atomically: a per-envelope error rolls back the whole batch.
   Parallelism is composed by the caller (`future`/`furrr`/shell);
-  modelrunnR records and resumes, no built-in worker.
+  modelrunnR records and resumes, no built-in worker. See `?queue`
+  for the full freeze-vs-refresh contract.
+* `launch(mr_run(qid), rebind = ...)` and `launch(mr_run(qid),
+  external_inputs = ...)` against a queued row warn that the staged
+  values win and proceed with pickup. Spawning a new run from a
+  queued template with caller bindings is a future feature
+  (see `TODO.md`).
 * New status value **`"queued"`** joins the existing set
   (`success`, `error`, `skipped_fresh`, `interactive`). No schema
   migration — `_mr_runs` columns are unchanged.

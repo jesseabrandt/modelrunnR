@@ -121,11 +121,11 @@
         ), call. = FALSE)
       }
       .mr_guard_namespace(name, shape = "A", new_kind = "table")
-      hash <- .mr_stow_table(name, value)
+      hash <- .mr_stow_table(name, value, is_rebind = TRUE)
       value_str <- sprintf("data.frame[%dx%d]", nrow(value), ncol(value))
     } else {
       .mr_guard_namespace(name, shape = "A", new_kind = "artifact")
-      hash <- .mr_stow_artifact(name, value)
+      hash <- .mr_stow_artifact(name, value, is_rebind = TRUE)
       value_str <- .mr_format_literal_rebind(value)
     }
     list(
@@ -199,6 +199,7 @@
     con,
     "SELECT content_hash FROM _mr_versions
       WHERE logical_name = ? AND first_seen <= ?
+        AND (is_rebind IS NOT TRUE)
       ORDER BY first_seen DESC LIMIT 1",
     params = list(name, time)
   )

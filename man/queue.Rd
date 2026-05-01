@@ -4,19 +4,46 @@
 \alias{queue}
 \title{Stage a tracked run without executing it}
 \usage{
-queue(code, rebind = NULL, label = NULL, duckdb_seed = NULL, ...)
+queue(
+  code,
+  rebind = NULL,
+  label = NULL,
+  external_inputs = NULL,
+  duckdb_seed = NULL,
+  ...
+)
 }
 \arguments{
-\item{code}{A braced \code{{ ... }} block (inline) or a path to an
-\code{.R} script (file step). Reference objects (\code{\link[=mr_run]{mr_run()}},
-\code{\link[=mr_label]{mr_label()}}, \code{\link[=mr_hash]{mr_hash()}}) and \code{.sql} paths / \code{\link[=mr_sql]{mr_sql()}} are
-rejected — re-queueing or staging SQL is out of scope.}
+\item{code}{A braced \code{{ ... }} block (inline), a path to an \code{.R}
+script (file step), \code{\link[=mr_label]{mr_label()}} (stages the labeled pipeline's
+body), or \code{\link[=mr_run]{mr_run()}} (stages a specific run's body). \code{.sql} paths,
+\code{\link[=mr_sql]{mr_sql()}}, and \code{\link[=mr_hash]{mr_hash()}} are rejected — SQL queueing is out of
+scope (v1) and \code{mr_hash()} addresses content, not pipelines.
+
+\code{mr_label()} resolution mirrors \code{launch(mr_label(...))}: re-reads
+the file from disk for file steps; uses the stored snapshot for
+inline steps. The label is auto-inherited onto the queued row
+unless \code{label = ...} is passed.
+
+\code{mr_run()} resolution mirrors \code{launch(mr_run(id))} for
+non-queued sources: a new queued row is written from that run's
+body. The source row's \code{variant_label} is auto-inherited unless
+\code{label = ...} is passed. Against a queued source: with \code{rebind = ...} the queued row is treated as a template (parallels
+\code{launch(mr_run(qid), rebind = ...)}); without \code{rebind}, errors
+as circular.}
 
 \item{rebind}{Optional named list, or \code{\link[=mr_binds]{mr_binds()}} / \code{\link[=mr_envelopes]{mr_envelopes()}}
 for batch staging (writes N queued rows under one \code{batch_id}).
 Same semantics as \code{launch(rebind = ...)}.}
 
 \item{label}{Optional \code{variant_label} for the queued run.}
+
+\item{external_inputs}{Optional named list with fields \code{files} (a
+character vector of paths) and/or \code{env} (a character vector of
+environment variable names), same shape as \code{launch(external_inputs = ...)}. Each declared input is hashed at queue time and recorded
+on the queued row; pickup re-resolves the same declarations
+against current state. Missing declared files error at queue
+time, before any row is written.}
 
 \item{duckdb_seed}{Optional numeric seed in \verb{[-1, 1]}, recorded on
 the queued row and applied at pickup time.}
@@ -43,3 +70,31 @@ Parallel execution is not built in. Compose with \code{future}/\code{furrr},
 base R loops, or shell-level job runners (e.g. \code{tsp}, an HPC submit
 script). modelrunnR records; the consumer executes.
 }
+\section{What's frozen vs refreshed at pickup}{
+
+When \code{launch(mr_run(id))} picks up a queued row, the row is updated
+\strong{in place} (no new \code{run_id} written). Some columns stay frozen
+across the update; others are populated for the first time or
+refreshed.
+
+\strong{Frozen} (preserved exactly as queued): \code{run_id}, \code{step},
+\code{rebinds}, \code{batch_id}, \code{duckdb_seed}.
+
+\strong{Refreshed by execution} (NA at queue time, populated at pickup):
+\code{started_at}, \code{duration_ms}, \code{inputs}, \code{outputs}, \code{helpers},
+\code{external_inputs}, plus session/host columns (\code{hostname}, \code{os},
+\code{arch}, \code{r_version}, \code{n_cpu}, \code{total_ram_bytes}, \code{free_ram_bytes},
+\code{attached_packages}, \code{git_sha}, \code{git_branch}, \code{git_dirty}).
+
+\strong{Caller-overridable at pickup}: \code{variant_label} (the queued
+value carries forward unless \code{launch(label = ...)} is passed).
+
+\strong{\code{code_body} and \code{code_hash}}: frozen for \strong{inline steps} (the
+captured body never changes). For \strong{file steps}, the file is
+re-sourced from disk at pickup; if the bytes have drifted since
+queue time, a \code{warning()} fires naming the queued and current
+hashes, and the columns refresh to what actually executed. If the
+file has been deleted, the queue-time snapshot is used and an
+informational message is emitted.
+}
+

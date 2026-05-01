@@ -42,7 +42,7 @@ raw <- grab("sales", source = tmp)
 class(raw)
 ```
 
-`grab()` ingested the CSV server-side via DuckDB's `read_csv_auto()` —
+`grab()` read the CSV server-side via DuckDB's `read_csv_auto()` —
 no R-side materialization. Subsequent `grab("sales")` calls return a
 lazy tbl directly.
 

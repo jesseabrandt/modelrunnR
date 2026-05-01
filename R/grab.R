@@ -103,17 +103,23 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
     }
     if (!is.null(run)) {
       reading <- .mr_append_read(name, run = run)
-      .mr_record_read(name, NA_character_)
+      # `run = "all"` is a cross-history view; no single chunk_hash applies.
+      hash <- if (identical(run, "all")) {
+        NA_character_
+      } else {
+        .mr_append_chunk_hash_for_run(con, name, run)
+      }
+      .mr_record_read(name, hash)
       return(reading)
     }
     if (!is.null(variant)) {
       reading <- .mr_append_read(name, variant = variant)
-      .mr_record_read(name, NA_character_)
+      .mr_record_read(name, .mr_append_latest_chunk_hash_for_variant(con, name, variant))
       return(reading)
     }
     if (!is.null(from_run)) {
       reading <- .mr_append_read(name, run = from_run)
-      .mr_record_read(name, NA_character_)
+      .mr_record_read(name, .mr_append_chunk_hash_for_run(con, name, from_run))
       return(reading)
     }
     # If this name is rebound to a specific filter, honor it before the
@@ -121,7 +127,7 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
     rebound_filter <- .mr_rebound_shape_b_filter(name)
     if (!is.null(rebound_filter)) {
       reading <- .mr_append_read(name, run = rebound_filter$value)
-      .mr_record_read(name, NA_character_)
+      .mr_record_read(name, .mr_append_chunk_hash_for_run(con, name, rebound_filter$value))
       return(reading)
     }
 
@@ -132,7 +138,11 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
     } else {
       .mr_append_read(name)
     }
-    .mr_record_read(name, NA_character_)
+    # Record the upstream's latest chunk_hash at the time of read so a
+    # downstream consumer goes stale when the upstream appends a new
+    # chunk. Mirrors the SQL-launch `inputs_pairs` recording (see
+    # .mr_launch_sql, Shape B branch).
+    .mr_record_read(name, .mr_append_latest_chunk_hash(con, name))
     return(reading)
   }
 
@@ -218,9 +228,13 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
 # never been stored or (b) the current file's md5 differs from the
 # latest stored source_hash. Silently no-ops otherwise.
 .mr_maybe_ingest <- function(con, name, source) {
+  # Existence check excludes rebind rows: a name that only exists as a
+  # bare-value rebind has no real upstream, so grab(source=) should
+  # ingest from the supplied path.
   existing <- DBI::dbGetQuery(
     con,
-    "SELECT 1 FROM _mr_versions WHERE logical_name = ? LIMIT 1",
+    "SELECT 1 FROM _mr_versions
+       WHERE logical_name = ? AND (is_rebind IS NOT TRUE) LIMIT 1",
     params = list(name)
   )
   if (nrow(existing) == 0L) {
@@ -304,6 +318,7 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
       con,
       "SELECT * FROM _mr_versions
          WHERE logical_name = ? AND first_seen <= ?
+           AND (is_rebind IS NOT TRUE)
          ORDER BY first_seen DESC
          LIMIT 1",
       params = list(name, as_of)
@@ -315,11 +330,15 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
     return(row[1, , drop = FALSE])
   }
 
-  # Default: latest version for this name.
+  # Default: latest version for this name. Bare-value rebind rows
+  # (is_rebind = TRUE) are excluded so a launch that rebound `name` to a
+  # sample value doesn't shadow the real upstream — naked grab(name)
+  # still resolves to the canonical latest stow.
   row <- DBI::dbGetQuery(
     con,
     "SELECT * FROM _mr_versions
        WHERE logical_name = ?
+         AND (is_rebind IS NOT TRUE)
        ORDER BY first_seen DESC
        LIMIT 1",
     params = list(name)

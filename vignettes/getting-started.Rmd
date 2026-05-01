@@ -279,20 +279,25 @@ history.
 
 ## Staging runs without executing them
 
-`queue()` registers a run to `_mr_runs` with `status = "queued"` but
-doesn't execute the code. Pickup is `launch(mr_run(id))` — the same
-verb you'd use to relaunch a stored run, now also executing queued
-rows in place.
+When you want to enumerate runs now and execute later — on an HPC submit
+script, in a parallel `furrr` map, or just on tomorrow's run — `queue()`
+stages the run row without firing the code. `queue()` registers a row
+to `_mr_runs` with `status = "queued"`; `launch(mr_run(id))` picks it
+up later and updates the row in place.
 
-```{r queue-stage, eval = FALSE}
-# Stage a single run.
+```{r queue-stage}
+# Stage a single run against the same training data we used above.
 q <- queue({
-  fit <- glm(y ~ x, data = grab("training"))
-  stow(fit, "model")
+  training <- grab("training") |> dplyr::collect()
+  model    <- lm(y ~ x1 + x2, data = training)
+  stow(model, "queued_model")
 })
+q$status   # "queued"
 
-# Pick it up later — anywhere, any process.
-launch(mr_run(q$run_id))
+# Pick it up — anywhere, any process. Here, in this session.
+r <- launch(mr_run(q$run_id))
+r$status   # "success" — same row, status flipped
+identical(r$run_id, q$run_id)
 ```
 
 Batch staging via `mr_binds()` writes N queued rows under one
@@ -300,8 +305,12 @@ Batch staging via `mr_binds()` writes N queued rows under one
 
 ```{r queue-batch, eval = FALSE}
 qs <- queue(
-  { fit_with(grab("alpha")) |> stow("model") },
-  rebind = mr_binds(alpha = c(0.1, 0.5, 1.0))
+  {
+    training <- grab("training") |> dplyr::collect()
+    model    <- lm(y ~ x1 + x2, data = training, weights = rep(grab("w"), nrow(training)))
+    stow(model, "weighted_model")
+  },
+  rebind = mr_binds(w = c(0.5, 1.0, 2.0))
 )
 
 # Serial pickup:
@@ -312,11 +321,32 @@ purrr::walk(qs$run_id, ~ launch(mr_run(.x)))
 # furrr::future_map(qs$run_id, ~ launch(mr_run(.x)))
 ```
 
-Pickup is in-place: `run_id`, `step`, `code_body`, and `rebinds` stay
+### Queueing a re-run
+
+`queue()` accepts the same reference shapes as `launch()`'s relaunch
+mode. Use `mr_label()` to stage a labeled pipeline's body for later
+execution under different bindings:
+
+```r
+launch({ ... }, label = "ridge_pf")
+
+queue(
+  mr_label("ridge_pf"),
+  rebind = mr_binds(panel = list(mr_variant("placebo_panel"))),
+  label  = "ridge_pbo"
+)
+```
+
+`mr_run(id)` works the same way against a specific historical run.
+
+Pickup is in-place: `run_id`, `step`, `rebinds`, and `batch_id` stay
 frozen across queue → pickup, while `status`, timing, and
-session-context columns populate at execution. If the freshness check
-would skip the run, the queued row's `status` becomes `"skipped_fresh"`
-without executing the body.
+session-context columns populate at execution. `code_body` is frozen
+for inline steps; for file steps it's re-read from disk at pickup, with
+a `warning()` if the file has drifted since queue time. If the freshness
+check would skip the run, the queued row's `status` becomes
+`"skipped_fresh"` without executing the body. See `?queue` for the
+full contract.
 
 ## From block to script
 

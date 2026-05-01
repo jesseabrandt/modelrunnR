@@ -15,22 +15,68 @@ test_that("launch(mr_run(id)) on a queued row updates the same row in place", {
   })
 })
 
-test_that("queued row's frozen columns are preserved across pickup", {
+test_that("queued row's frozen columns are preserved across inline pickup", {
   withr::with_tempdir({
     new_test_db()
-    q <- queue({ y <- 7 }, label = "exp_a")
+    q <- queue({ y <- 7 }, label = "exp_a", duckdb_seed = 0.25)
+    cols <- "step, code_body, code_hash, variant_label, rebinds, batch_id, duckdb_seed"
     pre  <- modelrunnR:::.mr_get_connection() |>
-      DBI::dbGetQuery("SELECT step, code_body, code_hash, variant_label, rebinds FROM _mr_runs WHERE run_id = ?",
+      DBI::dbGetQuery(sprintf("SELECT %s FROM _mr_runs WHERE run_id = ?", cols),
                       params = list(q$run_id))
     launch(mr_run(q$run_id))
     post <- modelrunnR:::.mr_get_connection() |>
-      DBI::dbGetQuery("SELECT step, code_body, code_hash, variant_label, rebinds FROM _mr_runs WHERE run_id = ?",
+      DBI::dbGetQuery(sprintf("SELECT %s FROM _mr_runs WHERE run_id = ?", cols),
                       params = list(q$run_id))
     expect_equal(pre$step,          post$step)
     expect_equal(pre$code_body,     post$code_body)
     expect_equal(pre$code_hash,     post$code_hash)
     expect_equal(pre$variant_label, post$variant_label)
     expect_equal(pre$rebinds,       post$rebinds)
+    expect_equal(pre$batch_id,      post$batch_id)
+    expect_equal(pre$duckdb_seed,   post$duckdb_seed)
+  })
+})
+
+test_that("file-step queued pickup with no drift preserves code_body and code_hash", {
+  withr::with_tempdir({
+    new_test_db()
+    writeLines("x <- 'stable'; stow(x, 'g')", "fit.R")
+    q <- queue("fit.R")
+    cols <- "step, code_body, code_hash"
+    pre <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery(sprintf("SELECT %s FROM _mr_runs WHERE run_id = ?", cols),
+                      params = list(q$run_id))
+    launch(mr_run(q$run_id))
+    post <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery(sprintf("SELECT %s FROM _mr_runs WHERE run_id = ?", cols),
+                      params = list(q$run_id))
+    expect_equal(pre$step,      post$step)
+    expect_equal(pre$code_body, post$code_body)
+    expect_equal(pre$code_hash, post$code_hash)
+  })
+})
+
+test_that("batch-queued row's batch_id is preserved across pickup", {
+  withr::with_tempdir({
+    new_test_db()
+    qs <- queue({ y <- grab("alpha") },
+                rebind = mr_binds(alpha = c(1, 2, 3)))
+    expect_equal(nrow(qs), 3L)
+    expect_true(all(!is.na(qs$batch_id)))
+    expect_equal(length(unique(qs$batch_id)), 1L)
+
+    launch(mr_run(qs$run_id[1]))
+    post <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery("SELECT batch_id, status FROM _mr_runs WHERE run_id = ?",
+                      params = list(qs$run_id[1]))
+    expect_equal(post$batch_id, qs$batch_id[1])
+    expect_equal(post$status,   "success")
+
+    # Sibling rows in the same batch stay queued.
+    sibling <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery("SELECT status FROM _mr_runs WHERE run_id = ?",
+                      params = list(qs$run_id[2]))
+    expect_equal(sibling$status, "queued")
   })
 })
 
@@ -116,5 +162,154 @@ test_that("file-step queued pickup falls back to the snapshot when the file is g
     post <- DBI::dbGetQuery(con, "SELECT status FROM _mr_runs WHERE run_id = ?",
                             params = list(q$run_id))
     expect_equal(post$status, "success")
+  })
+})
+
+test_that("Shape B rebind on a queued row does not leak pending filter after pickup", {
+  withr::with_tempdir({
+    new_test_db()
+    r1 <- launch({ stow(data.frame(x = 1L), "seq") })
+    launch({ stow(data.frame(x = 2L:3L), "seq") })
+
+    q <- queue(
+      { stow(data.frame(n = nrow(grab("seq") |> dplyr::collect())), "size") },
+      rebind = list(seq = mr_run(r1$run_id))
+    )
+    launch(mr_run(q$run_id))
+
+    # After pickup the per-call state slot must be clear; otherwise the
+    # next .mr_launch_one() reads it via .mr_state$pending_shape_b_filters
+    # and applies the leaked filter.
+    expect_null(modelrunnR:::.mr_state$pending_shape_b_filters)
+  })
+})
+
+test_that("queue() with a Shape B rebind does not leak pending filter to the next launch", {
+  withr::with_tempdir({
+    new_test_db()
+    r1 <- launch({ stow(data.frame(x = 1L), "seq") })
+    launch({ stow(data.frame(x = 2L:3L), "seq") })
+
+    queue(
+      { stow(data.frame(n = nrow(grab("seq") |> dplyr::collect())), "z") },
+      rebind = list(seq = mr_run(r1$run_id))
+    )
+    expect_null(modelrunnR:::.mr_state$pending_shape_b_filters)
+  })
+})
+
+test_that("launch(mr_label(lbl)) with only queued rows under that label errors clearly", {
+  withr::with_tempdir({
+    new_test_db()
+    queue({ x <- 1 }, label = "exp_a")
+    expect_error(
+      launch(mr_label("exp_a")),
+      "only queued rows"
+    )
+  })
+})
+
+test_that("queued row's attached_packages is a parseable empty JSON array, not NA", {
+  withr::with_tempdir({
+    new_test_db()
+    q <- queue({ x <- 1 })
+    con <- modelrunnR:::.mr_get_connection()
+    row <- DBI::dbGetQuery(
+      con, "SELECT attached_packages FROM _mr_runs WHERE run_id = ?",
+      params = list(q$run_id)
+    )
+    expect_equal(row$attached_packages, "[]")
+    expect_silent(jsonlite::fromJSON(row$attached_packages))
+  })
+})
+
+test_that("caller rebind on a queued row spawns a new run; queued row stays queued", {
+  withr::with_tempdir({
+    new_test_db()
+    q <- queue(
+      { y <- grab("alpha"); stow(data.frame(value = y), "out") },
+      rebind = list(alpha = 0.5)
+    )
+    expect_warning(
+      r <- launch(mr_run(q$run_id), rebind = list(alpha = 999)),
+      "queued row remains queued"
+    )
+    expect_false(r$run_id == q$run_id)            # new row, not in-place
+    expect_equal(r$status, "success")
+    out <- grab("out") |> dplyr::collect()
+    expect_equal(out$value[[1]], 999)             # caller's binding wins
+    # Queued row is untouched.
+    qpost <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery("SELECT status FROM _mr_runs WHERE run_id = ?",
+                      params = list(q$run_id))
+    expect_equal(qpost$status, "queued")
+  })
+})
+
+test_that("caller external_inputs on a queued row spawns a new run; queued row stays queued", {
+  withr::with_tempdir({
+    new_test_db()
+    q <- queue({ x <- 1 })
+    writeLines("hello", "ext.txt")
+    expect_warning(
+      r <- launch(mr_run(q$run_id),
+                  external_inputs = list(files = "ext.txt")),
+      "queued row remains queued"
+    )
+    expect_false(r$run_id == q$run_id)
+    expect_equal(r$status, "success")
+    qpost <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery("SELECT status FROM _mr_runs WHERE run_id = ?",
+                      params = list(q$run_id))
+    expect_equal(qpost$status, "queued")
+  })
+})
+
+test_that("caller mr_binds() on a queued row fans out N new runs; queued row stays queued", {
+  withr::with_tempdir({
+    new_test_db()
+    q <- queue(
+      { y <- grab("alpha"); stow(data.frame(value = y), "out") }
+    )
+    expect_warning(
+      rs <- launch(mr_run(q$run_id), rebind = mr_binds(alpha = c(1, 2, 3))),
+      "queued row remains queued"
+    )
+    expect_equal(nrow(rs), 3L)
+    expect_true(all(rs$status == "success"))
+    expect_false(any(rs$run_id == q$run_id))      # all new ids
+    expect_equal(length(unique(rs$run_id)), 3L)
+    # Queued template untouched.
+    qpost <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery("SELECT status FROM _mr_runs WHERE run_id = ?",
+                      params = list(q$run_id))
+    expect_equal(qpost$status, "queued")
+  })
+})
+
+test_that("spawn-from-queued inherits the queued row's variant_label by default", {
+  withr::with_tempdir({
+    new_test_db()
+    q <- queue({ x <- grab("a") }, rebind = list(a = 1), label = "exp_a")
+    r <- suppressWarnings(
+      launch(mr_run(q$run_id), rebind = list(a = 2))
+    )
+    expect_equal(r$variant_label, "exp_a")
+  })
+})
+
+test_that("spawn-from-queued honors caller's `label = ` over the queued row's label", {
+  withr::with_tempdir({
+    new_test_db()
+    q <- queue({ x <- grab("a") }, rebind = list(a = 1), label = "exp_a")
+    r <- suppressWarnings(
+      launch(mr_run(q$run_id), rebind = list(a = 2), label = "exp_b")
+    )
+    expect_equal(r$variant_label, "exp_b")
+    # Queued row's label is unchanged.
+    qpost <- modelrunnR:::.mr_get_connection() |>
+      DBI::dbGetQuery("SELECT variant_label FROM _mr_runs WHERE run_id = ?",
+                      params = list(q$run_id))
+    expect_equal(qpost$variant_label, "exp_a")
   })
 })

@@ -28,7 +28,18 @@
     ),
     error = function(e) NULL
   )
-  if (is.null(info) || nrow(info) == 0L) return(fallback)
+  if (is.null(info) || nrow(info) == 0L) {
+    # The fallback is exactly the silent-failure surface the 2026-04-24
+    # PRAGMA-driven rewrite was meant to remove (parsed JSON key order
+    # is not guaranteed across jsonlite versions). Surface a warning so
+    # any regression that re-routes through the fallback shows up
+    # instead of silently misaligning INSERT column order.
+    warning(sprintf(
+      ".mr_append_user_col_order(): PRAGMA table_info(%s) failed or returned no rows; falling back to schema key order.",
+      .mr_quote_ident(physical)
+    ), call. = FALSE)
+    return(fallback)
+  }
   setdiff(info$name, .mr_append_reserved_cols)
 }
 
@@ -64,9 +75,35 @@
   "TEXT"
 }
 
-# First-write path: create the physical table with user columns +
-# system columns, insert the row, register in _mr_append_tables.
-.mr_append_ensure_table <- function(con, name, frame_types) {
+# Stamp a row into _mr_append_chunks for the just-committed append.
+# Called inside the stow transaction in both the frame and the lazy
+# write paths so the chunk record is atomic with the row INSERT.
+# After this commits, downstream lookups (chunk_hash <-> run_id,
+# latest run for a name, etc.) hit a keyed query against this table
+# instead of scanning every `_mr_runs.outputs` JSON.
+.mr_append_record_chunk <- function(con, name, run_id, chunk_hash,
+                                    rows_appended, started_at) {
+  DBI::dbExecute(
+    con,
+    "INSERT INTO _mr_append_chunks
+       (logical_name, run_id, chunk_hash, rows_appended, started_at)
+     VALUES (?, ?, ?, ?, ?)",
+    params = list(
+      name, run_id, as.character(chunk_hash),
+      as.integer(rows_appended), started_at
+    )
+  )
+  invisible(NULL)
+}
+
+# First-write physical-table DDL. MUST be called BEFORE the caller's
+# dbBegin/dbCommit fence: DuckDB auto-commits DDL in standard mode,
+# so a CREATE TABLE inside a transaction is not rolled back if the
+# subsequent registry INSERT or row INSERT fails. Pulling it outside
+# the fence keeps the failure mode clean: either both physical-table
+# DDL and registry INSERT succeed, or only the DDL "leaks" — which
+# is harmless because CREATE TABLE IF NOT EXISTS is idempotent.
+.mr_append_create_physical_table <- function(con, name, frame_types) {
   physical <- .mr_append_physical_name(name)
   cols <- c(
     vapply(names(frame_types),
@@ -81,8 +118,15 @@
             .mr_quote_ident(physical),
             paste(cols, collapse = ", "))
   )
+  physical
+}
+
+# Registry-side first-write: INSERT a row into _mr_append_tables for
+# this logical name. MUST be called INSIDE the caller's dbBegin/
+# dbCommit fence so the registry stays in sync with the data INSERT.
+.mr_append_insert_registry_row <- function(con, name, physical,
+                                           frame_types, now) {
   schema_json <- jsonlite::toJSON(frame_types, auto_unbox = TRUE)
-  now <- Sys.time()
   DBI::dbExecute(
     con,
     "INSERT INTO _mr_append_tables
@@ -91,7 +135,7 @@
      VALUES (?, ?, ?, ?, ?, 0, 0)",
     params = list(name, physical, as.character(schema_json), now, now)
   )
-  physical
+  invisible(NULL)
 }
 
 # Top-level append for materialized frames. When called inside an active
@@ -128,16 +172,26 @@
   physical <- .mr_append_physical_name(name)
   frame_types <- .mr_append_frame_types(value)
 
+  # Pre-fence: registration check + physical-table DDL. The DDL is
+  # outside dbBegin/dbCommit because DuckDB auto-commits DDL anyway;
+  # leaving it here makes that explicit and prevents a "physical
+  # table exists, registry doesn't" inconsistency on a mid-fence
+  # failure.
+  registered <- DBI::dbGetQuery(
+    con,
+    "SELECT * FROM _mr_append_tables WHERE logical_name = ?",
+    params = list(name)
+  )
+  first_write <- nrow(registered) == 0L
+  if (first_write) {
+    .mr_append_create_physical_table(con, name, frame_types)
+  }
+
   now <- Sys.time()
   DBI::dbBegin(con)
   tryCatch({
-    registered <- DBI::dbGetQuery(
-      con,
-      "SELECT * FROM _mr_append_tables WHERE logical_name = ?",
-      params = list(name)
-    )
-    if (nrow(registered) == 0L) {
-      .mr_append_ensure_table(con, name, frame_types)
+    if (first_write) {
+      .mr_append_insert_registry_row(con, name, physical, frame_types, now)
       schema <- frame_types
     } else {
       schema <- .mr_append_reconcile_schema(con, name, registered, value)
@@ -178,6 +232,9 @@
       logical_name  = name,
       rows_appended = nrow(value),
       chunk_hash    = chunk_hash
+    )
+    .mr_append_record_chunk(
+      con, name, run_id, chunk_hash, nrow(value), now
     )
     if (interactive) {
       .mr_write_interactive_run_row(con, run_id, list(output_entry), now)
@@ -463,15 +520,22 @@
   physical <- .mr_append_physical_name(name)
   now <- Sys.time()
 
+  # Pre-fence: registration check + DDL outside dbBegin/dbCommit (see
+  # comment in .mr_append_write_frame for the rationale).
+  registered <- DBI::dbGetQuery(
+    con,
+    "SELECT * FROM _mr_append_tables WHERE logical_name = ?",
+    params = list(name)
+  )
+  first_write <- nrow(registered) == 0L
+  if (first_write) {
+    .mr_append_create_physical_table(con, name, frame_types)
+  }
+
   DBI::dbBegin(con)
   tryCatch({
-    registered <- DBI::dbGetQuery(
-      con,
-      "SELECT * FROM _mr_append_tables WHERE logical_name = ?",
-      params = list(name)
-    )
-    if (nrow(registered) == 0L) {
-      .mr_append_ensure_table(con, name, frame_types)
+    if (first_write) {
+      .mr_append_insert_registry_row(con, name, physical, frame_types, now)
       schema <- frame_types
     } else {
       schema <- .mr_append_reconcile_schema(con, name, registered, zero_head)
@@ -548,6 +612,9 @@
       rows_appended = rows_inserted,
       chunk_hash    = chunk_hash
     )
+    .mr_append_record_chunk(
+      con, name, run_id, chunk_hash, rows_inserted, now
+    )
     if (interactive) {
       .mr_write_interactive_run_row(con, run_id, list(output_entry), now)
     }
@@ -563,95 +630,90 @@
   invisible(chunk_hash)
 }
 
-# Scan `_mr_runs.outputs` for append_table entries naming this logical
-# name. Returns a data frame with columns run_id, started_at, chunk_hash,
-# rows_appended — one row per append (i.e. one row per run that wrote
-# to `name`), ordered by started_at ascending. Used by `versions(name)`
-# for Shape B names and by the mr_hash() -> run_id reverse lookup.
-.mr_append_chunk_entries <- function(con, name) {
-  runs <- DBI::dbGetQuery(
-    con,
-    "SELECT run_id, started_at, outputs
-       FROM _mr_runs
-      WHERE outputs IS NOT NULL AND outputs <> '[]'
-      ORDER BY started_at"
-  )
-  if (nrow(runs) == 0L) {
-    return(data.frame(
-      run_id        = character(),
-      started_at    = as.POSIXct(character()),
-      chunk_hash    = character(),
-      rows_appended = integer(),
-      stringsAsFactors = FALSE
-    ))
-  }
-  out <- vector("list", nrow(runs))
-  for (i in seq_len(nrow(runs))) {
-    entries <- tryCatch(
-      jsonlite::fromJSON(runs$outputs[i], simplifyVector = FALSE),
-      error = function(e) list()
-    )
-    rid <- character(); hash <- character(); nrows <- integer()
-    for (e in entries) {
-      if (identical(e$kind, "append_table") &&
-          identical(e$logical_name, name)) {
-        rid   <- c(rid,   runs$run_id[i])
-        hash  <- c(hash,  as.character(e$chunk_hash))
-        nrows <- c(nrows, as.integer(e$rows_appended))
-      }
-    }
-    if (length(rid) > 0L) {
-      out[[i]] <- data.frame(
-        run_id        = rid,
-        started_at    = rep(runs$started_at[i], length(rid)),
-        chunk_hash    = hash,
-        rows_appended = nrows,
-        stringsAsFactors = FALSE
-      )
-    }
-  }
-  out <- out[!vapply(out, is.null, logical(1))]
-  if (length(out) == 0L) {
-    return(data.frame(
-      run_id        = character(),
-      started_at    = as.POSIXct(character()),
-      chunk_hash    = character(),
-      rows_appended = integer(),
-      stringsAsFactors = FALSE
-    ))
-  }
-  do.call(rbind, out)
-}
-
 # Resolve a chunk_hash to the run_id that wrote it, for a given Shape B
 # logical name. Returns NA_character_ if no match. If the same
 # chunk_hash appears for multiple runs (possible when two runs append
 # identical content), the most recent run wins.
 .mr_append_run_id_for_chunk_hash <- function(con, name, chunk_hash) {
-  entries <- .mr_append_chunk_entries(con, name)
-  hits <- entries[entries$chunk_hash == as.character(chunk_hash), , drop = FALSE]
+  hits <- DBI::dbGetQuery(
+    con,
+    "SELECT run_id FROM _mr_append_chunks
+      WHERE logical_name = ? AND chunk_hash = ?
+      ORDER BY started_at DESC
+      LIMIT 1",
+    params = list(name, as.character(chunk_hash))
+  )
   if (nrow(hits) == 0L) return(NA_character_)
-  hits <- hits[order(hits$started_at, decreasing = TRUE), , drop = FALSE]
   hits$run_id[1]
 }
 
 # Latest run_id that wrote to a Shape B logical name, or NA_character_
 # if the name has no appended chunks yet.
 .mr_append_latest_run_id <- function(con, name) {
-  entries <- .mr_append_chunk_entries(con, name)
-  if (nrow(entries) == 0L) return(NA_character_)
-  entries <- entries[order(entries$started_at, decreasing = TRUE), , drop = FALSE]
-  entries$run_id[1]
+  hits <- DBI::dbGetQuery(
+    con,
+    "SELECT run_id FROM _mr_append_chunks
+      WHERE logical_name = ?
+      ORDER BY started_at DESC
+      LIMIT 1",
+    params = list(name)
+  )
+  if (nrow(hits) == 0L) return(NA_character_)
+  hits$run_id[1]
 }
 
 # chunk_hash of a specific run's append on a Shape B logical name, or
 # NA_character_ if none. Used by the SQL-launch path to record which
 # chunk was read even when the caller didn't pass an explicit mr_hash().
 .mr_append_chunk_hash_for_run <- function(con, name, run_id) {
-  entries <- .mr_append_chunk_entries(con, name)
-  hits <- entries[entries$run_id == run_id, , drop = FALSE]
+  hits <- DBI::dbGetQuery(
+    con,
+    "SELECT chunk_hash FROM _mr_append_chunks
+      WHERE logical_name = ? AND run_id = ?
+      ORDER BY started_at
+      LIMIT 1",
+    params = list(name, run_id)
+  )
   if (nrow(hits) == 0L) return(NA_character_)
   hits$chunk_hash[1]
+}
+
+# Latest chunk_hash recorded for a Shape B logical name, or
+# NA_character_ if none. Used by R-launch grab() to record an
+# upstream-head identity on `_mr_runs.inputs` so a consumer goes stale
+# when a new chunk is appended to `name`.
+.mr_append_latest_chunk_hash <- function(con, name) {
+  hits <- DBI::dbGetQuery(
+    con,
+    "SELECT chunk_hash FROM _mr_append_chunks
+      WHERE logical_name = ?
+      ORDER BY started_at DESC
+      LIMIT 1",
+    params = list(name)
+  )
+  if (nrow(hits) == 0L) return(NA_character_)
+  hits$chunk_hash[1]
+}
+
+# Latest chunk_hash on a Shape B logical name produced by a run with
+# the given variant_label, or NA_character_ if none. Mirrors the
+# variant->run lookup used by grab(variant=) so the recorded hash
+# matches the rows actually read.
+.mr_append_latest_chunk_hash_for_variant <- function(con, name, variant) {
+  physical <- .mr_append_physical_name(name)
+  latest_run <- DBI::dbGetQuery(
+    con,
+    sprintf(
+      "SELECT run_id FROM _mr_runs
+        WHERE variant_label = ?
+          AND run_id IN (SELECT DISTINCT _mr_run_id FROM %s)
+        ORDER BY started_at DESC
+        LIMIT 1",
+      .mr_quote_ident(physical)),
+    params = list(variant)
+  )
+  if (nrow(latest_run) == 0L) return(NA_character_)
+  .mr_append_chunk_hash_for_run(con, name, latest_run$run_id[1])
 }
 
 # Create (idempotently) a read-only DuckDB view projecting the user

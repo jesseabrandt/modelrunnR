@@ -31,10 +31,12 @@ run by id).
 
 \item{rebind}{Optional named list that overrides what each
 \code{grab()} inside the script resolves to. List values may be bare
-R objects (stowed inline through the normal versioning path) or
-reference constructors (\code{\link[=mr_hash]{mr_hash()}}, \code{\link[=mr_run]{mr_run()}}, \code{\link[=mr_variant]{mr_variant()}},
-\code{\link[=mr_as_of]{mr_as_of()}}) that resolve to existing versions without
-round-tripping through R memory.}
+R objects (stowed inline as a versioned-shape row tagged
+\code{is_rebind = TRUE}, so a sample value rebound for one launch
+does not shadow the real upstream for naked \code{grab(name)} later)
+or reference constructors (\code{\link[=mr_hash]{mr_hash()}}, \code{\link[=mr_run]{mr_run()}},
+\code{\link[=mr_variant]{mr_variant()}}, \code{\link[=mr_as_of]{mr_as_of()}}) that resolve to existing versions
+without round-tripping through R memory.}
 
 \item{label}{Optional string marking this run as belonging to a tracked
 variant (labeled experimental thread). Empty / whitespace-only labels
@@ -119,8 +121,15 @@ onto the new run unless the caller passes an explicit \code{label}.
 \code{launch(mr_run(run_id))} re-executes the specific stored run by
 id; the source row's \code{variant_label} (if any) is auto-inherited
 onto the new run unless the caller passes an explicit \code{label}.
-Re-executing a run whose source status isn't \code{"success"} warns
-by default (configurable via
+When the source row's \code{status} is \code{"queued"} (see \code{\link[=queue]{queue()}}),
+the call updates that row in place rather than writing a new run
+--- \emph{unless} the caller also supplies \code{rebind} or \code{external_inputs},
+in which case the queued row is treated as a template body: a new
+\code{run_id} is written using the caller's bindings, and the queued
+row stays queued for someone else to drain. \code{rebind = mr_binds(...)}
+fans the template out into one new run per envelope.
+Re-executing a run whose source status isn't \code{"success"} or
+\code{"queued"} warns by default (configurable via
 \code{options(modelrunnR.relaunch_nonsuccess = c("warn","error","silent"))}).
 \item \strong{SQL mode} -- \code{launch("features.sql")} (file) or
 \code{launch(mr_sql("..."))} (inline) registers a SQL \code{SELECT} as a
