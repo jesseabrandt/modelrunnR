@@ -70,3 +70,19 @@ test_that("stow() label flows to _mr_runs.variant_label for mr_file values", {
   expect_identical(nrow(rows), 1L)
   expect_identical(rows$variant_label[1], "fold_07")
 })
+
+test_that("stow() label flows to _mr_runs.variant_label for append frames", {
+  new_test_db()
+  con <- .mr_get_connection()
+
+  stow(data.frame(x = 1L), "t", shape = "append", label = "fold_07")
+
+  rows <- DBI::dbGetQuery(con,
+    "SELECT variant_label FROM _mr_runs WHERE step LIKE '<interactive:%'")
+  expect_identical(nrow(rows), 1L)
+  expect_identical(rows$variant_label[1], "fold_07")
+
+  # Append-shape also stamps every row with _mr_variant_label.
+  appended <- DBI::dbGetQuery(con, "SELECT _mr_variant_label FROM t__append")
+  expect_identical(appended[["_mr_variant_label"]], "fold_07")
+})

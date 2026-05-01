@@ -143,14 +143,14 @@ stow <- function(value, name, shape = NULL, label = NULL) {
       )
     }
     .mr_guard_namespace(name, shape = "B")
-    .mr_append_write_lazy(name, value)
+    .mr_append_write_lazy(name, value, label = label)
   } else if (is.data.frame(value)) {
     if (versioned) {
       .mr_guard_namespace(name, shape = "A")
       .mr_stow_table(name, value, label = label)
     } else {
       .mr_guard_namespace(name, shape = "B")
-      .mr_append_write_frame(name, value)
+      .mr_append_write_frame(name, value, label = label)
     }
   } else {
     .mr_guard_namespace(name, shape = "A", new_kind = "artifact")
