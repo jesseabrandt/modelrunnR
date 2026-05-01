@@ -16,4 +16,5 @@ test_that("stow() rejects non-character / non-scalar label", {
   df <- data.frame(x = 1:3)
   expect_error(stow(df, "t", label = 1L), "label")
   expect_error(stow(df, "t", label = c("a", "b")), "label")
+  expect_error(stow(df, "t", label = NA_character_), "label")
 })

@@ -118,19 +118,10 @@ stow <- function(value, name, shape = NULL, label = NULL) {
     }
   }
 
-  # Validate `label`. Empty / whitespace-only labels are rejected (mirrors
-  # launch()'s label rules); whitespace is trimmed.
-  if (!is.null(label)) {
-    if (!is.character(label) || length(label) != 1L || is.na(label)) {
-      stop("stow(): label must be NULL or a length-1 character string.",
-           call. = FALSE)
-    }
-    label <- trimws(label)
-    if (!nzchar(label)) {
-      stop("stow(): label must not be empty or whitespace-only.",
-           call. = FALSE)
-    }
-  }
+  # The shared validator returns NA_character_ for NULL input; downstream
+  # plumbing (Tasks 2/3) treats NA the same as "no label". Trimmed value
+  # is returned for normalized downstream use.
+  label <- .mr_validate_label(label, context = "stow()")
 
   if (inherits(value, "mr_file")) {
     .mr_guard_namespace(name, shape = "A")

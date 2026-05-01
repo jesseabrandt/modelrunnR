@@ -52,14 +52,16 @@
   invisible(name)
 }
 
-.mr_validate_label <- function(label) {
+.mr_validate_label <- function(label, context = "launch()") {
   if (is.null(label)) return(NA_character_)
   if (!is.character(label) || length(label) != 1L || is.na(label)) {
-    stop("launch(): `label` must be a single non-NA string.", call. = FALSE)
+    stop(sprintf("%s: `label` must be a single non-NA string.", context),
+         call. = FALSE)
   }
   trimmed <- trimws(label)
   if (!nzchar(trimmed)) {
-    stop("launch(): `label` must not be empty or whitespace-only.", call. = FALSE)
+    stop(sprintf("%s: `label` must not be empty or whitespace-only.", context),
+         call. = FALSE)
   }
   trimmed
 }
