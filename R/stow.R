@@ -1,7 +1,7 @@
 #' Persist a value to the modelrunnR artifact store
 #'
 #' Stores `value` under the logical name `name`. Dispatches on type.
-#' The two storage paths are:
+#' The four storage paths are:
 #'
 #' - **Append table** (for data frames and lazy DuckDB tbls) — writes
 #'   into a single growing physical table per `name`, stamping every
@@ -22,6 +22,13 @@
 #'   table per distinct content, and registered in `_mr_versions` (same
 #'   path that [ingest()] uses). [mr_file()] values always route through
 #'   the file-source path (versioned-shape, source URI/hash recorded).
+#' - **View** (for lazy `dbplyr` expressions passed with
+#'   `shape = "view"`) — wrapped as `CREATE OR REPLACE VIEW`, hashed
+#'   by the rendered SQL text. Inputs referenced in the expression
+#'   are resolved against `_mr_versions` and `_mr_append_tables`; an
+#'   expression with no managed inputs errors. Source-data staleness
+#'   through views over append-shape inputs is a known weak spot —
+#'   see `TODO.md` "Surfaced 2026-05-01."
 #'
 #' A logical name is tied to one shape on first write. Changing shape
 #' later (e.g. `stow(df, "x")` then `stow(model, "x")`) errors.
@@ -56,13 +63,52 @@
 #' @param value Any R value. First, so `df |> stow("name")` works.
 #' @param name A length-one character vector. Logical name for the
 #'   value.
-#' @param shape Optional length-1 character: `"versioned"` to opt a
+#' @param shape Optional length-1 character. `"versioned"` opts a
 #'   data frame into versioned-shape storage (one row per distinct
-#'   content), or `"append"` to make the default explicit. `NULL`
-#'   (default) preserves type-based dispatch: data frames append,
-#'   non-frame R objects go versioned. Cannot be combined with an
-#'   `mr_file` value (always versioned) and is rejected on artifact
-#'   values.
+#'   content); `"append"` makes the default explicit; `"view"`
+#'   registers a lazy `dbplyr` expression as a `CREATE OR REPLACE
+#'   VIEW`. `NULL` (default) preserves type-based dispatch: data
+#'   frames append, non-frame R objects go versioned. `shape = "view"`
+#'   requires a lazy `tbl`; `shape = "versioned"` does not work for
+#'   lazy tbls (collect to a data frame first).
+#' @param label Optional length-1 character. Tags the synthetic
+#'   `_mr_runs` row this stow writes with the given variant label,
+#'   so later `launch(rebind = list(name = mr_variant(label)))`
+#'   resolves to this stow's content. Empty / whitespace-only
+#'   labels are rejected. Inside a tracked `launch()`, the label is
+#'   taken from the surrounding launch's variant; passing `label =`
+#'   to `stow()` from within a launch is therefore redundant and
+#'   only affects the synthetic row this stow writes, not the
+#'   launch's run row.
+#'
+#' @section Rolling-window views:
+#' Pre-stow one view per fold, then sweep `launch()` with
+#' `mr_variant()` to redirect generic input names per fold:
+#'
+#' ```r
+#' panel <- grab("panel")
+#' for (i in seq_len(nrow(windows))) {
+#'   fold_label <- sprintf("fold_%02d", windows$fold[i])
+#'   train_start <- windows$train_start_year[i]
+#'   train_end   <- windows$train_end_year[i]
+#'   test_yr     <- windows$test_year[i]
+#'
+#'   panel |>
+#'     dplyr::filter(year >= train_start, year <= train_end) |>
+#'     stow("train", shape = "view", label = fold_label)
+#'   panel |>
+#'     dplyr::filter(year == test_yr) |>
+#'     stow("test",  shape = "view", label = fold_label)
+#' }
+#'
+#' for (i in seq_len(nrow(windows))) {
+#'   fold_label <- sprintf("fold_%02d", windows$fold[i])
+#'   launch(model_code, rebind = list(
+#'     train = mr_variant(fold_label),
+#'     test  = mr_variant(fold_label)
+#'   ), label = fold_label)
+#' }
+#' ```
 #'
 #' @return `value`, invisibly.
 #' @export

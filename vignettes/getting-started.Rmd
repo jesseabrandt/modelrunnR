@@ -67,9 +67,9 @@ training_local <- grab("training") |> dplyr::collect()
 head(training_local)
 ```
 
-## Versioned-shape vs. append-shape
+## Versioned-shape vs. append-shape vs. view-shape
 
-The store has two storage shapes for tabular data, and which one you
+The store has three storage shapes for tabular data, and which one you
 get depends on how the value enters:
 
 - **Versioned-shape — content-addressed versions.** `stow(mr_file(...))` writes
@@ -84,6 +84,11 @@ get depends on how the value enters:
   name, with system columns stripped. Pass `run = "all"` for the
   full cross-run view when you want to inspect history or compare
   runs.
+- **View-shape — registered SQL view.** `stow(lazy_tbl, name, shape = "view")`
+  wraps a `dbplyr` expression as a `CREATE OR REPLACE VIEW` rather than
+  materializing it. Useful for rolling-window folds: pre-stow one view
+  per fold (with `label =`), then rebind `train`/`test` per fold via
+  `mr_variant()`. See `?stow` for a full example.
 
 ## A tracked run with `launch({ ... })`
 
