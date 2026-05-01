@@ -75,3 +75,73 @@
   }
   inputs
 }
+
+# Orchestrator for shape = "view" stows. Renders the lazy expression
+# to SQL, sniffs managed inputs, registers the view via the existing
+# `.mr_register_view()` helper, and writes a synthetic _mr_runs row so
+# `mr_variant(label)` resolves to this view in a downstream sweep.
+.mr_stow_view <- function(name, value, label = NA_character_) {
+  con <- .mr_get_connection()
+
+  rendered <- as.character(dbplyr::sql_render(value, con = con))
+  if (length(rendered) != 1L || !nzchar(rendered)) {
+    stop("stow(shape = 'view'): could not render the lazy expression to SQL.",
+         call. = FALSE)
+  }
+
+  # Strip double-quote delimiters so the sniffer's tokenizer matches
+  # quoted identifiers like "panel__abc123" as single tokens.
+  rendered_for_sniff <- gsub('"', '', rendered, fixed = TRUE)
+  inputs <- .mr_sniff_view_inputs(con, rendered_for_sniff)
+
+  # Namespace guard before any DDL.
+  .mr_guard_namespace(name, shape = "A", new_kind = "view", context = "stow")
+
+  # Register the view. Returns the SQL-text content_hash and writes the
+  # `_mr_versions` row + CREATE OR REPLACE VIEW.
+  hash <- .mr_register_view(name, rendered)
+
+  # Write the synthetic run row so mr_variant() can resolve to this view.
+  if (!.mr_is_recording() && !isTRUE(.mr_state$suppress_interactive)) {
+    .mr_write_view_interactive_run_row(con, name, hash, inputs, label)
+  }
+
+  invisible(hash)
+}
+
+# Synthetic _mr_runs row for a free-stow view registration. Distinct
+# from `.mr_maybe_record_interactive_write` because it records the
+# sniffed inputs on the row, not just the output pair.
+.mr_write_view_interactive_run_row <- function(con, name, hash, inputs, label) {
+  now <- Sys.time()
+  step <- sprintf("<interactive:%s>", format(now, "%Y-%m-%d %H:%M:%OS3"))
+  si <- .mr_capture_session_info()
+
+  inputs_json  <- .mr_pairs_to_json(inputs)
+  outputs_json <- .mr_pairs_to_json(list(.mr_pair(name, hash)))
+
+  row <- data.frame(
+    step              = step,
+    run_id            = .mr_new_run_id(),
+    inputs            = inputs_json,
+    outputs           = outputs_json,
+    started_at        = now,
+    duration_ms       = 0L,
+    status            = "interactive",
+    variant_label     = label,
+    hostname          = si$hostname,
+    os                = si$os,
+    arch              = si$arch,
+    r_version         = si$r_version,
+    n_cpu             = si$n_cpu,
+    total_ram_bytes   = si$total_ram_bytes,
+    free_ram_bytes    = si$free_ram_bytes,
+    attached_packages = si$attached_packages,
+    git_sha           = si$git_sha,
+    git_branch        = si$git_branch,
+    git_dirty         = si$git_dirty,
+    stringsAsFactors  = FALSE
+  )
+  DBI::dbAppendTable(con, "_mr_runs", row)
+  invisible(NULL)
+}
