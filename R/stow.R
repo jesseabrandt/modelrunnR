@@ -94,9 +94,9 @@ stow <- function(value, name, shape = NULL, label = NULL) {
   # Validate `shape`; see spec §2 for the dispatch table.
   if (!is.null(shape)) {
     if (!is.character(shape) || length(shape) != 1L ||
-        !shape %in% c("versioned", "append")) {
+        !shape %in% c("versioned", "append", "view")) {
       stop(
-        'stow(): shape must be NULL, "versioned", or "append".',
+        'stow(): shape must be NULL, "versioned", "append", or "view".',
         call. = FALSE
       )
     }
@@ -107,7 +107,16 @@ stow <- function(value, name, shape = NULL, label = NULL) {
         call. = FALSE
       )
     }
-    if (!is.data.frame(value) && !inherits(value, "tbl_lazy")) {
+    if (identical(shape, "view") && !inherits(value, "tbl_lazy")) {
+      stop(
+        "stow(): shape = 'view' requires a lazy dbplyr expression ",
+        "(e.g. grab('name') |> filter(...)). Got: ",
+        paste(class(value), collapse = "/"),
+        call. = FALSE
+      )
+    }
+    if (!identical(shape, "view") &&
+        !is.data.frame(value) && !inherits(value, "tbl_lazy")) {
       stop(
         sprintf(
           "stow(): shape is only meaningful for data frames and lazy tbls; got %s.",
@@ -141,6 +150,9 @@ stow <- function(value, name, shape = NULL, label = NULL) {
         "tbls; collect() to a data frame first.",
         call. = FALSE
       )
+    }
+    if (identical(shape, "view")) {
+      stop("stow(): shape = 'view' is not yet implemented.", call. = FALSE)
     }
     .mr_guard_namespace(name, shape = "B")
     .mr_append_write_lazy(name, value, label = label)
