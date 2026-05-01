@@ -10,16 +10,30 @@ test_that("stow() rejects shape = 'view' for non-lazy values", {
   )
 })
 
-test_that("stow() shape = 'view' raises 'not yet implemented' for lazy values (Task 4 placeholder)", {
+test_that("stow(shape = 'view') is callable from user code with a label", {
   new_test_db()
   con <- .mr_get_connection()
-  stow(data.frame(year = 2014:2024, x = 1:11), "panel")
-  panel <- grab("panel")
+  stow(data.frame(year = 2014:2024, x = 1:11), "panel", shape = "versioned")
 
-  expect_error(
-    panel |> dplyr::filter(year <= 2020) |> stow("train", shape = "view"),
-    "not yet implemented"
-  )
+  panel <- grab("panel")
+  hash  <- panel |>
+    dplyr::filter(year <= 2020) |>
+    stow("train", shape = "view", label = "fold_07")
+
+  vrow <- DBI::dbGetQuery(con,
+    "SELECT physical_name FROM _mr_versions WHERE logical_name = 'train'")
+  expect_identical(nrow(vrow), 1L)
+  expect_true(DBI::dbExistsTable(con, vrow$physical_name[1]))
+
+  rows <- DBI::dbGetQuery(con,
+    sprintf("SELECT count(*) AS n FROM %s",
+            DBI::dbQuoteIdentifier(con, vrow$physical_name[1])))
+  expect_identical(as.integer(rows$n[1]), 7L)
+
+  rrow <- DBI::dbGetQuery(con,
+    "SELECT variant_label FROM _mr_runs
+      WHERE step LIKE '<interactive:%' AND variant_label = 'fold_07'")
+  expect_identical(nrow(rrow), 1L)
 })
 
 test_that(".mr_sniff_view_inputs finds versioned-shape physical names", {

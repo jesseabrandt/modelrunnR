@@ -152,7 +152,8 @@ stow <- function(value, name, shape = NULL, label = NULL) {
       )
     }
     if (identical(shape, "view")) {
-      stop("stow(): shape = 'view' is not yet implemented.", call. = FALSE)
+      .mr_stow_view(name, value, label = label)
+      return(invisible(value))
     }
     .mr_guard_namespace(name, shape = "B")
     .mr_append_write_lazy(name, value, label = label)
