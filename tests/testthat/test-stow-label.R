@@ -54,3 +54,19 @@ test_that("stow() with no label leaves variant_label NA", {
   expect_identical(nrow(rows), 1L)
   expect_true(is.na(rows$variant_label[1]))
 })
+
+test_that("stow() label flows to _mr_runs.variant_label for mr_file values", {
+  new_test_db()
+  con <- .mr_get_connection()
+
+  tmp <- tempfile(fileext = ".csv")
+  writeLines("x\n1\n2\n", tmp)
+  on.exit(unlink(tmp), add = TRUE)
+
+  stow(mr_file(tmp), "f", label = "fold_07")
+
+  rows <- DBI::dbGetQuery(con,
+    "SELECT variant_label FROM _mr_runs WHERE step LIKE '<interactive:%'")
+  expect_identical(nrow(rows), 1L)
+  expect_identical(rows$variant_label[1], "fold_07")
+})

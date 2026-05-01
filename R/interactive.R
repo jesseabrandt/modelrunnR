@@ -12,7 +12,6 @@
 ## exploration would bloat the metadata without any benefit.
 
 .mr_maybe_record_interactive_write <- function(name, hash, label = NA_character_) {
-  if (is.null(label)) label <- NA_character_   # defensive, in case a future caller passes NULL
   if (.mr_is_recording()) return(invisible(NULL))
   # launch() suppresses interactive tracking while resolving inline `rebind`
   # values -- those stows are launch setup, not REPL activity.
