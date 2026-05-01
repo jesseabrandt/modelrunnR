@@ -7,7 +7,7 @@
 # Called from:
 #   - stow()'s mr_file dispatch branch (R/stow.R)
 #   - ingest() (deprecation shim in R/ingest.R)
-.mr_stow_file <- function(name, path) {
+.mr_stow_file <- function(name, path, label = NA_character_) {
   .mr_validate_name(name, context = "stow")
   stopifnot(
     is.character(path),
@@ -77,7 +77,7 @@
   })
 
   .mr_record_write(name, content_hash)
-  .mr_maybe_record_interactive_write(name, content_hash)
+  .mr_maybe_record_interactive_write(name, content_hash, label = label)
   .mr_maybe_warn_version_count(con, name)
 
   invisible(dplyr::tbl(con, physical_name))

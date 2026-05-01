@@ -11,7 +11,8 @@
 ## recorded: reads don't change state, and logging every REPL
 ## exploration would bloat the metadata without any benefit.
 
-.mr_maybe_record_interactive_write <- function(name, hash) {
+.mr_maybe_record_interactive_write <- function(name, hash, label = NA_character_) {
+  if (is.null(label)) label <- NA_character_   # defensive, in case a future caller passes NULL
   if (.mr_is_recording()) return(invisible(NULL))
   # launch() suppresses interactive tracking while resolving inline `rebind`
   # values -- those stows are launch setup, not REPL activity.
@@ -30,7 +31,7 @@
     started_at        = now,
     duration_ms       = 0L,
     status            = "interactive",
-    variant_label     = NA_character_,
+    variant_label     = label,
     hostname          = si$hostname,
     os                = si$os,
     arch              = si$arch,

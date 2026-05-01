@@ -125,7 +125,7 @@ stow <- function(value, name, shape = NULL, label = NULL) {
 
   if (inherits(value, "mr_file")) {
     .mr_guard_namespace(name, shape = "A")
-    .mr_stow_file(name, unclass(value))
+    .mr_stow_file(name, unclass(value), label = label)
     return(invisible(value))
   }
 
@@ -147,14 +147,14 @@ stow <- function(value, name, shape = NULL, label = NULL) {
   } else if (is.data.frame(value)) {
     if (versioned) {
       .mr_guard_namespace(name, shape = "A")
-      .mr_stow_table(name, value)
+      .mr_stow_table(name, value, label = label)
     } else {
       .mr_guard_namespace(name, shape = "B")
       .mr_append_write_frame(name, value)
     }
   } else {
     .mr_guard_namespace(name, shape = "A", new_kind = "artifact")
-    .mr_stow_artifact(name, value)
+    .mr_stow_artifact(name, value, label = label)
   }
   invisible(value)
 }
@@ -168,7 +168,7 @@ stow <- function(value, name, shape = NULL, label = NULL) {
 # `is_rebind = TRUE` flags the row as a bare-value rebind (written
 # from inside .mr_resolve_rebind_entry). The latest-version resolver
 # excludes is_rebind rows so they don't shadow real upstream stows.
-.mr_stow_table <- function(name, value, is_rebind = FALSE) {
+.mr_stow_table <- function(name, value, is_rebind = FALSE, label = NA_character_) {
   con  <- .mr_get_connection()
   if (.mr_has_nondefault_rownames(value)) {
     warning(
@@ -222,7 +222,7 @@ stow <- function(value, name, shape = NULL, label = NULL) {
   })
 
   .mr_record_write(name, hash)
-  .mr_maybe_record_interactive_write(name, hash)
+  .mr_maybe_record_interactive_write(name, hash, label = label)
   .mr_maybe_warn_version_count(con, name)
   invisible(hash)
 }
@@ -234,7 +234,7 @@ stow <- function(value, name, shape = NULL, label = NULL) {
 # `is_rebind = TRUE` flags the row as a bare-value rebind (written
 # from inside .mr_resolve_rebind_entry). See .mr_stow_table for
 # rationale.
-.mr_stow_artifact <- function(name, value, is_rebind = FALSE) {
+.mr_stow_artifact <- function(name, value, is_rebind = FALSE, label = NA_character_) {
   con   <- .mr_get_connection()
   bytes <- qs2::qs_serialize(value)
   hash  <- .mr_hash_bytes(bytes)
@@ -301,7 +301,7 @@ stow <- function(value, name, shape = NULL, label = NULL) {
   }
 
   .mr_record_write(name, hash)
-  .mr_maybe_record_interactive_write(name, hash)
+  .mr_maybe_record_interactive_write(name, hash, label = label)
   .mr_maybe_warn_version_count(con, name)
   invisible(hash)
 }
