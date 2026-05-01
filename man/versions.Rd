@@ -4,10 +4,15 @@
 \alias{versions}
 \title{List stored versions of a logical name}
 \usage{
-versions(name)
+versions(name, include_rebinds = TRUE)
 }
 \arguments{
 \item{name}{A length-one character vector naming a logical value.}
+
+\item{include_rebinds}{Logical; default \code{TRUE}. When \code{TRUE}, rows
+produced by bare-value rebinds (\verb{launch(rebind = list(name = <bare value>))}) appear in the listing. Set \code{FALSE} to filter them
+out and see only "real" stows. Shape A only — Shape B rebinds
+never write a \verb{_mr_versions} row to begin with.}
 }
 \value{
 A data frame with columns \code{content_hash}, \code{first_seen},

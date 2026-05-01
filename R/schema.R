@@ -127,6 +127,15 @@
   # via dbplyr::sql_render() at stow-time. Null for materialized-frame
   # stows and artifact stows.
   .mr_add_column_if_missing(con, "_mr_versions", "source_sql", "TEXT")
+  # Bare-value rebind marker. TRUE for rows written through
+  # launch(rebind = list(name = <bare value>)); FALSE for normal stows.
+  # The latest-version resolver in grab() and .mr_refresh_latest_view()
+  # filter these out so naked grab(name) keeps returning the real
+  # upstream after a launch with a sample rebind. Existing pre-migration
+  # rows default to FALSE — going forward the bug is fixed; retroactive
+  # flagging is impossible because the rows are indistinguishable from
+  # real stows once written.
+  .mr_add_column_if_missing(con, "_mr_versions", "is_rebind", "BOOLEAN")
   # Belt-and-suspenders: the query-then-insert pattern in .mr_stow_*
   # already prevents duplicates in single-writer operation, but the
   # unique index makes the invariant enforced at the DB level against

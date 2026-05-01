@@ -73,10 +73,12 @@
 #'     run by id).
 #' @param rebind Optional named list that overrides what each
 #'   `grab()` inside the script resolves to. List values may be bare
-#'   R objects (stowed inline through the normal versioning path) or
-#'   reference constructors ([mr_hash()], [mr_run()], [mr_variant()],
-#'   [mr_as_of()]) that resolve to existing versions without
-#'   round-tripping through R memory.
+#'   R objects (stowed inline as a versioned-shape row tagged
+#'   `is_rebind = TRUE`, so a sample value rebound for one launch
+#'   does not shadow the real upstream for naked `grab(name)` later)
+#'   or reference constructors ([mr_hash()], [mr_run()],
+#'   [mr_variant()], [mr_as_of()]) that resolve to existing versions
+#'   without round-tripping through R memory.
 #' @param external_inputs Optional named list with fields `files` (a
 #'   character vector of paths) and/or `env` (a character vector of
 #'   environment variable names). Each declared input is hashed and

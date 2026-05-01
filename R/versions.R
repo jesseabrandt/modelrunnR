@@ -12,13 +12,18 @@
 #' it. Rows are ordered **latest first** on both shapes.
 #'
 #' @param name A length-one character vector naming a logical value.
+#' @param include_rebinds Logical; default `TRUE`. When `TRUE`, rows
+#'   produced by bare-value rebinds (`launch(rebind = list(name =
+#'   <bare value>))`) appear in the listing. Set `FALSE` to filter them
+#'   out and see only "real" stows. Shape A only — Shape B rebinds
+#'   never write a `_mr_versions` row to begin with.
 #'
 #' @return A data frame with columns `content_hash`, `first_seen`,
 #'   `last_seen`, `size_bytes`, `produced_by_runs`, ordered latest
 #'   first. `size_bytes` is `NA` for Shape B rows — the value is tracked
 #'   at the table level in `_mr_append_tables`, not per chunk.
 #' @export
-versions <- function(name) {
+versions <- function(name, include_rebinds = TRUE) {
   .mr_validate_name(name, context = "versions")
   con <- .mr_get_connection()
 
@@ -56,14 +61,26 @@ versions <- function(name) {
     return(out)
   }
 
-  v <- DBI::dbGetQuery(
-    con,
-    "SELECT content_hash, first_seen, last_seen, size_bytes
-       FROM _mr_versions
-      WHERE logical_name = ?
-      ORDER BY first_seen DESC",
-    params = list(name)
-  )
+  v <- if (isTRUE(include_rebinds)) {
+    DBI::dbGetQuery(
+      con,
+      "SELECT content_hash, first_seen, last_seen, size_bytes
+         FROM _mr_versions
+        WHERE logical_name = ?
+        ORDER BY first_seen DESC",
+      params = list(name)
+    )
+  } else {
+    DBI::dbGetQuery(
+      con,
+      "SELECT content_hash, first_seen, last_seen, size_bytes
+         FROM _mr_versions
+        WHERE logical_name = ?
+          AND (is_rebind IS NOT TRUE)
+        ORDER BY first_seen DESC",
+      params = list(name)
+    )
+  }
   if (nrow(v) == 0L) {
     v$produced_by_runs <- list()
     return(v)

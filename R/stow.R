@@ -159,7 +159,11 @@ stow <- function(value, name, shape = NULL) {
 # metadata on the just-written _mr_versions row). Returns the
 # content hash invisibly so callers can key UPDATEs off of it
 # without re-hashing.
-.mr_stow_table <- function(name, value) {
+#
+# `is_rebind = TRUE` flags the row as a bare-value rebind (written
+# from inside .mr_resolve_rebind_entry). The latest-version resolver
+# excludes is_rebind rows so they don't shadow real upstream stows.
+.mr_stow_table <- function(name, value, is_rebind = FALSE) {
   con  <- .mr_get_connection()
   if (.mr_has_nondefault_rownames(value)) {
     warning(
@@ -191,9 +195,10 @@ stow <- function(value, name, shape = NULL) {
         con,
         "INSERT INTO _mr_versions
            (logical_name, content_hash, physical_name, kind,
-            first_seen, last_seen, size_bytes, storage_location)
-         VALUES (?, ?, ?, 'table', ?, ?, ?, NULL)",
-        params = list(name, hash, physical_name, now, now, size_bytes)
+            first_seen, last_seen, size_bytes, storage_location, is_rebind)
+         VALUES (?, ?, ?, 'table', ?, ?, ?, NULL, ?)",
+        params = list(name, hash, physical_name, now, now, size_bytes,
+                      isTRUE(is_rebind))
       )
     } else {
       DBI::dbExecute(
@@ -220,7 +225,11 @@ stow <- function(value, name, shape = NULL) {
 # Store a non-data-frame R object as an artifact. Blob for small
 # payloads, filesystem for large ones, with the choice gated by
 # modelrunnR.blob_threshold (default 10 MB).
-.mr_stow_artifact <- function(name, value) {
+#
+# `is_rebind = TRUE` flags the row as a bare-value rebind (written
+# from inside .mr_resolve_rebind_entry). See .mr_stow_table for
+# rationale.
+.mr_stow_artifact <- function(name, value, is_rebind = FALSE) {
   con   <- .mr_get_connection()
   bytes <- qs2::qs_serialize(value)
   hash  <- .mr_hash_bytes(bytes)
@@ -263,9 +272,10 @@ stow <- function(value, name, shape = NULL) {
         con,
         "INSERT INTO _mr_versions
            (logical_name, content_hash, physical_name, kind,
-            first_seen, last_seen, size_bytes, storage_location)
-         VALUES (?, ?, ?, 'artifact', ?, ?, ?, ?)",
-        params = list(name, hash, physical_name, now, now, size, storage)
+            first_seen, last_seen, size_bytes, storage_location, is_rebind)
+         VALUES (?, ?, ?, 'artifact', ?, ?, ?, ?, ?)",
+        params = list(name, hash, physical_name, now, now, size, storage,
+                      isTRUE(is_rebind))
       )
       DBI::dbCommit(con)
     }, error = function(e) {
@@ -331,10 +341,16 @@ stow <- function(value, name, shape = NULL) {
   # Tables (kind='table') and SQL views (kind='view') both expose a
   # physical relation queryable via SELECT * FROM <physical>. Either
   # kind can back the latest-version convenience view at <logical>.
+  #
+  # Bare-value rebinds (is_rebind = TRUE) are excluded so a launch that
+  # rebound `name` to a sample frame doesn't shadow the real upstream:
+  # naked `grab(name)` after the launch still resolves to the canonical
+  # latest version.
   latest <- DBI::dbGetQuery(
     con,
     "SELECT physical_name FROM _mr_versions
       WHERE logical_name = ? AND kind IN ('table', 'view')
+        AND (is_rebind IS NOT TRUE)
       ORDER BY first_seen DESC
       LIMIT 1",
     params = list(name)

@@ -31,10 +31,12 @@ run by id).
 
 \item{rebind}{Optional named list that overrides what each
 \code{grab()} inside the script resolves to. List values may be bare
-R objects (stowed inline through the normal versioning path) or
-reference constructors (\code{\link[=mr_hash]{mr_hash()}}, \code{\link[=mr_run]{mr_run()}}, \code{\link[=mr_variant]{mr_variant()}},
-\code{\link[=mr_as_of]{mr_as_of()}}) that resolve to existing versions without
-round-tripping through R memory.}
+R objects (stowed inline as a versioned-shape row tagged
+\code{is_rebind = TRUE}, so a sample value rebound for one launch
+does not shadow the real upstream for naked \code{grab(name)} later)
+or reference constructors (\code{\link[=mr_hash]{mr_hash()}}, \code{\link[=mr_run]{mr_run()}},
+\code{\link[=mr_variant]{mr_variant()}}, \code{\link[=mr_as_of]{mr_as_of()}}) that resolve to existing versions
+without round-tripping through R memory.}
 
 \item{label}{Optional string marking this run as belonging to a tracked
 variant (labeled experimental thread). Empty / whitespace-only labels

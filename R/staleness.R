@@ -196,6 +196,7 @@
         con,
         "SELECT content_hash FROM _mr_versions
           WHERE logical_name = ?
+            AND (is_rebind IS NOT TRUE)
           ORDER BY first_seen DESC
           LIMIT 1",
         params = list(p$name)

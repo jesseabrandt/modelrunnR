@@ -1,5 +1,17 @@
 # modelrunnR (development version)
 
+## Bug fixes
+
+* `launch(rebind = list(name = <bare value>))` no longer shadows the
+  real upstream of `name`. Bare-value rebinds still write a
+  `_mr_versions` row (so the value is provenance-tracked,
+  hash-resolvable, and visible in `versions(name)`), but the row is now
+  flagged with a new `is_rebind = TRUE` column and excluded by the
+  latest-version resolver. Naked `grab(name)` after a launch with a
+  sample rebind returns the canonical upstream version, as expected.
+  `versions(name, include_rebinds = FALSE)` filters rebind rows from
+  the listing.
+
 ## New features
 
 * `queue()` now accepts `mr_label()` and `mr_run()` as first-argument

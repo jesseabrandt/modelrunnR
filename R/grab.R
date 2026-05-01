@@ -218,9 +218,13 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
 # never been stored or (b) the current file's md5 differs from the
 # latest stored source_hash. Silently no-ops otherwise.
 .mr_maybe_ingest <- function(con, name, source) {
+  # Existence check excludes rebind rows: a name that only exists as a
+  # bare-value rebind has no real upstream, so grab(source=) should
+  # ingest from the supplied path.
   existing <- DBI::dbGetQuery(
     con,
-    "SELECT 1 FROM _mr_versions WHERE logical_name = ? LIMIT 1",
+    "SELECT 1 FROM _mr_versions
+       WHERE logical_name = ? AND (is_rebind IS NOT TRUE) LIMIT 1",
     params = list(name)
   )
   if (nrow(existing) == 0L) {
@@ -304,6 +308,7 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
       con,
       "SELECT * FROM _mr_versions
          WHERE logical_name = ? AND first_seen <= ?
+           AND (is_rebind IS NOT TRUE)
          ORDER BY first_seen DESC
          LIMIT 1",
       params = list(name, as_of)
@@ -315,11 +320,15 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
     return(row[1, , drop = FALSE])
   }
 
-  # Default: latest version for this name.
+  # Default: latest version for this name. Bare-value rebind rows
+  # (is_rebind = TRUE) are excluded so a launch that rebound `name` to a
+  # sample value doesn't shadow the real upstream — naked grab(name)
+  # still resolves to the canonical latest stow.
   row <- DBI::dbGetQuery(
     con,
     "SELECT * FROM _mr_versions
        WHERE logical_name = ?
+         AND (is_rebind IS NOT TRUE)
        ORDER BY first_seen DESC
        LIMIT 1",
     params = list(name)
