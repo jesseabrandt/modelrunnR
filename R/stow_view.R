@@ -89,9 +89,11 @@
          call. = FALSE)
   }
 
-  # Strip double-quote delimiters so the sniffer's tokenizer matches
-  # quoted identifiers like "panel__abc123" as single tokens.
-  rendered_for_sniff <- gsub('"', '', rendered, fixed = TRUE)
+  # Unwrap double-quoted identifiers (e.g. "panel__abc123" -> panel__abc123)
+  # so the sniffer's tokenizer matches them as single tokens. Targets only
+  # quoted-identifier pairs, leaving any string literals unaffected -- DuckDB
+  # uses single quotes for literals, but this guards against future drift.
+  rendered_for_sniff <- gsub('"([^"]*)"', '\\1', rendered, perl = TRUE)
   inputs <- .mr_sniff_view_inputs(con, rendered_for_sniff)
 
   # Namespace guard before any DDL.
