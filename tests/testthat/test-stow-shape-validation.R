@@ -5,7 +5,7 @@ test_that("stow() rejects unknown shape values", {
   df <- data.frame(x = 1)
   expect_error(
     stow(df, "d", shape = "garbage"),
-    'shape must be NULL, "versioned", or "append"'
+    'shape must be NULL, "versioned", "append", or "view"'
   )
 })
 

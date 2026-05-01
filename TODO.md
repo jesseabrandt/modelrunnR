@@ -1,5 +1,83 @@
 # modelrunnR TODO
 
+## Surfaced 2026-05-01 (from view-stow design)
+
+### Staleness propagation through views over append-shape inputs
+
+The view-stow path (added 2026-05-01) hashes views by their rendered SQL
+text. For an append-shape source, the rendered SQL references the source's
+stable append physical name, so appending or replacing chunks does not drift
+the view's hash — and `is_stale(view_name)` skips the version-latest check
+for append inputs anyway (see `staleness.R:172`, `(name, NA)` recording with
+"upstream launch freshness is the authoritative signal"). Net effect:
+source-data changes underneath a view-stow do not surface as staleness on
+the view or its downstream consumers.
+
+Two plausible directions when this gets prioritized:
+
+1. Hash views by row contents (materialize-then-drop at registration), so
+   view identity tracks the rows it would return. Robust but pays a
+   registration-time cost on every view stow.
+2. Walk the append source's chunk membership at staleness-check time and
+   compare against the chunk_hashes recorded on the view's run row. Adds a
+   third arm to `.mr_check_inputs()` for "view inputs over append source".
+
+Not blocking for the practicum; flagged here so the weak spot is documented
+and the simple SQL-text hash isn't quietly mistaken for content-aware.
+
+## Surfaced 2026-04-29 (from queue+launch unification follow-up)
+
+Surfaced by the final whole-branch review of `fix/queue-audit` after the
+unification spec landed (see
+`docs/superpowers/specs/2026-04-29-queue-launch-unification-design.md`
+and the corresponding plan). All four are low-priority polish — none
+block the unification work itself.
+
+### Test `error` and `silent` modes of `modelrunnR.relaunch_nonsuccess` in queue
+
+`tests/testthat/test-queue.R` covers the default `"warn"` mode for
+`queue(mr_run(failed_id))` (see
+"queue(mr_run(failed_id)) warns under default relaunch_nonsuccess
+policy"). Launch tests all three modes for its parallel policy block;
+queue should mirror — `options(modelrunnR.relaunch_nonsuccess = "error")`
+should make `queue(mr_run(failed_id))` raise; `"silent"` should pass
+through. Risk is small (queue's policy block is a copy of launch's), so
+this is regression-lock-in coverage, not a hunt for a defect.
+
+### Targeted file-step `code_hash` regression test for `queue(mr_run(file_step_id))`
+
+The spec's "Resolution" §3rd bullet says a file-step source whose file
+still exists on disk should hash via `.mr_code_hash(step, list())` —
+i.e. hash the *current* file bytes, matching what re-sourcing from disk
+would write (`R/queue.R:103-116`). The implementation does this, but
+no test exercises it directly: the closest test seeds via inline-step
+`launch()` so it only covers the inline branch. Add a test that:
+launches a file-step, captures `run_id`, `queue(mr_run(run_id))`,
+asserts `q$code_hash` equals `.mr_code_hash(file_path, list())`.
+Locks in the contract before drift.
+
+### Roxygen clarification on `queue(mr_run(qid), rebind = ...)` template-fork behavior
+
+`R/queue.R`'s `@param code` block describes the queued-source-with-rebind
+case as "the queued row is treated as a template (parallels
+`launch(mr_run(qid), rebind = ...)`)" — the parallel doesn't help a
+user who hasn't internalized launch's behavior either. One-line
+addition: spell out that the queued source remains queued and a fresh
+queued row is written with the caller's rebind. Surfaced by the final
+unification review.
+
+### Investigate filter-mode test interference
+
+`devtools::test(filter = "launch")` in isolation produces 7 spurious
+failures on `test-launch-inline.R:61`, `test-launch-skip-fresh.R:131-133`,
+`test-launch-summary.R:9-19`. They don't reproduce when running the
+full suite or running each file directly via `testthat::test_file()`.
+Likely cause: shared between-file state (test DB or message-capture
+state) that the filter-mode runner doesn't reset between files. Not
+introduced by recent work — flagged because it makes per-task
+filter-mode verification unreliable and could mask future regressions.
+Cosmetic; only annoying when reviewing a small subset of tests.
+
 ## Surfaced 2026-04-28 (from queue() audit fixes)
 
 ### ✓ Queued-row pickup with caller bindings spawns a new run
@@ -315,16 +393,13 @@ rows (temp-table + `.mr_hash_duckdb_table`), or document that lazy
 chunk_hash is SQL-level and frame chunk_hash is row-level. Design
 decision, not a bug — flag before v0.1.
 
-### SQL-launch records append-shape chunk_hash on `_mr_runs.inputs`; R-launch records `NA`
+### ✓ SQL-launch records append-shape chunk_hash on `_mr_runs.inputs`; R-launch records `NA`
 
-`R/launch_sql.R:120-126` resolves append-shape inputs to their chunk_hash
-and records it on `_mr_runs.inputs`. `R/grab.R:125` (R-launch path)
-records `NA_character_` for the same append-shape grab. `.mr_check_inputs`
-treats NA-hash entries as "always fresh" — so an R-mode consumer of an
-append-shape input never goes stale when the upstream changes, while a
-SQL-mode consumer does. Pick one convention per the
-shape-invisibility principle; matching the SQL-mode behavior on R
-would give real upstream-change detection for append-shape inputs.
+Closed 2026-05-01: R-launch's `grab()` on a Shape B name now records
+the resolved chunk_hash on `_mr_runs.inputs`, mirroring SQL-launch.
+`.mr_check_inputs` is shape-aware (consults `_mr_append_chunks` for
+Shape B names) so a downstream consumer goes stale when upstream
+appends a new chunk. Tests: `tests/testthat/test-staleness-append.R`.
 
 ### `serialize()`-based chunk_hash is not R-version-stable
 
@@ -706,23 +781,14 @@ diagnostic improvement; low priority.
 
 ## Surfaced 2026-04-18 (from final_practicum rebind workflow)
 
-### 1. `rebind = list(<name> = <df>)` pollutes the target's version history
+### ✓ 1. `rebind = list(<name> = <df>)` pollutes the target's version history
 
-Bare-value rebinds call `.mr_stow_table(name, value)` (see
-`.mr_resolve_rebind_entry` in `R/rebind.R`), which writes a permanent
-`_mr_versions` row under `name` and bumps `_mr_latest_view`. After a
-test launch with a sampled rebind, a naked `grab(<name>)` returns the
-sample instead of the real dataset.
-
-Directions to consider:
-
-- Scope the rebound value to the launch run only — store it under a
-  launch-private physical name and resolve via `.mr_state$rebinds`
-  without touching `_mr_versions` / the latest view.
-- At minimum, don't refresh `latest` for rebind-originated stows.
-- Alternative: reject bare values in `rebind =` and require
-  `mr_hash()` / `mr_run()` / `mr_variant()` refs to pre-existing
-  versions.
+Closed 2026-05-01 via option (ii) — `is_rebind` flag on `_mr_versions`.
+Bare-value rebinds still write a row but with `is_rebind = TRUE`; the
+latest-view filter excludes those rows so naked `grab(name)` returns
+the real upstream. `versions(name)` shows rebinds by default with
+`include_rebinds = FALSE` to filter; `mr_hash()` still resolves rebind
+hashes. Tests: `tests/testthat/test-rebind-is-rebind.R`.
 
 ### 2. `stow()` of a lazy `tbl_dbi` falls through to the artifact path
 

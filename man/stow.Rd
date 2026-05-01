@@ -4,7 +4,7 @@
 \alias{stow}
 \title{Persist a value to the modelrunnR artifact store}
 \usage{
-stow(value, name, shape = NULL)
+stow(value, name, shape = NULL, label = NULL)
 }
 \arguments{
 \item{value}{Any R value. First, so \code{df |> stow("name")} works.}
@@ -12,20 +12,30 @@ stow(value, name, shape = NULL)
 \item{name}{A length-one character vector. Logical name for the
 value.}
 
-\item{shape}{Optional length-1 character: \code{"versioned"} to opt a
+\item{shape}{Optional length-1 character. \code{"versioned"} opts a
 data frame into versioned-shape storage (one row per distinct
-content), or \code{"append"} to make the default explicit. \code{NULL}
-(default) preserves type-based dispatch: data frames append,
-non-frame R objects go versioned. Cannot be combined with an
-\code{mr_file} value (always versioned) and is rejected on artifact
-values.}
+content); \code{"append"} makes the default explicit; \code{"view"}
+registers a lazy \code{dbplyr} expression as a \verb{CREATE OR REPLACE VIEW}. \code{NULL} (default) preserves type-based dispatch: data
+frames append, non-frame R objects go versioned. \code{shape = "view"}
+requires a lazy \code{tbl}; \code{shape = "versioned"} does not work for
+lazy tbls (collect to a data frame first).}
+
+\item{label}{Optional length-1 character. Tags the synthetic
+\verb{_mr_runs} row this stow writes with the given variant label,
+so later \code{launch(rebind = list(name = mr_variant(label)))}
+resolves to this stow's content. Empty / whitespace-only
+labels are rejected. Inside a tracked \code{launch()}, the label is
+taken from the surrounding launch's variant; passing \verb{label =}
+to \code{stow()} from within a launch is therefore redundant and
+only affects the synthetic row this stow writes, not the
+launch's run row.}
 }
 \value{
 \code{value}, invisibly.
 }
 \description{
 Stores \code{value} under the logical name \code{name}. Dispatches on type.
-The two storage paths are:
+The four storage paths are:
 }
 \details{
 \itemize{
@@ -48,6 +58,13 @@ via \code{\link[=grab]{grab()}} selectors.
 table per distinct content, and registered in \verb{_mr_versions} (same
 path that \code{\link[=ingest]{ingest()}} uses). \code{\link[=mr_file]{mr_file()}} values always route through
 the file-source path (versioned-shape, source URI/hash recorded).
+\item \strong{View} (for lazy \code{dbplyr} expressions passed with
+\code{shape = "view"}) — wrapped as \verb{CREATE OR REPLACE VIEW}, hashed
+by the rendered SQL text. Inputs referenced in the expression
+are resolved against \verb{_mr_versions} and \verb{_mr_append_tables}; an
+expression with no managed inputs errors. Source-data staleness
+through views over append-shape inputs is a known weak spot —
+see \code{TODO.md} "Surfaced 2026-05-01."
 }
 
 A logical name is tied to one shape on first write. Changing shape
@@ -80,5 +97,35 @@ writes will show distinct chunks in \code{\link[=versions]{versions()}}). Hashin
 DuckDB tables is type-sensitive: integer vs. double columns holding
 the same values produce different hashes. Row names are not
 persisted.
+}
+
+\section{Rolling-window views}{
+
+Pre-stow one view per fold, then sweep \code{launch()} with
+\code{mr_variant()} to redirect generic input names per fold:
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{panel <- grab("panel")
+for (i in seq_len(nrow(windows))) \{
+  fold_label <- sprintf("fold_\%02d", windows$fold[i])
+  train_start <- windows$train_start_year[i]
+  train_end   <- windows$train_end_year[i]
+  test_yr     <- windows$test_year[i]
+
+  panel |>
+    dplyr::filter(year >= train_start, year <= train_end) |>
+    stow("train", shape = "view", label = fold_label)
+  panel |>
+    dplyr::filter(year == test_yr) |>
+    stow("test",  shape = "view", label = fold_label)
+\}
+
+for (i in seq_len(nrow(windows))) \{
+  fold_label <- sprintf("fold_\%02d", windows$fold[i])
+  launch(model_code, rebind = list(
+    train = mr_variant(fold_label),
+    test  = mr_variant(fold_label)
+  ), label = fold_label)
+\}
+}\if{html}{\out{</div>}}
 }
 

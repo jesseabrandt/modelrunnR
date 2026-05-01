@@ -146,12 +146,12 @@
 # has a real run_id, grab()'s "latest run" rule stays coherent, and later
 # launches that grab() the value get the same reproducibility warning
 # that artifact / ingest inputs already trigger.
-.mr_append_write_frame <- function(name, value) {
+.mr_append_write_frame <- function(name, value, label = NA_character_) {
   run_id      <- .mr_recording_run_id()
   interactive <- is.null(run_id) || is.na(run_id)
   if (interactive) {
     run_id <- .mr_new_run_id()
-    label  <- NA_character_
+    # label comes from parameter (NA_character_ if none supplied)
   } else {
     label <- .mr_recording_variant_label()
     if (is.null(label)) label <- NA_character_
@@ -237,7 +237,8 @@
       con, name, run_id, chunk_hash, nrow(value), now
     )
     if (interactive) {
-      .mr_write_interactive_run_row(con, run_id, list(output_entry), now)
+      .mr_write_interactive_run_row(con, run_id, list(output_entry), now,
+                                    label = label)
     }
     DBI::dbCommit(con)
   }, error = function(e) {
@@ -258,7 +259,8 @@
 # Called inside the caller's transaction; outputs JSON is passed in
 # directly since no recording context is active to flush at run end.
 .mr_write_interactive_run_row <- function(con, run_id, outputs_entries,
-                                          started_at = Sys.time()) {
+                                          started_at = Sys.time(),
+                                          label = NA_character_) {
   outputs_json <- if (length(outputs_entries) == 0L) {
     "[]"
   } else {
@@ -275,7 +277,7 @@
     started_at        = started_at,
     duration_ms       = 0L,
     status            = "interactive",
-    variant_label     = NA_character_,
+    variant_label     = label,
     hostname          = si$hostname,
     os                = si$os,
     arch              = si$arch,
@@ -488,12 +490,12 @@
     dplyr::select(-dplyr::any_of(c("_mr_run_id", "_mr_variant_label")))
 }
 
-.mr_append_write_lazy <- function(name, value) {
+.mr_append_write_lazy <- function(name, value, label = NA_character_) {
   run_id      <- .mr_recording_run_id()
   interactive <- is.null(run_id) || is.na(run_id)
   if (interactive) {
     run_id <- .mr_new_run_id()
-    label  <- NA_character_
+    # label comes from parameter (NA_character_ if none supplied)
   } else {
     label <- .mr_recording_variant_label()
     if (is.null(label)) label <- NA_character_
@@ -616,7 +618,8 @@
       con, name, run_id, chunk_hash, rows_inserted, now
     )
     if (interactive) {
-      .mr_write_interactive_run_row(con, run_id, list(output_entry), now)
+      .mr_write_interactive_run_row(con, run_id, list(output_entry), now,
+                                    label = label)
     }
     DBI::dbCommit(con)
   }, error = function(e) {

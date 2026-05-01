@@ -1,7 +1,7 @@
 #' Persist a value to the modelrunnR artifact store
 #'
 #' Stores `value` under the logical name `name`. Dispatches on type.
-#' The two storage paths are:
+#' The four storage paths are:
 #'
 #' - **Append table** (for data frames and lazy DuckDB tbls) — writes
 #'   into a single growing physical table per `name`, stamping every
@@ -22,6 +22,13 @@
 #'   table per distinct content, and registered in `_mr_versions` (same
 #'   path that [ingest()] uses). [mr_file()] values always route through
 #'   the file-source path (versioned-shape, source URI/hash recorded).
+#' - **View** (for lazy `dbplyr` expressions passed with
+#'   `shape = "view"`) — wrapped as `CREATE OR REPLACE VIEW`, hashed
+#'   by the rendered SQL text. Inputs referenced in the expression
+#'   are resolved against `_mr_versions` and `_mr_append_tables`; an
+#'   expression with no managed inputs errors. Source-data staleness
+#'   through views over append-shape inputs is a known weak spot —
+#'   see `TODO.md` "Surfaced 2026-05-01."
 #'
 #' A logical name is tied to one shape on first write. Changing shape
 #' later (e.g. `stow(df, "x")` then `stow(model, "x")`) errors.
@@ -56,17 +63,56 @@
 #' @param value Any R value. First, so `df |> stow("name")` works.
 #' @param name A length-one character vector. Logical name for the
 #'   value.
-#' @param shape Optional length-1 character: `"versioned"` to opt a
+#' @param shape Optional length-1 character. `"versioned"` opts a
 #'   data frame into versioned-shape storage (one row per distinct
-#'   content), or `"append"` to make the default explicit. `NULL`
-#'   (default) preserves type-based dispatch: data frames append,
-#'   non-frame R objects go versioned. Cannot be combined with an
-#'   `mr_file` value (always versioned) and is rejected on artifact
-#'   values.
+#'   content); `"append"` makes the default explicit; `"view"`
+#'   registers a lazy `dbplyr` expression as a `CREATE OR REPLACE
+#'   VIEW`. `NULL` (default) preserves type-based dispatch: data
+#'   frames append, non-frame R objects go versioned. `shape = "view"`
+#'   requires a lazy `tbl`; `shape = "versioned"` does not work for
+#'   lazy tbls (collect to a data frame first).
+#' @param label Optional length-1 character. Tags the synthetic
+#'   `_mr_runs` row this stow writes with the given variant label,
+#'   so later `launch(rebind = list(name = mr_variant(label)))`
+#'   resolves to this stow's content. Empty / whitespace-only
+#'   labels are rejected. Inside a tracked `launch()`, the label is
+#'   taken from the surrounding launch's variant; passing `label =`
+#'   to `stow()` from within a launch is therefore redundant and
+#'   only affects the synthetic row this stow writes, not the
+#'   launch's run row.
+#'
+#' @section Rolling-window views:
+#' Pre-stow one view per fold, then sweep `launch()` with
+#' `mr_variant()` to redirect generic input names per fold:
+#'
+#' ```r
+#' panel <- grab("panel")
+#' for (i in seq_len(nrow(windows))) {
+#'   fold_label <- sprintf("fold_%02d", windows$fold[i])
+#'   train_start <- windows$train_start_year[i]
+#'   train_end   <- windows$train_end_year[i]
+#'   test_yr     <- windows$test_year[i]
+#'
+#'   panel |>
+#'     dplyr::filter(year >= train_start, year <= train_end) |>
+#'     stow("train", shape = "view", label = fold_label)
+#'   panel |>
+#'     dplyr::filter(year == test_yr) |>
+#'     stow("test",  shape = "view", label = fold_label)
+#' }
+#'
+#' for (i in seq_len(nrow(windows))) {
+#'   fold_label <- sprintf("fold_%02d", windows$fold[i])
+#'   launch(model_code, rebind = list(
+#'     train = mr_variant(fold_label),
+#'     test  = mr_variant(fold_label)
+#'   ), label = fold_label)
+#' }
+#' ```
 #'
 #' @return `value`, invisibly.
 #' @export
-stow <- function(value, name, shape = NULL) {
+stow <- function(value, name, shape = NULL, label = NULL) {
   if (missing(name) && is.character(value) && length(value) == 1L &&
       !inherits(value, "mr_file")) {
     stop(
@@ -94,9 +140,9 @@ stow <- function(value, name, shape = NULL) {
   # Validate `shape`; see spec §2 for the dispatch table.
   if (!is.null(shape)) {
     if (!is.character(shape) || length(shape) != 1L ||
-        !shape %in% c("versioned", "append")) {
+        !shape %in% c("versioned", "append", "view")) {
       stop(
-        'stow(): shape must be NULL, "versioned", or "append".',
+        'stow(): shape must be NULL, "versioned", "append", or "view".',
         call. = FALSE
       )
     }
@@ -107,7 +153,16 @@ stow <- function(value, name, shape = NULL) {
         call. = FALSE
       )
     }
-    if (!is.data.frame(value) && !inherits(value, "tbl_lazy")) {
+    if (identical(shape, "view") && !inherits(value, "tbl_lazy")) {
+      stop(
+        "stow(): shape = 'view' requires a lazy dbplyr expression ",
+        "(e.g. grab('name') |> filter(...)). Got: ",
+        paste(class(value), collapse = "/"),
+        call. = FALSE
+      )
+    }
+    if (!identical(shape, "view") &&
+        !is.data.frame(value) && !inherits(value, "tbl_lazy")) {
       stop(
         sprintf(
           "stow(): shape is only meaningful for data frames and lazy tbls; got %s.",
@@ -118,9 +173,14 @@ stow <- function(value, name, shape = NULL) {
     }
   }
 
+  # The shared validator returns NA_character_ for NULL input; downstream
+  # plumbing (Tasks 2/3) treats NA the same as "no label". Trimmed value
+  # is returned for normalized downstream use.
+  label <- .mr_validate_label(label, context = "stow()")
+
   if (inherits(value, "mr_file")) {
     .mr_guard_namespace(name, shape = "A")
-    .mr_stow_file(name, unclass(value))
+    .mr_stow_file(name, unclass(value), label = label)
     return(invisible(value))
   }
 
@@ -137,19 +197,23 @@ stow <- function(value, name, shape = NULL) {
         call. = FALSE
       )
     }
+    if (identical(shape, "view")) {
+      .mr_stow_view(name, value, label = label)
+      return(invisible(value))
+    }
     .mr_guard_namespace(name, shape = "B")
-    .mr_append_write_lazy(name, value)
+    .mr_append_write_lazy(name, value, label = label)
   } else if (is.data.frame(value)) {
     if (versioned) {
       .mr_guard_namespace(name, shape = "A")
-      .mr_stow_table(name, value)
+      .mr_stow_table(name, value, label = label)
     } else {
       .mr_guard_namespace(name, shape = "B")
-      .mr_append_write_frame(name, value)
+      .mr_append_write_frame(name, value, label = label)
     }
   } else {
     .mr_guard_namespace(name, shape = "A", new_kind = "artifact")
-    .mr_stow_artifact(name, value)
+    .mr_stow_artifact(name, value, label = label)
   }
   invisible(value)
 }
@@ -163,7 +227,7 @@ stow <- function(value, name, shape = NULL) {
 # `is_rebind = TRUE` flags the row as a bare-value rebind (written
 # from inside .mr_resolve_rebind_entry). The latest-version resolver
 # excludes is_rebind rows so they don't shadow real upstream stows.
-.mr_stow_table <- function(name, value, is_rebind = FALSE) {
+.mr_stow_table <- function(name, value, is_rebind = FALSE, label = NA_character_) {
   con  <- .mr_get_connection()
   if (.mr_has_nondefault_rownames(value)) {
     warning(
@@ -217,7 +281,7 @@ stow <- function(value, name, shape = NULL) {
   })
 
   .mr_record_write(name, hash)
-  .mr_maybe_record_interactive_write(name, hash)
+  .mr_maybe_record_interactive_write(name, hash, label = label)
   .mr_maybe_warn_version_count(con, name)
   invisible(hash)
 }
@@ -229,7 +293,7 @@ stow <- function(value, name, shape = NULL) {
 # `is_rebind = TRUE` flags the row as a bare-value rebind (written
 # from inside .mr_resolve_rebind_entry). See .mr_stow_table for
 # rationale.
-.mr_stow_artifact <- function(name, value, is_rebind = FALSE) {
+.mr_stow_artifact <- function(name, value, is_rebind = FALSE, label = NA_character_) {
   con   <- .mr_get_connection()
   bytes <- qs2::qs_serialize(value)
   hash  <- .mr_hash_bytes(bytes)
@@ -296,7 +360,7 @@ stow <- function(value, name, shape = NULL) {
   }
 
   .mr_record_write(name, hash)
-  .mr_maybe_record_interactive_write(name, hash)
+  .mr_maybe_record_interactive_write(name, hash, label = label)
   .mr_maybe_warn_version_count(con, name)
   invisible(hash)
 }
