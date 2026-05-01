@@ -678,6 +678,44 @@
   hits$chunk_hash[1]
 }
 
+# Latest chunk_hash recorded for a Shape B logical name, or
+# NA_character_ if none. Used by R-launch grab() to record an
+# upstream-head identity on `_mr_runs.inputs` so a consumer goes stale
+# when a new chunk is appended to `name`.
+.mr_append_latest_chunk_hash <- function(con, name) {
+  hits <- DBI::dbGetQuery(
+    con,
+    "SELECT chunk_hash FROM _mr_append_chunks
+      WHERE logical_name = ?
+      ORDER BY started_at DESC
+      LIMIT 1",
+    params = list(name)
+  )
+  if (nrow(hits) == 0L) return(NA_character_)
+  hits$chunk_hash[1]
+}
+
+# Latest chunk_hash on a Shape B logical name produced by a run with
+# the given variant_label, or NA_character_ if none. Mirrors the
+# variant->run lookup used by grab(variant=) so the recorded hash
+# matches the rows actually read.
+.mr_append_latest_chunk_hash_for_variant <- function(con, name, variant) {
+  physical <- .mr_append_physical_name(name)
+  latest_run <- DBI::dbGetQuery(
+    con,
+    sprintf(
+      "SELECT run_id FROM _mr_runs
+        WHERE variant_label = ?
+          AND run_id IN (SELECT DISTINCT _mr_run_id FROM %s)
+        ORDER BY started_at DESC
+        LIMIT 1",
+      .mr_quote_ident(physical)),
+    params = list(variant)
+  )
+  if (nrow(latest_run) == 0L) return(NA_character_)
+  .mr_append_chunk_hash_for_run(con, name, latest_run$run_id[1])
+}
+
 # Create (idempotently) a read-only DuckDB view projecting the user
 # columns of a Shape B logical name's physical append table, filtered
 # to a single run's rows. Returns the view's physical name. Used by

@@ -103,17 +103,23 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
     }
     if (!is.null(run)) {
       reading <- .mr_append_read(name, run = run)
-      .mr_record_read(name, NA_character_)
+      # `run = "all"` is a cross-history view; no single chunk_hash applies.
+      hash <- if (identical(run, "all")) {
+        NA_character_
+      } else {
+        .mr_append_chunk_hash_for_run(con, name, run)
+      }
+      .mr_record_read(name, hash)
       return(reading)
     }
     if (!is.null(variant)) {
       reading <- .mr_append_read(name, variant = variant)
-      .mr_record_read(name, NA_character_)
+      .mr_record_read(name, .mr_append_latest_chunk_hash_for_variant(con, name, variant))
       return(reading)
     }
     if (!is.null(from_run)) {
       reading <- .mr_append_read(name, run = from_run)
-      .mr_record_read(name, NA_character_)
+      .mr_record_read(name, .mr_append_chunk_hash_for_run(con, name, from_run))
       return(reading)
     }
     # If this name is rebound to a specific filter, honor it before the
@@ -121,7 +127,7 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
     rebound_filter <- .mr_rebound_shape_b_filter(name)
     if (!is.null(rebound_filter)) {
       reading <- .mr_append_read(name, run = rebound_filter$value)
-      .mr_record_read(name, NA_character_)
+      .mr_record_read(name, .mr_append_chunk_hash_for_run(con, name, rebound_filter$value))
       return(reading)
     }
 
@@ -132,7 +138,11 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
     } else {
       .mr_append_read(name)
     }
-    .mr_record_read(name, NA_character_)
+    # Record the upstream's latest chunk_hash at the time of read so a
+    # downstream consumer goes stale when the upstream appends a new
+    # chunk. Mirrors the SQL-launch `inputs_pairs` recording (see
+    # .mr_launch_sql, Shape B branch).
+    .mr_record_read(name, .mr_append_latest_chunk_hash(con, name))
     return(reading)
   }
 

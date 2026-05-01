@@ -17,10 +17,10 @@ test_that("re-running an unchanged step with no external inputs is fresh", {
   expect_length(result$reasons, 0L)
 })
 
-# Note: append-shape inputs (grab() on an append table) always produce
-# is.na(recorded_hash) == TRUE in the staleness check, causing the
-# step to appear stale on every re-run. This is a known limitation of
-# the v0.1 staleness model for append-shape data; see TODO.md.
+# Append-shape input staleness coverage lives in
+# test-staleness-append.R. R-launch reads now record the
+# upstream's latest chunk_hash (matching SQL-launch semantics) so a
+# consumer goes stale when the upstream appends a new chunk.
 
 test_that("editing the script marks it stale with reason 'code'", {
   new_test_db()
@@ -50,10 +50,8 @@ test_that("touching a helper marks the step stale with reason 'code'", {
   expect_true("code" %in% result$reasons)
 })
 
-# Deleted: "a changed input produces 'input:<name>' staleness downstream"
-# for append-shape inputs. append-shape reads record hash = NA_character_; the
-# staleness check compares NA to NA (always fresh). Staleness tracking for
-# append-shape inputs requires a separate mechanism (not implemented in v0.1).
+# See test-staleness-append.R for downstream-staleness coverage of
+# append-shape inputs.
 
 test_that("a declared env var that stays set is fresh on re-check", {
   new_test_db()
