@@ -66,7 +66,7 @@
 #'
 #' @return `value`, invisibly.
 #' @export
-stow <- function(value, name, shape = NULL) {
+stow <- function(value, name, shape = NULL, label = NULL) {
   if (missing(name) && is.character(value) && length(value) == 1L &&
       !inherits(value, "mr_file")) {
     stop(
@@ -115,6 +115,20 @@ stow <- function(value, name, shape = NULL) {
         ),
         call. = FALSE
       )
+    }
+  }
+
+  # Validate `label`. Empty / whitespace-only labels are rejected (mirrors
+  # launch()'s label rules); whitespace is trimmed.
+  if (!is.null(label)) {
+    if (!is.character(label) || length(label) != 1L || is.na(label)) {
+      stop("stow(): label must be NULL or a length-1 character string.",
+           call. = FALSE)
+    }
+    label <- trimws(label)
+    if (!nzchar(label)) {
+      stop("stow(): label must not be empty or whitespace-only.",
+           call. = FALSE)
     }
   }
 
