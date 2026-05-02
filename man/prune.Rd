@@ -25,9 +25,16 @@ shortcut that uses only \code{older_than}.}
 \item{run_id}{Character vector of run ids to prune (Shape B only).}
 
 \item{keep}{Integer; keep the N most recent versions (Shape A) or
-runs (Shape B). Applied per logical name.}
+runs (Shape B). Applied per logical name. On Shape B, runs with a
+\code{variant_label} are protected unless \code{force = TRUE} — use
+\code{keep_latest} instead when the intent is per-variant retention.}
 
-\item{keep_latest}{Logical; shorthand for \code{keep = 1}. Shape A only.}
+\item{keep_latest}{Logical; shorthand for "keep the most recent
+entry". On \strong{Shape A}, keeps the latest version per logical name.
+On \strong{Shape B}, keeps the latest run per \verb{(logical_name, variant_label)} group — runs without a label form their own group.
+On Shape B, \code{keep_latest = TRUE} overrides the variant-label
+protection because the per-variant grouping is itself the safety:
+no labeled variant ever loses its most recent chunk.}
 
 \item{older_than}{Duration string (\code{"30d"}, \code{"6h"}, \code{"15m"},
 \code{"45s"}). Works on both shapes.}
