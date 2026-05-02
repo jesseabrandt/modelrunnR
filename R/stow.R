@@ -282,7 +282,9 @@ stow <- function(value, name, shape = NULL, label = NULL) {
 
   .mr_record_write(name, hash)
   .mr_maybe_record_interactive_write(name, hash, label = label)
-  .mr_maybe_warn_version_count(con, name)
+  if (!isTRUE(is_rebind)) {
+    .mr_maybe_warn_version_count(con, name)
+  }
   invisible(hash)
 }
 
@@ -361,7 +363,9 @@ stow <- function(value, name, shape = NULL, label = NULL) {
 
   .mr_record_write(name, hash)
   .mr_maybe_record_interactive_write(name, hash, label = label)
-  .mr_maybe_warn_version_count(con, name)
+  if (!isTRUE(is_rebind)) {
+    .mr_maybe_warn_version_count(con, name)
+  }
   invisible(hash)
 }
 
