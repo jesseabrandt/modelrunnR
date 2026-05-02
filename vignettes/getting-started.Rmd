@@ -240,7 +240,9 @@ runs() |> dplyr::select(run_id, step, variant_label, status, started_at)
 
 The `code_body` column carries an `mr_code` class, so pulling it out
 prints as multi-line code (syntax-highlighted at a color-capable
-terminal, plain text in pipes / files / knitr):
+terminal, plain text in pipes and files). In a knitr/Quarto chunk
+it renders as a fenced `r` block via a `knit_print` method, so
+Pandoc's syntax highlighter handles it:
 
 ```{r runs-code}
 runs() |>

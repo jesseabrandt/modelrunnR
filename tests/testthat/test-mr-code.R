@@ -135,6 +135,43 @@ test_that("print.mr_code emits no ANSI escapes when color is disabled", {
   expect_false(grepl("\033\\[", joined))
 })
 
+test_that("knit_print.mr_code returns a knit_asis fenced r block with the code body", {
+  skip_if_not_installed("knitr")
+  x <- .mr_as_code("x <- 1\ny <- 2")
+  out <- knit_print.mr_code(x)
+  expect_s3_class(out, "knit_asis")
+  s <- as.character(out)
+  expect_match(s, "```r", fixed = TRUE)
+  expect_match(s, "x <- 1", fixed = TRUE)
+  expect_match(s, "y <- 2", fixed = TRUE)
+  # No ANSI escapes: highlighting is Pandoc's job, not ours.
+  expect_false(grepl("\033\\[", s))
+})
+
+test_that("knit_print.mr_code emits one fenced block per element", {
+  skip_if_not_installed("knitr")
+  x <- .mr_as_code(c("a <- 1", "b <- 2"))
+  s <- as.character(knit_print.mr_code(x))
+  # Two opening ```r fences for two elements.
+  expect_equal(length(gregexpr("```r", s, fixed = TRUE)[[1]]), 2L)
+  expect_match(s, "a <- 1", fixed = TRUE)
+  expect_match(s, "b <- 2", fixed = TRUE)
+})
+
+test_that("knit_print.mr_code renders NA / empty elements as <no code body>", {
+  skip_if_not_installed("knitr")
+  s <- as.character(knit_print.mr_code(.mr_as_code(NA_character_)))
+  expect_match(s, "<no code body>", fixed = TRUE)
+  s2 <- as.character(knit_print.mr_code(.mr_as_code("")))
+  expect_match(s2, "<no code body>", fixed = TRUE)
+})
+
+test_that("knit_print.mr_code swallows knitr's options/inline arguments via ...", {
+  skip_if_not_installed("knitr")
+  x <- .mr_as_code("x <- 1")
+  expect_no_error(capture.output(knit_print.mr_code(x, options = list(echo = TRUE), inline = FALSE)))
+})
+
 test_that("print.mr_code highlights every line of multi-line code (not just the first)", {
   withr::local_options(cli.num_colors = 256)
   x <- .mr_as_code("x <- 1\ny <- 2")

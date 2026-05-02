@@ -30,7 +30,12 @@
 #'   adjacent elements with a blank line. Syntax highlighting is delegated
 #'   to [prettycode::highlight()], which emits ANSI escapes only when
 #'   `crayon::has_color()` is `TRUE` — Rscript at a color-capable terminal
-#'   gets highlighting; pipes, files, and knitr get plain text.
+#'   gets highlighting; pipes and files get plain text.
+#' - `knit_print.mr_code()` is registered for the `knitr::knit_print`
+#'   generic so that pulling `code_body` in a knitr/Quarto chunk emits a
+#'   fenced \verb{```r} block per element. Pandoc/Quarto's syntax
+#'   highlighter takes it from there; ANSI escapes from the console
+#'   `print` method are bypassed entirely.
 #' - `format.mr_code()` returns short summaries like `"<412 chr>"` so the
 #'   tibble print layout stays compact.
 #' - `as.character.mr_code()` strips the class and returns the underlying
@@ -48,6 +53,9 @@
 #' - `as.character.mr_code()` returns a plain `character` vector with
 #'   the class stripped.
 #' - `[.mr_code` and `[[.mr_code` return an `mr_code` vector.
+#' - `knit_print.mr_code()` returns a `knit_asis` object containing
+#'   one fenced \verb{```r} block per element (or `<no code body>` for
+#'   `NA` / empty elements), separated by blank lines.
 #'
 #' @name mr_code
 NULL
@@ -81,6 +89,20 @@ as.character.mr_code <- function(x, ...) {
   out <- unclass(x)[[i]]
   class(out) <- c("mr_code", class(out))
   out
+}
+
+#' @rdname mr_code
+#' @exportS3Method knitr::knit_print
+knit_print.mr_code <- function(x, ...) {
+  raw <- unclass(x)
+  parts <- vapply(raw, function(s) {
+    if (is.na(s) || !nzchar(s)) {
+      "<no code body>"
+    } else {
+      paste0("```r\n", s, "\n```")
+    }
+  }, character(1))
+  knitr::asis_output(paste0("\n\n", paste(parts, collapse = "\n\n"), "\n\n"))
 }
 
 #' @rdname mr_code

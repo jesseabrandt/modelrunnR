@@ -6,6 +6,7 @@
 \alias{as.character.mr_code}
 \alias{[.mr_code}
 \alias{[[.mr_code}
+\alias{knit_print.mr_code}
 \alias{print.mr_code}
 \title{Print, format, subset, and coerce mr_code vectors}
 \usage{
@@ -16,6 +17,8 @@
 \method{[}{mr_code}(x, i)
 
 \method{[[}{mr_code}(x, i)
+
+\method{knit_print}{mr_code}(x, ...)
 
 \method{print}{mr_code}(x, ...)
 }
@@ -35,6 +38,9 @@ tibble can render the cells as plain text.
 \item \code{as.character.mr_code()} returns a plain \code{character} vector with
 the class stripped.
 \item \verb{[.mr_code} and \verb{[[.mr_code} return an \code{mr_code} vector.
+\item \code{knit_print.mr_code()} returns a \code{knit_asis} object containing
+one fenced \verb{```r} block per element (or \verb{<no code body>} for
+\code{NA} / empty elements), separated by blank lines.
 }
 }
 \description{
@@ -48,7 +54,12 @@ tibble prints as readable, optionally syntax-highlighted code.
 adjacent elements with a blank line. Syntax highlighting is delegated
 to \code{\link[prettycode:highlight]{prettycode::highlight()}}, which emits ANSI escapes only when
 \code{crayon::has_color()} is \code{TRUE} — Rscript at a color-capable terminal
-gets highlighting; pipes, files, and knitr get plain text.
+gets highlighting; pipes and files get plain text.
+\item \code{knit_print.mr_code()} is registered for the \code{knitr::knit_print}
+generic so that pulling \code{code_body} in a knitr/Quarto chunk emits a
+fenced \verb{```r} block per element. Pandoc/Quarto's syntax
+highlighter takes it from there; ANSI escapes from the console
+\code{print} method are bypassed entirely.
 \item \code{format.mr_code()} returns short summaries like \code{"<412 chr>"} so the
 tibble print layout stays compact.
 \item \code{as.character.mr_code()} strips the class and returns the underlying
