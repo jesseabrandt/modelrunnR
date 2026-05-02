@@ -35,20 +35,31 @@ source("model.R")
 ```r
 library(modelrunnR)
 
-# A sweep across three models, each labeled so variants are tracked.
-for (spec in list(lm_spec, rf_spec, gbm_spec)) {
-  launch({
-    fit <- fit_model(spec, grab("train_data"))
-    stow(data.frame(model = spec$name, rmse = rmse(fit)), "metrics")
-  }, label = spec$name)
-}
+# Stow inputs to the project's DuckDB store (one file, content-hashed).
+# Re-running these calls is idempotent -- identical content is deduped.
+stow(mtcars, "cars", shape = "versioned")
+stow(mpg ~ wt + hp, "spec")
 
-# `metrics` is one growing table, one row per run. Default: latest run's rows.
-grab("metrics")                     # -> last-run snapshot
-grab("metrics", run = "all")        # -> all 3 rows with run_id + variant_label
+# Launch 1: fit the model on the full data.
+launch({
+  fit <- lm(grab("spec"), data = grab("cars"))
+  stow(fit, "model")
+})
 
-# Non-tabular artifacts (e.g. a fitted model object) remain content-addressed:
-# stow(fit, "model") -> one version per distinct fit.
+# Launch 2 (could be a different script, session, or machine sharing
+# the .duckdb file): re-fit on a holdout subset using the same spec.
+# Both launches share state via the store -- no R-side handoff.
+launch({
+  fit_holdout <- lm(grab("spec"), data = head(grab("cars"), 20))
+  stow(data.frame(rmse_full    = sqrt(mean(residuals(grab("model"))^2)),
+                  rmse_holdout = sqrt(mean(residuals(fit_holdout)^2))),
+       "metrics")
+})
+
+grab("metrics")                     # one row from this run
+grab("metrics", run = "all")        # all rows once you re-run, with run_id + variant_label
+
+# Non-tabular artifacts are content-addressed by hash:
 grab("model")                       # latest content
 grab("model", version = "a3f2...")  # pinned by hash
 
@@ -57,8 +68,8 @@ versions("metrics")
 versions("model")
 
 # Garbage-collect older data. Dispatches on shape.
-prune("model",   keep = 3)          # keep 3 latest versions (versioned-shape)
-prune("metrics", keep = 3)          # keep 3 latest runs' rows  (append-shape)
+prune("model",   keep = 3)             # keep 3 latest versions (versioned-shape)
+prune("metrics", keep = 3)             # keep 3 latest runs' rows  (append-shape)
 prune(older_than = "30d", by = "age")  # shape-agnostic
 ```
 
