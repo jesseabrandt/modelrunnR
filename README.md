@@ -35,43 +35,41 @@ source("model.R")
 ```r
 library(modelrunnR)
 
-# Stow inputs to the project's DuckDB store (one file, content-hashed).
-# Re-running these calls is idempotent -- identical content is deduped.
+# Stow source data once. `grab()` returns a lazy DuckDB tbl for tabular
+# names; lm() collects it implicitly.
 stow(mtcars, "cars", shape = "versioned")
-stow(mpg ~ wt + hp, "spec")
 
-# Launch 1: fit the model on the full data. `grab()` returns a lazy
-# DuckDB tbl for tabular names; lm() collects it implicitly.
+# Launch 1: formula inline.
+launch({
+  fit <- lm(mpg ~ wt + hp, data = grab("cars"))
+  stow(fit, "model")
+  stow(data.frame(rmse = sqrt(mean(residuals(fit)^2))), "metrics")
+})
+
+# Promote a (different) formula into the store so other launches can share it.
+stow(mpg ~ wt + hp + cyl, "spec")
+
+# Launch 2: same outputs, but the formula now lives in the store.
+# Both launches share state via the .duckdb file -- no R-side handoff.
 launch({
   fit <- lm(grab("spec"), data = grab("cars"))
   stow(fit, "model")
+  stow(data.frame(rmse = sqrt(mean(residuals(fit)^2))), "metrics")
 })
 
-# Launch 2 (could be a different script, session, or machine sharing
-# the .duckdb file): re-fit on a holdout subset using the same spec.
-# Both launches share state via the store -- no R-side handoff.
-launch({
-  fit_holdout <- lm(grab("spec"), data = head(grab("cars"), 20))
-  stow(data.frame(rmse_full    = sqrt(mean(residuals(grab("model"))^2)),
-                  rmse_holdout = sqrt(mean(residuals(fit_holdout)^2))),
-       "metrics")
-})
+# Every launch's code body, inputs, and outputs are captured.
+runs()                              # tibble; pull(code_body) prints the source
 
-grab("metrics")                     # one row from this run
-grab("metrics", run = "all")        # all rows once you re-run, with run_id + variant_label
+# Append-shape: one row per run.
+grab("metrics", run = "all")        # both runs, with run_id + variant_label
 
-# Non-tabular artifacts are content-addressed by hash:
-grab("model")                       # latest content
+# Versioned-shape: one entry per distinct content. Both fits are kept.
+versions("model")
+grab("model")                       # latest
 grab("model", version = "a3f2...")  # pinned by hash
 
-# See every stored version / append chunk (works on both shapes).
-versions("metrics")
-versions("model")
-
-# Garbage-collect older data. Dispatches on shape.
-prune("model",   keep = 3)             # keep 3 latest versions (versioned-shape)
-prune("metrics", keep = 3)             # keep 3 latest runs' rows  (append-shape)
-prune(older_than = "30d", by = "age")  # shape-agnostic
+# Garbage-collect by age, count, or "keep latest" (dispatches on shape).
+prune("model", keep = 3)
 ```
 
 ## Key features
