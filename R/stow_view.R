@@ -113,8 +113,13 @@
   # `_mr_versions` row + CREATE OR REPLACE VIEW.
   hash <- .mr_register_view(name, rendered)
 
-  # Write the synthetic run row so mr_variant() can resolve to this view.
-  if (!.mr_is_recording() && !isTRUE(.mr_state$suppress_interactive)) {
+  # Inside a launch, record the view as one of the run's outputs so
+  # `mr_variant(label)` resolves the producing run via `_mr_runs.outputs`.
+  # Outside a launch, write a synthetic interactive run row so
+  # `mr_variant()` still has something to resolve against.
+  if (.mr_is_recording()) {
+    .mr_record_write(name, hash)
+  } else if (!isTRUE(.mr_state$suppress_interactive)) {
     .mr_write_view_interactive_run_row(con, name, hash, inputs, label)
   }
 
