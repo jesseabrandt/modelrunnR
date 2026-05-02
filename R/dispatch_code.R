@@ -33,6 +33,47 @@
 ##   ref         NULL for non-ref kinds; for ref kinds, the resolver's
 ##               full return list (step, code_body, expr,
 ##               variant_label [run-only], status [run-only]).
+# Capture the literal source text of an inline `{ ... }` block.
+#
+# Prefers the per-statement `srcref` attribute the parser attaches when
+# `keep.source = TRUE` (the default for sourced files, knitr chunks, and
+# `parse()` callers). For a `{...}` block, R stores `srcref` as a list:
+# the first element is the `{` operator, subsequent elements are each
+# top-level statement inside the braces. `as.character()` on each
+# srcref element returns its literal source-text lines (pipes,
+# indentation, comments preserved); `as.character()` on the whole list
+# would emit each srcref's internal numeric representation instead, so
+# the loop is necessary.
+#
+# Falls back to a wide deparse for expressions with no srcref --
+# programmatically-constructed bodies via `quote()` / `bquote()`, bodies
+# replayed from a stored `_mr_runs.code_body` snapshot, etc.
+#
+# This matches the file-step path's contract that `code_body` is the
+# literal source. Inline previously normalized through deparse alone,
+# which threw away pipes (`x |> f()` -> `f(x)`) and produced a single
+# nested-call line. Hash stability follows: identical source text
+# hashes the same; whitespace changes invalidate the cache the same way
+# they invalidate file-step caches.
+.mr_capture_inline_source <- function(expr) {
+  text <- tryCatch({
+    sr_list <- attr(expr, "srcref")
+    if (is.null(sr_list) || !length(sr_list)) {
+      NULL
+    } else {
+      parts <- vapply(sr_list, function(s) {
+        if (is.null(s)) "" else paste(as.character(s), collapse = "\n")
+      }, character(1))
+      # The closing `}` isn't represented in the srcref list (only the
+      # opening `{` is, as the first element). Append it so the
+      # reconstructed body is balanced.
+      paste(c(parts, "}"), collapse = "\n")
+    }
+  }, error = function(e) NULL)
+  if (!is.null(text) && nzchar(text)) return(text)
+  paste(deparse(expr, width.cutoff = 500L), collapse = "\n")
+}
+
 .mr_dispatch_code_arg <- function(code, script_expr,
                                   accept_refs = character(0),
                                   accept_sql  = FALSE,
@@ -41,8 +82,7 @@
     identical(script_expr[[1]], as.name("{"))
 
   if (inline_mode) {
-    code_body <- paste(deparse(script_expr, width.cutoff = 500L),
-                       collapse = "\n")
+    code_body <- .mr_capture_inline_source(script_expr)
     expr_hash <- .mr_hash_bytes(charToRaw(code_body))
     step      <- sprintf("<inline:%s>", substr(expr_hash, 1L, 12L))
     code_hash <- .mr_code_hash_inline(code_body, list())
