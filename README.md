@@ -40,7 +40,8 @@ library(modelrunnR)
 stow(mtcars, "cars", shape = "versioned")
 stow(mpg ~ wt + hp, "spec")
 
-# Launch 1: fit the model on the full data.
+# Launch 1: fit the model on the full data. `grab()` returns a lazy
+# DuckDB tbl for tabular names; lm() collects it implicitly.
 launch({
   fit <- lm(grab("spec"), data = grab("cars"))
   stow(fit, "model")
