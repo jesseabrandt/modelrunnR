@@ -97,7 +97,14 @@
     }
 
     if (identical(code$kind, "label")) {
-      resolved <- .mr_resolve_relaunch(code$value)
+      # queue() accepts a label whose only rows are queued (templating
+      # from queued state); launch() does not (would silently orphan
+      # the queued row — direct pickup must go through mr_run()).
+      resolved <- .mr_resolve_relaunch(
+        code$value,
+        caller       = caller,
+        allow_queued = identical(caller, "queue")
+      )
       return(list(
         kind        = "ref_label",
         inline_mode = FALSE,

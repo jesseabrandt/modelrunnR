@@ -50,7 +50,11 @@
 #'   `mr_label()` resolution mirrors `launch(mr_label(...))`: re-reads
 #'   the file from disk for file steps; uses the stored snapshot for
 #'   inline steps. The label is auto-inherited onto the queued row
-#'   unless `label = ...` is passed.
+#'   unless `label = ...` is passed. Unlike `launch()`, `queue()`
+#'   accepts a label whose only rows are `"queued"` — the most recent
+#'   queued row's body is used as a template. With `rebind = ...`
+#'   that's a template path; without `rebind`, errors as circular
+#'   (parallels the `mr_run(qid)` rule).
 #'
 #'   `mr_run()` resolution mirrors `launch(mr_run(id))` for
 #'   non-queued sources: a new queued row is written from that run's
@@ -115,13 +119,21 @@ queue <- function(code, rebind = NULL, label = NULL,
     dispatch$code_hash
   }
 
-  # Queued-source circular check (mr_run only). Rejects re-queueing a
-  # queued row with no changes; rebind = ... opens the template path.
-  if (relaunch_mode && identical(relaunch_kind, "run") &&
-      identical(resolved$status, "queued") &&
+  # Queued-source circular check. Rejects re-queueing a queued source
+  # with no changes; rebind = ... opens the template path. Fires on
+  # both mr_run (source is the specific row) and mr_label (source is
+  # the most-recent row under that label, which the resolver fell
+  # back to because no non-queued rows exist).
+  if (relaunch_mode && identical(resolved$status, "queued") &&
       is.null(rebind)) {
+    if (identical(relaunch_kind, "run")) {
+      stop(sprintf(
+        "queue(mr_run('%s')): the source row is itself queued and no rebind was supplied. Re-queueing a queued run with no changes is circular. Either supply rebind = ... to stage a variant, or drain the queued row first via launch(mr_run('%s')).",
+        code$value, code$value
+      ), call. = FALSE)
+    }
     stop(sprintf(
-      "queue(mr_run('%s')): the source row is itself queued and no rebind was supplied. Re-queueing a queued run with no changes is circular. Either supply rebind = ... to stage a variant, or drain the queued row first via launch(mr_run('%s')).",
+      "queue(mr_label('%s')): label '%s' has only queued rows and no rebind was supplied. Re-queueing a queued template with no changes is circular. Either supply rebind = ... to stage a variant, or drain a queued row first via launch(mr_run(id)).",
       code$value, code$value
     ), call. = FALSE)
   }

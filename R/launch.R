@@ -400,31 +400,53 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
   invisible(NULL)
 }
 
-# Resolve a relaunch-by-label reference to (step, code_body, expr).
+# Resolve a relaunch-by-label reference to (step, code_body, expr,
+# status).
 #
 # - step: the original pipeline's step (file path or <inline:...>).
 # - code_body: the source to attribute to the new run row.
 # - expr: a parsed expression when we want to eval a stored snapshot,
 #   NULL when the caller should source step from disk.
+# - status: the resolved row's status — non-queued for launch (which
+#   excludes queued sources), possibly "queued" for queue (which
+#   accepts queued sources as templates). queue() uses this to apply
+#   the same queued-source circular guard it applies for mr_run().
 #
 # Rules: inline-step pipelines always execute the stored snapshot.
 # File-step pipelines re-source the file when it exists; when the
 # file is gone we fall back to the stored snapshot and emit an
 # informational message, matching launch_code()'s behavior.
-.mr_resolve_relaunch <- function(label) {
+#
+# Caller-attributed errors. allow_queued = TRUE widens the search to
+# include queued rows so queue(mr_label("x")) can template from a
+# label whose only rows are queued (cprice's stage-pf-then-stage-pbo
+# flow). launch() leaves it FALSE — picking up a queued row by label
+# would silently orphan the queued row, so launch(mr_run(id)) is the
+# only legal pickup verb.
+.mr_resolve_relaunch <- function(label, caller = "launch",
+                                 allow_queued = FALSE) {
   con <- .mr_get_connection()
-  # Exclude queued rows from the label resolver: a queued row is staged
-  # but not executed, so picking it up via mr_label() would silently
-  # write a *new* row and orphan the queued one. Direct pickup must go
-  # through launch(mr_run(id)).
-  prior <- DBI::dbGetQuery(
-    con,
-    "SELECT step, code_body FROM _mr_runs
-      WHERE variant_label = ?
-        AND status != 'queued'
-      ORDER BY started_at DESC LIMIT 1",
-    params = list(label)
-  )
+  if (allow_queued) {
+    # Prefer non-queued rows when both kinds exist (matches the body a
+    # subsequent launch(mr_label(...)) would resolve to). Fall back to
+    # the most recent queued row otherwise.
+    prior <- DBI::dbGetQuery(
+      con,
+      "SELECT step, code_body, status FROM _mr_runs
+        WHERE variant_label = ?
+        ORDER BY (status = 'queued') ASC, started_at DESC NULLS LAST LIMIT 1",
+      params = list(label)
+    )
+  } else {
+    prior <- DBI::dbGetQuery(
+      con,
+      "SELECT step, code_body, status FROM _mr_runs
+        WHERE variant_label = ?
+          AND status != 'queued'
+        ORDER BY started_at DESC LIMIT 1",
+      params = list(label)
+    )
+  }
   if (nrow(prior) == 0L) {
     only_queued <- DBI::dbGetQuery(
       con,
@@ -433,46 +455,50 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
       params = list(label)
     )$n
     if (isTRUE(only_queued > 0L)) {
+      # Only reachable on the !allow_queued path (launch). Same
+      # message as before.
       stop(sprintf(
         "launch(): label '%s' has only queued rows. Use launch(mr_run(id)) to pick up a queued run by id.",
         label
       ), call. = FALSE)
     }
     stop(sprintf(
-      "launch(): no run with label '%s'. Label a pipeline first via launch(..., label = \"%s\").",
-      label, label
+      "%s(): no run with label '%s'. Label a pipeline first via launch(..., label = \"%s\").",
+      caller, label, label
     ), call. = FALSE)
   }
   step        <- prior$step[1]
   stored_body <- prior$code_body[1]
+  status      <- prior$status[1]
 
   if (startsWith(step, "<inline:")) {
     if (is.na(stored_body) || !nzchar(stored_body)) {
       stop(sprintf(
-        "launch(): label '%s' resolves to an inline run with no stored code body.",
-        label
+        "%s(): label '%s' resolves to an inline run with no stored code body.",
+        caller, label
       ), call. = FALSE)
     }
     return(list(step = step, code_body = stored_body,
-                expr = parse(text = stored_body)))
+                expr = parse(text = stored_body), status = status))
   }
 
   # File-step pipeline.
   if (file.exists(step)) {
     file_body <- paste(readLines(step, warn = FALSE), collapse = "\n")
-    return(list(step = step, code_body = file_body, expr = NULL))
+    return(list(step = step, code_body = file_body, expr = NULL,
+                status = status))
   }
   if (!is.na(stored_body) && nzchar(stored_body)) {
     message(sprintf(
-      "launch(): script '%s' is gone from disk; running the stored snapshot from label '%s'.",
-      step, label
+      "%s(): script '%s' is gone from disk; running the stored snapshot from label '%s'.",
+      caller, step, label
     ))
     return(list(step = step, code_body = stored_body,
-                expr = parse(text = stored_body)))
+                expr = parse(text = stored_body), status = status))
   }
   stop(sprintf(
-    "launch(): script '%s' is gone and no snapshot is stored for label '%s'.",
-    step, label
+    "%s(): script '%s' is gone and no snapshot is stored for label '%s'.",
+    caller, step, label
   ), call. = FALSE)
 }
 

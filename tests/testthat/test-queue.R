@@ -264,6 +264,45 @@ test_that("queue(mr_run(qid)) against a queued source with no rebind errors as c
   )
 })
 
+test_that("queue(mr_label('x')) templates from a queued-only label when rebind is supplied", {
+  new_test_db()
+
+  queue(
+    { stow(grab("alpha"), "out_pf") },
+    rebind = list(alpha = 1L),
+    label  = "lbl_pf"
+  )
+
+  q2 <- queue(
+    mr_label("lbl_pf"),
+    rebind = list(alpha = 2L),
+    label  = "lbl_pbo"
+  )
+  expect_equal(q2$status, "queued")
+  expect_equal(q2$variant_label, "lbl_pbo")
+  expect_match(q2$code_body, "stow(grab(\"alpha\")", fixed = TRUE)
+})
+
+test_that("queue(mr_label('x')) against a queued-only label with no rebind errors as circular", {
+  new_test_db()
+  queue({ x <- 1 }, label = "lbl_qonly")
+
+  expect_error(
+    queue(mr_label("lbl_qonly")),
+    "circular"
+  )
+})
+
+test_that("queue(mr_label('x')) prefers a finalized row over queued rows when both exist", {
+  new_test_db()
+  launch({ stow(1L, "out_pref") }, label = "lbl_both")
+  queue( { stow(2L, "out_pref") }, label = "lbl_both")
+
+  q <- queue(mr_label("lbl_both"))
+  expect_equal(q$status, "queued")
+  expect_match(q$code_body, "stow(1L", fixed = TRUE)
+})
+
 test_that("queue(mr_run(qid)) against a queued source WITH rebind succeeds and leaves source queued", {
   new_test_db()
   q1 <- queue({ stow(grab("x"), "out_e") }, rebind = list(x = 1L))
