@@ -38,15 +38,25 @@
   quote_str <- function(x) paste0("'", gsub("'", "''", x, fixed = TRUE), "'")
   in_list <- paste(vapply(tokens, quote_str, character(1)), collapse = ", ")
 
+  # Match against both physical_name and logical_name. Physical names
+  # appear in dbplyr-generated SQL (e.g. `compustat_raw__abc123`); logical
+  # names appear when the user writes raw SQL referencing the package's
+  # latest views (e.g. `FROM compustat_raw`). For logical-name matches on
+  # versioned shape, take the most recent version's content_hash so the
+  # view's identity tracks "what the latest view currently points at."
   versioned <- DBI::dbGetQuery(con, sprintf(
-    "SELECT physical_name, logical_name, content_hash
+    "SELECT physical_name, logical_name, content_hash, first_seen
        FROM _mr_versions
-      WHERE physical_name IN (%s)", in_list
+      WHERE physical_name IN (%s) OR logical_name IN (%s)
+      ORDER BY logical_name, first_seen DESC", in_list, in_list
   ))
+  if (nrow(versioned) > 0L) {
+    versioned <- versioned[!duplicated(versioned$logical_name), , drop = FALSE]
+  }
   appended <- DBI::dbGetQuery(con, sprintf(
     "SELECT physical_name, logical_name
        FROM _mr_append_tables
-      WHERE physical_name IN (%s)", in_list
+      WHERE physical_name IN (%s) OR logical_name IN (%s)", in_list, in_list
   ))
 
   if (nrow(versioned) + nrow(appended) == 0L) {
@@ -103,8 +113,13 @@
   # `_mr_versions` row + CREATE OR REPLACE VIEW.
   hash <- .mr_register_view(name, rendered)
 
-  # Write the synthetic run row so mr_variant() can resolve to this view.
-  if (!.mr_is_recording() && !isTRUE(.mr_state$suppress_interactive)) {
+  # Inside a launch, record the view as one of the run's outputs so
+  # `mr_variant(label)` resolves the producing run via `_mr_runs.outputs`.
+  # Outside a launch, write a synthetic interactive run row so
+  # `mr_variant()` still has something to resolve against.
+  if (.mr_is_recording()) {
+    .mr_record_write(name, hash)
+  } else if (!isTRUE(.mr_state$suppress_interactive)) {
     .mr_write_view_interactive_run_row(con, name, hash, inputs, label)
   }
 

@@ -19,8 +19,16 @@
 #'   shortcut that uses only `older_than`.
 #' @param run_id Character vector of run ids to prune (Shape B only).
 #' @param keep Integer; keep the N most recent versions (Shape A) or
-#'   runs (Shape B). Applied per logical name.
-#' @param keep_latest Logical; shorthand for `keep = 1`. Shape A only.
+#'   runs (Shape B). Applied per logical name. On Shape B, runs with a
+#'   `variant_label` are protected unless `force = TRUE` — use
+#'   `keep_latest` instead when the intent is per-variant retention.
+#' @param keep_latest Logical; shorthand for "keep the most recent
+#'   entry". On **Shape A**, keeps the latest version per logical name.
+#'   On **Shape B**, keeps the latest run per `(logical_name,
+#'   variant_label)` group — runs without a label form their own group.
+#'   On Shape B, `keep_latest = TRUE` overrides the variant-label
+#'   protection because the per-variant grouping is itself the safety:
+#'   no labeled variant ever loses its most recent chunk.
 #' @param older_than Duration string (`"30d"`, `"6h"`, `"15m"`,
 #'   `"45s"`). Works on both shapes.
 #' @param force Logical. If `TRUE`, overrides protection (run-referenced
@@ -67,6 +75,7 @@ prune <- function(name = NULL,
     a <- .mr_prune_shape_a(name = name, keep = NULL, keep_latest = FALSE,
                            older_than = older_than, force = force)
     b <- .mr_prune_shape_b(name = name, run_id = NULL, keep = NULL,
+                           keep_latest = FALSE,
                            older_than = older_than, force = force)
     return(invisible(list(versioned = a, append = b)))
   }
@@ -75,6 +84,7 @@ prune <- function(name = NULL,
     a <- .mr_prune_shape_a(name = NULL, keep = keep, keep_latest = keep_latest,
                            older_than = older_than, force = force)
     b <- .mr_prune_shape_b(name = NULL, run_id = run_id, keep = keep,
+                           keep_latest = keep_latest,
                            older_than = older_than, force = force)
     return(invisible(list(versioned = a, append = b)))
   }
@@ -87,6 +97,7 @@ prune <- function(name = NULL,
   }
   invisible(.mr_prune_shape_b(
     name = name, run_id = run_id, keep = keep,
+    keep_latest = keep_latest,
     older_than = older_than, force = force
   ))
 }
@@ -296,8 +307,14 @@ prune <- function(name = NULL,
 
 ## Shape B (append log) -------------------------------------------------------
 
-.mr_prune_shape_b <- function(name, run_id, keep, older_than, force) {
+.mr_prune_shape_b <- function(name, run_id, keep, keep_latest = FALSE,
+                              older_than, force) {
   con <- .mr_get_connection()
+
+  if (isTRUE(keep_latest) && !is.null(keep)) {
+    stop("prune(): pass either `keep_latest` or `keep`, not both.",
+         call. = FALSE)
+  }
 
   targets <- if (is.null(name)) {
     DBI::dbGetQuery(con, "SELECT * FROM _mr_append_tables")
@@ -319,12 +336,15 @@ prune <- function(name = NULL,
   summaries <- vector("list", nrow(targets))
   for (i in seq_len(nrow(targets))) {
     row <- targets[i, , drop = FALSE]
-    summaries[[i]] <- .mr_prune_shape_b_one(con, row, run_id, cutoff, keep, force)
+    summaries[[i]] <- .mr_prune_shape_b_one(
+      con, row, run_id, cutoff, keep, keep_latest, force
+    )
   }
   do.call(rbind, summaries)
 }
 
-.mr_prune_shape_b_one <- function(con, registry_row, run_id, cutoff, keep, force) {
+.mr_prune_shape_b_one <- function(con, registry_row, run_id, cutoff, keep,
+                                  keep_latest, force) {
   logical  <- registry_row$logical_name[1]
   physical <- registry_row$physical_name[1]
 
@@ -390,13 +410,46 @@ prune <- function(name = NULL,
     }
   }
 
+  # `keep_latest` keeps the most recent run per (logical_name,
+  # variant_label) group. NULL labels form their own group so unlabeled
+  # runs are also collapsed to the latest. Because the partition is
+  # variant-aware, no labeled variant can lose its most recent chunk —
+  # so the per-variant pass intentionally bypasses the blanket
+  # variant-label protection below.
+  if (isTRUE(keep_latest)) {
+    ranked <- with_id_scope(all_runs$rid, function(tmp) {
+      DBI::dbGetQuery(
+        con,
+        sprintf(
+          "SELECT run_id FROM (
+              SELECT run_id,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY COALESCE(variant_label, '__mr_no_label__')
+                       ORDER BY started_at DESC
+                     ) AS rn
+                FROM _mr_runs
+               WHERE run_id IN (SELECT id FROM %s)
+            ) WHERE rn > 1",
+          .mr_quote_ident(tmp)
+        )
+      )
+    })
+    if (nrow(ranked) > 0L) {
+      ids_to_prune <- c(ids_to_prune, ranked$run_id)
+    }
+  }
+
   ids_to_prune <- unique(ids_to_prune)
   if (length(ids_to_prune) == 0L) {
     return(data.frame(logical_name = logical, rows_pruned = 0L,
                       stringsAsFactors = FALSE))
   }
 
-  if (!isTRUE(force)) {
+  # Skip variant-label protection when keep_latest drove the selection:
+  # the per-variant partition above already guarantees each labeled
+  # group keeps its newest chunk, so the blanket protection would only
+  # cancel the user's explicit per-variant retention.
+  if (!isTRUE(force) && !isTRUE(keep_latest)) {
     labeled <- with_id_scope(ids_to_prune, function(tmp) {
       DBI::dbGetQuery(
         con,

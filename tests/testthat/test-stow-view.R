@@ -64,6 +64,38 @@ test_that(".mr_sniff_view_inputs finds append-shape physical names with NA hash"
   expect_true(is.na(inputs[[1]]$hash))
 })
 
+test_that(".mr_sniff_view_inputs accepts logical-name references (raw SQL pattern)", {
+  new_test_db()
+  con <- .mr_get_connection()
+  stow(data.frame(x = 1:3), "panel", shape = "versioned")
+
+  # Raw SQL referencing the logical name (i.e. the latest-view name)
+  # rather than the hash-suffixed physical name. This is the pattern
+  # users hit when reading an .sql file that joins managed inputs by
+  # name.
+  rendered <- "SELECT * FROM panel WHERE x > 1"
+
+  inputs <- .mr_sniff_view_inputs(con, rendered)
+  expect_length(inputs, 1L)
+  expect_identical(inputs[[1]]$name, "panel")
+})
+
+test_that(".mr_sniff_view_inputs picks the latest version for a logical-name match", {
+  new_test_db()
+  con <- .mr_get_connection()
+  stow(data.frame(x = 1:3), "panel", shape = "versioned")
+  Sys.sleep(0.05)
+  stow(data.frame(x = 1:5), "panel", shape = "versioned")
+
+  latest_hash <- DBI::dbGetQuery(con,
+    "SELECT content_hash FROM _mr_versions
+      WHERE logical_name = 'panel'
+      ORDER BY first_seen DESC LIMIT 1")$content_hash[1]
+
+  inputs <- .mr_sniff_view_inputs(con, "SELECT * FROM panel")
+  expect_identical(inputs[[1]]$hash, latest_hash)
+})
+
 test_that(".mr_sniff_view_inputs errors when no managed names are referenced", {
   new_test_db()
   con <- .mr_get_connection()

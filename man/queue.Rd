@@ -23,7 +23,11 @@ scope (v1) and \code{mr_hash()} addresses content, not pipelines.
 \code{mr_label()} resolution mirrors \code{launch(mr_label(...))}: re-reads
 the file from disk for file steps; uses the stored snapshot for
 inline steps. The label is auto-inherited onto the queued row
-unless \code{label = ...} is passed.
+unless \code{label = ...} is passed. Unlike \code{launch()}, \code{queue()}
+accepts a label whose only rows are \code{"queued"} — the most recent
+queued row's body is used as a template. With \code{rebind = ...}
+that's a template path; without \code{rebind}, errors as circular
+(parallels the \code{mr_run(qid)} rule).
 
 \code{mr_run()} resolution mirrors \code{launch(mr_run(id))} for
 non-queued sources: a new queued row is written from that run's

@@ -220,10 +220,18 @@ c("label", "run")`) plus a small post-dispatch policy block.
 | `.R` file path | accept | accept |
 | `.sql` file / `mr_sql()` | reject | reject (still out of scope) |
 | `mr_hash(...)` | reject | reject (unchanged — hashes are content references, not pipelines) |
-| `mr_label("x")` | reject | accept — body resolved like `launch(mr_label("x"))` |
+| `mr_label("x")` where some non-queued row exists under x | reject | accept — body resolved from the most-recent non-queued row |
+| `mr_label("x")` where only queued rows exist under x, **no** rebind | reject | reject (genuinely circular — same shape as `mr_run(qid)` below) |
+| `mr_label("x")` where only queued rows exist under x, **with** rebind | reject | accept — most-recent queued row treated as a template |
 | `mr_run(id)` where source status ∈ {`success`, `error`, `skipped_fresh`, `interactive`} | reject | accept — body resolved like `launch(mr_run(id))` |
 | `mr_run(qid)` where source status = `"queued"`, **no** rebind | reject | reject (genuinely circular) |
 | `mr_run(qid)` where source status = `"queued"`, **with** rebind | reject | accept — queued row treated as a template, mirrors `launch(mr_run(qid), rebind=...)` |
+
+`launch(mr_label("x"))` continues to reject queued-only labels — picking up
+a queued row by label would silently orphan the queued row, so direct
+pickup must go through `launch(mr_run(id))`. Queue diverges because it
+isn't draining; it's templating, and the same row body is a perfectly
+valid template source whether or not the row has executed.
 
 ### Resolution
 
@@ -265,15 +273,23 @@ as `launch()` does today.
 configurable via `options(modelrunnR.relaunch_nonsuccess)`. `queue()`
 applies the same policy with the same option key — staging a copy of a
 failed run's body silently is just as user-hostile as relaunching it
-silently. The check fires on `kind == "ref_run"` only (label resolution is
-constrained to non-queued rows already and typically lands on a success).
+silently. The check fires on `kind == "ref_run"` only — label resolution
+prefers non-queued rows when they exist and only ever lands on a queued
+row when no other rows exist under the label, in which case the queued-
+source policy block (below) applies instead.
 
 ### Queued-source policy block
 
-Queue's policy on `kind == "ref_run"` with `ref$status == "queued"`:
+Queue's policy on a queued source applies symmetrically to `kind ==
+"ref_run"` (queued source row) and `kind == "ref_label"` (label whose
+only rows are queued):
 
-- **No rebind supplied:** error with
-  > `queue(mr_run('<qid>')): the source row is itself queued and no rebind was supplied. Re-queueing a queued run with no changes is circular. Either supply rebind = ... to stage a variant, or drain the queued row first via launch(mr_run('<qid>')).`
+- **No rebind supplied:** error. The `ref_run` message names the
+  specific `run_id`; the `ref_label` message names the label and points
+  at `launch(mr_run(id))` for draining (since `launch(mr_label(...))`
+  rejects queued-only labels by design).
+  > ref_run: `queue(mr_run('<qid>')): the source row is itself queued and no rebind was supplied. Re-queueing a queued run with no changes is circular. Either supply rebind = ... to stage a variant, or drain the queued row first via launch(mr_run('<qid>')).`
+  > ref_label: `queue(mr_label('<x>')): label '<x>' has only queued rows and no rebind was supplied. Re-queueing a queued template with no changes is circular. Either supply rebind = ... to stage a variant, or drain a queued row first via launch(mr_run(id)).`
 - **Rebind supplied:** accept. Treat the queued row's body as a template
   exactly the way `launch(mr_run(qid), rebind=...)` does (launch.R:362–
   383). The queued source remains queued for someone else to drain; the
