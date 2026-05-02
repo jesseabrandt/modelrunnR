@@ -19,18 +19,7 @@ deduplicated by content hash, and retrievable by hash, run id, or timestamp.
 pak::pak("jesseabrandt/modelrunnR")
 ```
 
-## Before / after
-
-**Before:**
-
-```r
-source("model.R")
-# Which inputs did this run read? Which outputs did it write?
-# Which version of the training data did we use last Thursday?
-# I have no idea.
-```
-
-**After:**
+## Example
 
 ```r
 library(modelrunnR)
