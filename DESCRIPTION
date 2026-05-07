@@ -1,6 +1,6 @@
 Package: modelrunnR
 Title: Orchestrate R and Python Model Runs
-Version: 0.0.0.9000
+Version: 0.1.0
 Authors@R: 
     person("Jesse", "Brandt", , "jesse.a.brandt@gmail.com", role = c("aut", "cre"))
 Description: Orchestrates R and Python model runs via lightweight

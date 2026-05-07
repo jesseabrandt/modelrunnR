@@ -1,4 +1,9 @@
-# modelrunnR (development version)
+# modelrunnR 0.1.0
+
+First tagged release. Pins the API and storage layout that the
+working branches have been converging on. Sections below are grouped
+roughly by theme; chronologically the bug fixes and queue refinements
+landed last.
 
 ## Bug fixes
 
@@ -23,8 +28,6 @@
 * Internal: `launch()` and `queue()` now share a single first-argument
   dispatcher (`.mr_dispatch_code_arg()`). No user-visible behavior change
   from the refactor.
-
-# modelrunnR 0.0.0.9000
 
 ## Breaking semantic changes
 
