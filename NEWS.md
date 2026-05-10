@@ -37,7 +37,7 @@
   outside `launch()` it's the latest run that wrote to the name, with
   system columns stripped. Pass `run = "all"` for the full
   cross-run view with `run_id` + `variant_label` exposed. See
-  `docs/superpowers/specs/2026-04-22-append-mode-stow-design.md` for
+  `docs/internal/superpowers/specs/2026-04-22-append-mode-stow-design.md` for
   the design rationale.
 
 ## New features
@@ -111,7 +111,7 @@
   unaffected. JSON-shaped columns (`inputs`, `outputs`, `external_inputs`,
   `helpers`, `rebinds`, `attached_packages`) are surfaced as plain `chr`;
   parse on demand with `jsonlite::fromJSON()`. See
-  `docs/superpowers/specs/2026-04-25-runs-accessor-design.md`.
+  `docs/internal/superpowers/specs/2026-04-25-runs-accessor-design.md`.
 
 ## Storage
 
@@ -297,4 +297,4 @@
 ## Documentation
 
 * `R/backend_duckdb.R` comments now document the type-sensitive hashing contract and the ~0.03%-at-100M-rows 64-bit HASH collision caveat.
-* `docs/plan.md` Slice 3 section rewritten to describe the actually shipped `STRING_AGG`+`MD5` algorithm, with a note on why the initially sketched `SUM`/`XOR` scheme was rejected (XOR loses multiplicity; SUM wraps).
+* `docs/internal/plan.md` Slice 3 section rewritten to describe the actually shipped `STRING_AGG`+`MD5` algorithm, with a note on why the initially sketched `SUM`/`XOR` scheme was rejected (XOR loses multiplicity; SUM wraps).

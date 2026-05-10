@@ -504,7 +504,7 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 
 # Resolve a run by run_id for relaunch. Mirrors .mr_resolve_relaunch()
 # (label-based) but keys on run_id. See spec
-# docs/superpowers/specs/2026-04-26-launch-by-run-id-design.md.
+# docs/internal/superpowers/specs/2026-04-26-launch-by-run-id-design.md.
 #
 # Returns a richer list than its sibling — adds `variant_label` and
 # `status`. Both are needed by launch()'s mr_run() dispatch (label

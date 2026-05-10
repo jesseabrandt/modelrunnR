@@ -146,7 +146,7 @@
 # Caveat: the ORDER BY sort key is a 64-bit UBIGINT, so row pairs that
 # hash to the same value break the total-order guarantee. Birthday-bound
 # collision probability is ~0.03% at 100M distinct rows, acceptable at
-# v0.1 scale; a deterministic tiebreaker is tracked in docs/followups.md.
+# v0.1 scale; a deterministic tiebreaker is tracked in docs/internal/followups.md.
 # Type-sensitive: HASH(INTEGER 1) != HASH(DOUBLE 1.0).
 #
 # An empty table (no rows) hashes on its sorted column names alone.
