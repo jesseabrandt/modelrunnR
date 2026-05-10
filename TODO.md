@@ -1,5 +1,76 @@
 # modelrunnR TODO
 
+## Surfaced 2026-05-04
+
+### Quiet incidental warnings in the test suite
+
+`devtools::test()` reports `[ FAIL 0 | WARN 8 | SKIP 0 | PASS 1047 ]`. None
+of the eight are bugs — each is a designed-to-fire warning surfaced
+incidentally by tests focused on other concerns. Cleanup is noise
+reduction, not behavior change.
+
+- 5× **interactive-write** warning (`R/interactive.R`):
+  `test-append-stow.R:144`, `test-launch-duckdb-seed.R:7,17,37,41`,
+  `test-stow-view-integration.R:48`. Tests seed data with bare
+  `stow(...)` then `launch({...})` grabs it. Fix: wrap the seeding
+  `stow()` in a no-op `launch({ stow(...) })` so the source row is a
+  tracked write, or `suppressWarnings()` at the grab site if the
+  warning is actually under test elsewhere.
+- 1× dbplyr **SQL aggregation** warning (`test-grab-lazy.R:61`) —
+  `"Missing values are always removed in SQL aggregation functions"`.
+  Add `na.rm = TRUE` to the `dplyr::summarize()` call.
+- 1× modelrunnR **type-coercion** warning (`test-helper-hashing.R:58`) —
+  `stow('out')` writes a column that switches DOUBLE → INTEGER between
+  runs and the package coerces to TEXT. Pin the column type in the test
+  fixture (e.g. always integer or always double).
+
+## Surfaced 2026-05-02
+
+### Parallel `launch()` with the DuckDB single-writer lock (design)
+
+DuckDB allows one writer process at a time; concurrent `launch()` calls from
+`furrr`/`future` workers would serialize on the lock or fail outright. Figure
+out how parallel runs are supposed to work given that constraint. Options to
+think through: per-worker scratch DBs that get merged at the end, a single
+writer process that workers pipe results to, append-only WAL-style staging,
+or just documenting "launches are sequential — parallelize *inside* the body
+instead." Decision affects what the package promises about scaling, not just
+implementation.
+
+## Surfaced 2026-05-02 (from final_practicum render)
+
+External feature requests filed by the practicum user after rendering
+`final_practicum/qmd/concurrent_price.qmd`. Full write-up with repro
+tables and evidence:
+[`docs/internal/feature-requests/2026-05-02-final-practicum-staleness-and-queue.md`](docs/internal/feature-requests/2026-05-02-final-practicum-staleness-and-queue.md).
+
+### Lazy-stow outputs never satisfy `skipped_fresh` (bug)
+
+A `launch()` body that ends in `tbl(mr_con(), dbplyr::sql(...)) |> stow(...)`
+(no `collect()`) re-runs on every render, even with no input or body
+changes. Sibling chunks that materialize via `... |> collect() |> stow(...)`
+skip-fresh correctly. Suspected cause: the lazy-stow path doesn't persist
+a content hash on the output, so prior success can't bind to "this
+body+inputs produces this result." Highest priority — costs ~30 s and a
+billion-row rebuild per render in the practicum.
+
+### `queue()` does not dedupe — backlog grows every render (feature)
+
+Re-rendering a qmd that calls `queue()` appends fresh copies of every
+queued row, even when `(body_hash, rebind_hash, external_inputs_hash)`
+matches an existing `queued`/`success`/`skipped_fresh` row. Practicum
+queue inflated 1074 → 2787 → 3357 across three renders with no source
+changes. Ask: match `launch()`'s skipped-fresh semantics so re-rendering
+is idempotent.
+
+### `discard_queued()` helper for queue cleanup (small feature)
+
+No public API for clearing queued runs (`prune()` / `prune_variants()`
+target stowed outputs). Practicum had to drop to
+`DBI::dbExecute(mr_con(), "DELETE FROM _mr_runs WHERE status='queued'")`.
+Add `discard_queued()` (optionally filtered by `variant_label =` /
+`before =`) or extend `prune()` with a `status =` arg.
+
 ## Surfaced 2026-05-01 (from view-stow design)
 
 ### Staleness propagation through views over append-shape inputs
@@ -29,7 +100,7 @@ and the simple SQL-text hash isn't quietly mistaken for content-aware.
 
 Surfaced by the final whole-branch review of `fix/queue-audit` after the
 unification spec landed (see
-`docs/superpowers/specs/2026-04-29-queue-launch-unification-design.md`
+`docs/internal/superpowers/specs/2026-04-29-queue-launch-unification-design.md`
 and the corresponding plan). All four are low-priority polish — none
 block the unification work itself.
 
@@ -147,7 +218,7 @@ Today `grab(name, source = path)` accepts a path string. After the
 to express "this path is a file source." For symmetry, `grab()` should
 accept `grab(name, source = mr_file(path))` (or `grab(mr_file(path),
 name)`) without breaking the current path-string form. Spec:
-docs/superpowers/specs/2026-04-26-stow-unification-design.md
+docs/internal/superpowers/specs/2026-04-26-stow-unification-design.md
 ("Non-goals / deferred").
 
 ### Hard-remove `ingest()` after one release cycle
@@ -564,7 +635,7 @@ a lazy tbl with `run_id`/`variant_label` columns instead of a bare
 tbl — update downstream `collect()` + column selection accordingly.
 
 Other follow-ups from the plan are tracked in the plan's completion
-checklist (`docs/superpowers/plans/2026-04-23-append-mode-stow-impl.md`):
+checklist (`docs/internal/superpowers/plans/2026-04-23-append-mode-stow-impl.md`):
 `.mr_reset_append()` user-facing promotion, lazy-path type coercion,
 block-level transaction semantics, and the §12 versioned-shape reorg.
 
@@ -633,7 +704,7 @@ run's metrics sit in their own `metrics__<hash>` physical table, and
   already handles cleanup.
 
 **Still to sort in the spec (write under
-`docs/superpowers/specs/2026-04-22-append-mode-stow-design.md`):**
+`docs/internal/superpowers/specs/2026-04-22-append-mode-stow-design.md`):**
 
 - Hash contract / staleness for a growing table. Likely: hash the
   appended chunk, not the whole table.
@@ -700,7 +771,7 @@ adds setup overhead. Worth investing in a 5-line setup so the
 
 ### Spec ↔ vignette drift
 
-`docs/superpowers/specs/2026-04-19-batch-launch-design.md`
+`docs/internal/superpowers/specs/2026-04-19-batch-launch-design.md`
 section "## Vignette (feature guide)" duplicates the shipped
 vignette nearly verbatim. Drift over time is likely. Consider
 replacing the spec section with a one-line pointer at

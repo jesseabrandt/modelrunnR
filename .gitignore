@@ -16,3 +16,6 @@ modelrunnR_artifacts/
 # OS / editor metadata
 .DS_Store
 .claude/
+
+# Test scratch fixture that some test creates and forgets to clean up
+tests/testthat/f.R

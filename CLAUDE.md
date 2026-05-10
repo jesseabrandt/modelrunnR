@@ -73,6 +73,24 @@ devtools::check()        # full R CMD check
 - If a task requires running R, use `Rscript -e '...'` from `Bash`. Prefer
   `devtools::load_all()` over installing the package for iterative work.
 
+## Direction for the next version
+
+After v0.1.0 was tagged, we discussed direction for the next version
+and captured notes in [`docs/internal/next-version.md`](docs/internal/next-version.md).
+Two headline moves:
+
+1. Make storage pluggable (DuckDB stops being mandatory; files-mode
+   backend with `runs.csv` + parquet for stowed tables).
+2. Lead the pitch with `launch()` rather than `grab`/`stow`.
+
+The notes file has the full sketch (backend interface primitives,
+feature gating, migration helper, open questions). When the user
+opens a session about "the next version", "v0.2", "make duckdb
+optional", "pluggable storage", "files backend", or similar — read
+that file first. The north star will be edited later to reflect
+this direction; until then, the notes file is the source of truth
+for the new direction.
+
 ## Cross-project notes
 
 - `notes/AU-Catalog-findings.md` — API friction log from real use in the
