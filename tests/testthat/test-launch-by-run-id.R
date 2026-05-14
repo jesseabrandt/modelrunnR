@@ -9,28 +9,32 @@ test_that(".mr_resolve_relaunch_run_id() returns step + code_body + parsed expr 
 })
 
 test_that(".mr_resolve_relaunch_run_id() returns step + code_body + NULL expr for file rows when file present", {
-  new_test_db()
+  withr::with_tempdir({
+    new_test_db()
 
-  writeLines("x <- 99", "fit.R")
-  r <- launch("fit.R")
-  resolved <- modelrunnR:::.mr_resolve_relaunch_run_id(r$run_id)
-  expect_equal(normalizePath(resolved$step), normalizePath("fit.R"))
-  expect_match(resolved$code_body, "x <- 99")
-  expect_null(resolved$expr)
+    writeLines("x <- 99", "fit.R")
+    r <- launch("fit.R")
+    resolved <- modelrunnR:::.mr_resolve_relaunch_run_id(r$run_id)
+    expect_equal(normalizePath(resolved$step), normalizePath("fit.R"))
+    expect_match(resolved$code_body, "x <- 99")
+    expect_null(resolved$expr)
+  })
 })
 
 test_that(".mr_resolve_relaunch_run_id() falls back to stored snapshot when file is gone", {
-  new_test_db()
+  withr::with_tempdir({
+    new_test_db()
 
-  writeLines("x <- 99", "fit.R")
-  r <- launch("fit.R")
-  file.remove("fit.R")
-  expect_message(
-    resolved <- modelrunnR:::.mr_resolve_relaunch_run_id(r$run_id),
-    "is gone from disk"
-  )
-  expect_match(resolved$code_body, "x <- 99")
-  expect_true(inherits(resolved$expr, "expression"))
+    writeLines("x <- 99", "fit.R")
+    r <- launch("fit.R")
+    file.remove("fit.R")
+    expect_message(
+      resolved <- modelrunnR:::.mr_resolve_relaunch_run_id(r$run_id),
+      "is gone from disk"
+    )
+    expect_match(resolved$code_body, "x <- 99")
+    expect_true(inherits(resolved$expr, "expression"))
+  })
 })
 
 test_that(".mr_resolve_relaunch_run_id() errors clearly when no row matches", {
@@ -66,17 +70,19 @@ test_that("launch(mr_run(id)) re-executes inline pipelines", {
 })
 
 test_that("launch(mr_run(id)) re-sources the file for file pipelines", {
-  new_test_db()
+  withr::with_tempdir({
+    new_test_db()
 
-  writeLines("y <- 7; stow(y, 'seven')", "f.R")
-  r1 <- launch("f.R")
-  writeLines("y <- 8; stow(y, 'eight')", "f.R")
-  r2 <- launch(mr_run(r1$run_id))
-  expect_equal(r2$status, "success")
-  con <- modelrunnR:::.mr_get_connection()
-  latest <- DBI::dbGetQuery(con,
-    "SELECT logical_name FROM _mr_versions WHERE logical_name = 'eight'")
-  expect_true(nrow(latest) >= 1)
+    writeLines("y <- 7; stow(y, 'seven')", "f.R")
+    r1 <- launch("f.R")
+    writeLines("y <- 8; stow(y, 'eight')", "f.R")
+    r2 <- launch(mr_run(r1$run_id))
+    expect_equal(r2$status, "success")
+    con <- modelrunnR:::.mr_get_connection()
+    latest <- DBI::dbGetQuery(con,
+      "SELECT logical_name FROM _mr_versions WHERE logical_name = 'eight'")
+    expect_true(nrow(latest) >= 1)
+  })
 })
 
 test_that("launch(mr_run(id)) errors when no row matches", {
