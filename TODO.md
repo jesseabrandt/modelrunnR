@@ -9,6 +9,14 @@ once the morph sharpens — not deleted yet because the underlying
 concerns still apply, but flagged so they aren't worked
 mechanically against the old vision.
 
+Design landed 2026-05-14 in
+[`docs/superpowers/specs/2026-05-14-codeinhaler-design.md`](docs/superpowers/specs/2026-05-14-codeinhaler-design.md) —
+schema, verbs (`inhale` / `promote` / `export` / `vacuum`), cross-db
+model, and the fork plan to a new `codeinhaler` repo. CRAN name
+checked clear. modelrunnR v0.1.0 stays frozen once the fork happens;
+the items below get re-triaged against that spec rather than against
+modelrunnR's old contract.
+
 - **"Hard-remove `ingest()` after one release cycle"** (under
   "Surfaced 2026-04-26"). The old framework's exported-API contract
   is gone; the morph may shake out `ingest()` differently. Don't
