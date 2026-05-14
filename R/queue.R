@@ -239,6 +239,19 @@ queue <- function(code, rebind = NULL, label = NULL,
     return(invisible(existing))
   }
 
+  # L0 source snapshot: capture the body bytes at queue time so
+  # `_mr_code` is populated as soon as a code_hash is in `_mr_runs`,
+  # even if the row never executes. Helpers are vacuous at queue
+  # time (queued rows don't run).
+  .mr_record_code_snapshot(
+    con          = .mr_get_connection(),
+    code_hash    = code_hash,
+    script_path  = if (startsWith(step %||% "", "<inline:")) NA_character_ else step,
+    script_bytes = .mr_script_bytes_for_snapshot(code_body),
+    helpers_with_bytes = list(),
+    inline       = startsWith(step %||% "", "<inline:")
+  )
+
   run_id <- .mr_new_run_id()
   row <- .mr_write_run_row(
     step            = step,
@@ -386,6 +399,17 @@ queue <- function(code, rebind = NULL, label = NULL,
 
   # Phase 2: write only new envelopes; reuse existing rows otherwise.
   con  <- .mr_get_connection()
+  # L0 source snapshot: all envelopes in this batch share one
+  # (step, code_hash, code_body) tuple, so a single snapshot covers
+  # them all. The recorder is idempotent on code_hash.
+  .mr_record_code_snapshot(
+    con          = con,
+    code_hash    = code_hash,
+    script_path  = if (startsWith(step %||% "", "<inline:")) NA_character_ else step,
+    script_bytes = .mr_script_bytes_for_snapshot(code_body),
+    helpers_with_bytes = list(),
+    inline       = startsWith(step %||% "", "<inline:")
+  )
   rows <- vector("list", n)
   DBI::dbWithTransaction(con, {
     for (i in seq_along(prepared)) {

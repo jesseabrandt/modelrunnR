@@ -137,6 +137,21 @@
     } else {
       .mr_code_hash(step, list())
     }
+    # L0 source snapshot: if the file drifted since queue time, the
+    # new `skip_code_hash` has no existing `_mr_code` row. Snapshot
+    # the current file bytes under the new hash so the row's
+    # code_hash remains source-recoverable; the old hash's snapshot
+    # (from queue time) stays in place under its own hash.
+    if (!inline_mode && file.exists(step)) {
+      .mr_record_code_snapshot(
+        con          = .mr_get_connection(),
+        code_hash    = skip_code_hash,
+        script_path  = step,
+        script_bytes = .mr_read_code_bytes(step),
+        helpers_with_bytes = list(),
+        inline       = FALSE
+      )
+    }
     .mr_update_queued_row(
       run_id          = run_id,
       status          = "skipped_fresh",
@@ -183,19 +198,33 @@
     error = function(e) { status <<- "error"; err_obj <<- e }
   )
 
-  rec     <- .mr_stop_recording()
-  helpers <- .mr_stop_helper_tracking()
-  duration_ms <- as.integer(round((as.numeric(Sys.time()) - start_secs) * 1000))
+  rec          <- .mr_stop_recording()
+  helper_bytes <- .mr_helper_bytes()
+  helpers      <- .mr_stop_helper_tracking()
+  duration_ms  <- as.integer(round((as.numeric(Sys.time()) - start_secs) * 1000))
 
+  file_gone <- !inline_mode && !file.exists(step)
   code_hash <- if (inline_mode) {
     .mr_code_hash_inline(code_body, helpers)
-  } else if (file.exists(step)) {
+  } else if (!file_gone) {
     .mr_code_hash(step, helpers)
   } else {
     # File is gone; we ran the stored snapshot (code_body). Hash over
     # the snapshot text so the row stays self-consistent.
     .mr_code_hash_inline(code_body, helpers)
   }
+
+  # L0 source snapshot: persist script + helper bytes keyed by
+  # code_hash. Inline-shape when the source path is gone, so the
+  # `inline` column matches how the hash was computed.
+  .mr_record_code_snapshot(
+    con          = .mr_get_connection(),
+    code_hash    = code_hash,
+    script_path  = if (inline_mode || file_gone) NA_character_ else step,
+    script_bytes = .mr_script_bytes_for_snapshot(code_body),
+    helpers_with_bytes = .mr_pack_helpers(helpers, helper_bytes),
+    inline       = inline_mode || file_gone
+  )
 
   .mr_print_timing_summary(
     step, duration_ms, status,

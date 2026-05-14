@@ -11,5 +11,10 @@ Orchestrates R and Python model runs via lightweight configuration and a common 
 \author{
 \strong{Maintainer}: Jesse Brandt \email{jesse.a.brandt@gmail.com}
 
+Authors:
+\itemize{
+  \item Jesse Brandt \email{jesse.a.brandt@gmail.com}
+}
+
 }
 \keyword{internal}

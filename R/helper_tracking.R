@@ -22,12 +22,18 @@
       return(invisible(NULL))
     }
 
-    # Record the helper's code hash once per unique path.
+    # Record the helper's code hash once per unique path. Bytes are
+    # retained in parallel so the L0 source-snapshot recorder can
+    # persist them to `_mr_code_helpers` without re-reading the file
+    # (which could have changed between source-time and snapshot-time).
     helpers <- .mr_state$helpers %||% list()
     if (is.null(helpers[[path]])) {
       bytes <- .mr_read_code_bytes(path)
       helpers[[path]] <- .mr_hash_bytes(bytes)
       .mr_state$helpers <- helpers
+      helper_bytes <- .mr_state$helper_bytes %||% list()
+      helper_bytes[[path]] <- bytes
+      .mr_state$helper_bytes <- helper_bytes
     }
 
     # Track in-flight and ensure cleanup even on error.
@@ -46,15 +52,29 @@
 
 .mr_start_helper_tracking <- function() {
   .mr_state$helpers         <- list()
+  .mr_state$helper_bytes    <- list()
   .mr_state$source_inflight <- character()
   invisible(NULL)
 }
 
+# Returns the path -> hash map for the just-finished tracking session
+# (backward-compatible shape: hashes only, no bytes). Bytes are
+# accessible via `.mr_helper_bytes()` BEFORE this is called -- the
+# snapshot recorder pulls them off state and persists them.
 .mr_stop_helper_tracking <- function() {
   helpers <- .mr_state$helpers
   .mr_state$helpers         <- NULL
+  .mr_state$helper_bytes    <- NULL
   .mr_state$source_inflight <- NULL
   helpers
+}
+
+# Bytes-bearing accessor for the in-flight helper tracking state.
+# Returns a path -> raw map; empty list when no tracking is active.
+# Must be called BEFORE `.mr_stop_helper_tracking()` to capture bytes
+# for the L0 snapshot recorder.
+.mr_helper_bytes <- function() {
+  .mr_state$helper_bytes %||% list()
 }
 
 .mr_read_code_bytes <- function(path) {

@@ -10,6 +10,50 @@
   .mr_migrate_artifacts(con)
   .mr_migrate_append_tables(con)
   .mr_migrate_append_chunks(con)
+  .mr_migrate_code(con)
+  invisible(NULL)
+}
+
+# L0 source snapshot: content-addressed code body bytes keyed by the
+# `code_hash` already on `_mr_runs`. Separate `_mr_code_helpers` join
+# table dedupes helpers shared across runs (one (code_hash, helper_path)
+# row per unique helper contribution to a code_hash). Writes happen
+# inside the launch's run-row transaction; idempotent on conflict.
+.mr_migrate_code <- function(con) {
+  .mr_execute(
+    con,
+    "CREATE TABLE IF NOT EXISTS _mr_code (
+       code_hash    TEXT PRIMARY KEY,
+       script_path  TEXT,
+       script_bytes BLOB,
+       inline       BOOLEAN,
+       recorded_at  TIMESTAMP
+     )"
+  )
+  # No PRIMARY KEY on the helpers table: a single code_hash can reference
+  # multiple distinct helper paths, and a helper_hash isn't unique either
+  # (helpers shared across code_hashes legitimately repeat their hash).
+  # Composite index on (code_hash) drives the join from _mr_code; the
+  # (helper_hash) index supports future dedup queries.
+  .mr_execute(
+    con,
+    "CREATE TABLE IF NOT EXISTS _mr_code_helpers (
+       code_hash    TEXT NOT NULL,
+       helper_path  TEXT NOT NULL,
+       helper_hash  TEXT NOT NULL,
+       helper_bytes BLOB
+     )"
+  )
+  .mr_execute(
+    con,
+    "CREATE INDEX IF NOT EXISTS _mr_code_helpers_code_hash
+       ON _mr_code_helpers (code_hash)"
+  )
+  .mr_execute(
+    con,
+    "CREATE INDEX IF NOT EXISTS _mr_code_helpers_helper_hash
+       ON _mr_code_helpers (helper_hash)"
+  )
   invisible(NULL)
 }
 

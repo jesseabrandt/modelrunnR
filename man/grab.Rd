@@ -47,7 +47,7 @@ keyed by \code{content_hash}.}
 For tabular stored values (ingested files, stowed data
 frames), a \code{dbplyr} lazy \code{tbl} bound to the modelrunnR DuckDB
 connection. Compose \code{dplyr} verbs against it and call
-\code{\link[dplyr:compute]{dplyr::collect()}} (or \code{\link[=as.data.frame]{as.data.frame()}} / \code{\link[tibble:as_tibble]{tibble::as_tibble()}})
+\code{\link[dplyr:collect]{dplyr::collect()}} (or \code{\link[=as.data.frame]{as.data.frame()}} / \code{\link[tibble:as_tibble]{tibble::as_tibble()}})
 to materialize. For non-tabular artifacts, the deserialized R
 object.
 }

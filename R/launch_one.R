@@ -94,15 +94,29 @@
     }
   )
 
-  rec     <- .mr_stop_recording()
-  helpers <- .mr_stop_helper_tracking()
-  duration_ms <- as.integer(round((as.numeric(Sys.time()) - start_secs) * 1000))
+  rec          <- .mr_stop_recording()
+  helper_bytes <- .mr_helper_bytes()
+  helpers      <- .mr_stop_helper_tracking()
+  duration_ms  <- as.integer(round((as.numeric(Sys.time()) - start_secs) * 1000))
 
   code_hash <- if (inline_mode || (relaunch_mode && !is.null(relaunch_expr))) {
     .mr_code_hash_inline(code_body, helpers)
   } else {
     .mr_code_hash(step, helpers)
   }
+
+  # L0 source snapshot: persist script + helper bytes keyed by
+  # code_hash. Fires inside the launch but before the run row is
+  # written, so a snapshot-write failure surfaces as a launch error
+  # rather than leaving a run row whose source can't be recovered.
+  .mr_record_code_snapshot(
+    con          = .mr_get_connection(),
+    code_hash    = code_hash,
+    script_path  = if (inline_mode) NA_character_ else step,
+    script_bytes = .mr_script_bytes_for_snapshot(code_body),
+    helpers_with_bytes = .mr_pack_helpers(helpers, helper_bytes),
+    inline       = inline_mode || (relaunch_mode && !is.null(relaunch_expr))
+  )
 
   .mr_warn_interactive_inputs(step, rec$inputs)
 

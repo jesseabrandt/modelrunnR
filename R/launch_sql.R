@@ -190,6 +190,17 @@
     .mr_code_hash_inline(code_body, list())
   }
 
+  # L0 source snapshot: persist the SQL body bytes keyed by code_hash.
+  # SQL launches have no transitively-sourced helpers (always []).
+  .mr_record_code_snapshot(
+    con          = con,
+    code_hash    = run_code_hash,
+    script_path  = if (src_kind == "file") step else NA_character_,
+    script_bytes = .mr_script_bytes_for_snapshot(code_body),
+    helpers_with_bytes = list(),
+    inline       = identical(src_kind, "inline")
+  )
+
   # 7. Pre-flight staleness via the run-row history for this step under
   #    this label. Reuses the R-mode .mr_is_stale() machinery; helpers
   #    are vacuously [] for SQL steps. Pass the resolved rebind so a

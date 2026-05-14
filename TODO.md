@@ -1,5 +1,65 @@
 # modelrunnR TODO
 
+## Surfaced 2026-05-14 (from L0 R CMD check pass)
+
+### Non-ASCII characters in `R/dispatch_code.R`
+
+`R CMD check` reports one WARNING: `R/dispatch_code.R` contains em-dashes
+(U+2014) in comments at lines 3, 102, 131, 138. Pre-existing — surfaced
+but not fixed during L0 (out of scope, framework's "opportunistic
+cleanup, unrelated → QUEUE" rule). Quick fix: replace `—` with `--` in
+those comments, or escape as `—` per the check's suggestion.
+
+## Surfaced 2026-05-13 (from L0 source-snapshot implementation)
+
+### Garbage-collect orphan `_mr_code` / `_mr_code_helpers` rows
+
+L0 source-snapshot (landed 2026-05-13) writes bytes to `_mr_code` and
+`_mr_code_helpers` but never deletes them. When `prune()` drops
+`_mr_runs` rows the corresponding `_mr_code` rows become orphans.
+They aren't harmful (just disk usage), but the policy should be
+decided before v0.2 or once a user hits real disk pressure.
+
+Three plausible shapes:
+
+1. Automatic — every `prune()` cascades to drop orphan `_mr_code` rows
+   in the same transaction. Simple mental model: code lives as long
+   as a run references it. Cost: prune writes grow.
+2. Explicit knob — `prune(gc = TRUE)` or a separate `prune_code()`.
+   Useful if a user wants forensic source recovery after a run row is
+   removed, but adds a parameter.
+3. Background sweep — periodic `mr_gc()` the user calls when storage
+   is tight. Lowest run-time cost; lazy housekeeping.
+
+Spec: `docs/superpowers/specs/2026-05-13-code-snapshot-design.md`
+"Open questions (deferred)".
+
+## Surfaced 2026-05-13 (from reproducibility direction conversation)
+
+### Code-snapshot / reproducibility roadmap — L0 → L1 → L2 → L3
+
+Spec: `docs/superpowers/specs/2026-05-13-code-snapshot-design.md`. Execute
+in this order; each layer is independently useful and ships on its own.
+
+1. **✓ L0 — Source snapshot.** Landed 2026-05-13. `_mr_code` +
+   `_mr_code_helpers` content-addressed by `code_hash`; every tracked
+   launch (R, inline, SQL, queued) persists script + helper bytes.
+   Internal `.mr_load_code()` reader round-trips. GC of orphan rows
+   deferred (see entry above).
+2. **L1 — Environment lockfile.** Per-run `renv.lock` (or richer
+   `installed.packages()` fallback) so the R package env is restorable.
+   `renv` as `Suggests:`, not `Imports:` (invariant 6).
+3. **L2 — Git-strict mode.** Opt-in `launch(strict = TRUE)`; refuses
+   dirty trees or auto-commits to `refs/mr/wip/<run_id>`. Alternative
+   to L0 for users willing to commit-before-launch.
+4. **L3 — Export.** `mr_export(run_id, path)` produces a compendium
+   bundle (source + lockfile + inputs/refs + replay script). Builds on
+   L0 + L1.
+
+Don't pre-design L1/L2/L3 in detail until L0 lands — those sketches in
+the spec will drift if L0 reshapes assumptions. Write the L1 spec when
+L0 lands, etc.
+
 ## Surfaced 2026-05-01 (from view-stow design)
 
 ### Staleness propagation through views over append-shape inputs

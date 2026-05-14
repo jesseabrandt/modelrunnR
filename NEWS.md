@@ -1,3 +1,23 @@
+# modelrunnR (development version)
+
+## New features
+
+* L0 source snapshot. Every tracked launch (R, inline, SQL, queued)
+  now persists the actual bytes of its script body and any sourced
+  helpers into two new content-addressed tables — `_mr_code` (keyed
+  by `code_hash`) and `_mr_code_helpers` — so a run row's source is
+  recoverable from the DuckDB store alone, no git required. Skipped-
+  fresh runs inherit a prior `code_hash` whose bytes are already
+  persisted; the snapshot write is idempotent on conflict. Internal
+  reader `.mr_load_code()` round-trips the snapshot; no public
+  accessor is exported in L0.
+
+  Design: `docs/superpowers/specs/2026-05-13-code-snapshot-design.md`.
+  This is the foundation for a layered reproducibility roadmap (env
+  lockfile, git-strict mode, compendium export); orphan garbage
+  collection is intentionally deferred to a later release (tracked in
+  `TODO.md`).
+
 # modelrunnR 0.1.0
 
 First tagged release. Pins the API and storage layout that the
