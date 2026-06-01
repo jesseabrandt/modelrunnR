@@ -5,6 +5,11 @@
 ## returned structure is serialized via jsonlite::toJSON and stashed
 ## in the `external_inputs` column of the run row.
 
+#' Validate and hash declared external inputs before a run
+#'
+#' @param external_inputs NULL or a named list with `files` and/or `env`
+#' @return a list with `files` and `env` entries carrying paths/names and hashes
+#' @noRd
 .mr_resolve_external_inputs <- function(external_inputs) {
   if (is.null(external_inputs)) {
     return(list(files = list(), env = list()))
@@ -38,6 +43,11 @@
   list(files = file_entries, env = env_entries)
 }
 
+#' Serialize resolved external inputs to JSON
+#'
+#' @param resolved a resolved external-inputs list
+#' @return a JSON string for the `external_inputs` run column
+#' @noRd
 .mr_external_inputs_to_json <- function(resolved) {
   jsonlite::toJSON(resolved, auto_unbox = TRUE)
 }
@@ -47,6 +57,11 @@
 # previously-resolved JSON record. Hashes from queue time are
 # discarded -- pickup re-resolves so the recorded hashes reflect what
 # the body actually saw.
+#' Extract external-input declarations (paths, env names) from JSON
+#'
+#' @param json_text previously-serialized external-inputs JSON
+#' @return a list with `files` and `env` declaration vectors, or NULL
+#' @noRd
 .mr_external_inputs_decl_from_json <- function(json_text) {
   if (is.na(json_text) || !nzchar(json_text)) return(NULL)
   parsed <- tryCatch(

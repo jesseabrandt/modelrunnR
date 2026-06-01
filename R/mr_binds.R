@@ -75,6 +75,12 @@ mr_binds <- function(..., mode = c("zip", "cross"), .labels = NULL) {
 
 # Element-wise pairing. Every slot must share a length, with length-1
 # slots recycling. Errors on any other length mismatch.
+#' Expand sweep slots by element-wise (zip) pairing
+#'
+#' @param slots Named list of per-slot value lists.
+#' @param lens Integer vector of slot lengths.
+#' @return A list of N envelopes; errors on incompatible lengths.
+#' @noRd
 .mr_binds_zip <- function(slots, lens) {
   non_one <- lens[lens != 1L]
   N <- if (length(non_one) == 0L) 1L else non_one[[1L]]
@@ -99,6 +105,13 @@ mr_binds <- function(..., mode = c("zip", "cross"), .labels = NULL) {
 
 # Cartesian product of all slots. N = prod(lens). Iteration order
 # matches expand.grid()'s convention: the FIRST slot varies fastest.
+#' Expand sweep slots by Cartesian product (cross)
+#'
+#' @param slots Named list of per-slot value lists.
+#' @param lens Integer vector of slot lengths.
+#' @return A list of `prod(lens)` envelopes; errors on any zero-length
+#'   slot.
+#' @noRd
 .mr_binds_cross <- function(slots, lens) {
   if (any(lens == 0L)) {
     stop("mr_binds(mode = 'cross'): zero-length slot would produce zero envelopes.",

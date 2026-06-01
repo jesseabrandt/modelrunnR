@@ -11,6 +11,13 @@
 ## recorded: reads don't change state, and logging every REPL
 ## exploration would bloat the metadata without any benefit.
 
+#' Record an interactive (non-launch) write to `_mr_runs`
+#'
+#' @param name logical name being written
+#' @param hash content hash of the written value
+#' @param label optional variant label for the row
+#' @return invisibly NULL; appends one `_mr_runs` row as a side effect
+#' @noRd
 .mr_maybe_record_interactive_write <- function(name, hash, label = NA_character_) {
   if (.mr_is_recording()) return(invisible(NULL))
   # launch() suppresses interactive tracking while resolving inline `rebind`
@@ -58,6 +65,13 @@
 #     Matched by `logical_name` only — Shape B grabs record `hash = NA`
 #     because an append table's identity is run-indexed, not hashable
 #     across all rows.
+#' Find the `step` of the most recent run that produced `(name, hash)`
+#'
+#' @param con DuckDB connection
+#' @param name logical name to match
+#' @param hash content hash to match (Shape A); ignored for Shape B
+#' @return the producing run's `step`, or NA when none matches
+#' @noRd
 .mr_last_producer_step <- function(con, name, hash) {
   runs <- DBI::dbGetQuery(
     con,
@@ -81,6 +95,12 @@
 # Emit one reproducibility warning per input that traces back to an
 # interactive write. Wording taken verbatim from docs/design.md
 # section "Interactive I/O".
+#' Warn for each input that traces back to an interactive write
+#'
+#' @param step step id of the consuming run, used in the message
+#' @param inputs list of `{name, hash}` input pairs to check
+#' @return invisibly NULL; emits one warning per interactive input
+#' @noRd
 .mr_warn_interactive_inputs <- function(step, inputs) {
   if (length(inputs) == 0L) return(invisible(NULL))
   con <- .mr_get_connection()

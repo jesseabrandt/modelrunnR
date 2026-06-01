@@ -60,6 +60,13 @@ mr_sql <- function(body) {
 ## block comments are not parsed away. Good enough for v0.1; a DuckDB-
 ## backed validation pass can come later if needed.
 
+#' Parse a SQL string into header fields and validated body
+#'
+#' @param text A length-1 character string holding optional `--`
+#'   header lines followed by the SQL body.
+#' @return A list with `inputs` (character vector), `output` (single
+#'   name or NULL), and `body` (validated, trailing-`;`-stripped query).
+#' @noRd
 .mr_parse_sql_header <- function(text) {
   if (!is.character(text) || length(text) != 1L || is.na(text)) {
     stop("internal: .mr_parse_sql_header() expects a length-1 character string.",
@@ -121,6 +128,12 @@ mr_sql <- function(body) {
 }
 
 # Parse one "@key: value" line. Returns list(key = chr, value = ...).
+#' Parse one `@key: value` SQL header line
+#'
+#' @param after The header text with the leading `--` already stripped.
+#' @return A list with `key` (string) and `value` (character vector for
+#'   `inputs`, single string otherwise).
+#' @noRd
 .mr_parse_sql_header_line <- function(after) {
   if (!grepl(":", after, fixed = TRUE)) {
     stop(sprintf(
@@ -159,6 +172,12 @@ mr_sql <- function(body) {
 
 # Validate the body is a bare SELECT (or WITH ... SELECT) and one statement.
 # Returns the body trimmed and with the trailing `;` stripped.
+#' Validate a SQL body is a single bare SELECT (or WITH ... SELECT)
+#'
+#' @param body The raw SQL body string.
+#' @return The trimmed body with any trailing `;` stripped; errors if
+#'   the body is empty, multi-statement, or not a bare query.
+#' @noRd
 .mr_validate_sql_body <- function(body) {
   trimmed <- trimws(body)
   if (!nzchar(trimmed)) {
@@ -193,6 +212,10 @@ mr_sql <- function(body) {
   stop(.mr_bare_select_msg(), call. = FALSE)
 }
 
+#' Build the standard "must be a bare SELECT" error message
+#'
+#' @return A single string explaining the bare-SELECT requirement.
+#' @noRd
 .mr_bare_select_msg <- function() {
   paste0(
     "launch(): .sql must contain a bare SELECT (or WITH ... SELECT); ",
@@ -201,6 +224,11 @@ mr_sql <- function(body) {
   )
 }
 
+#' Extract the leading alphabetic keyword from a SQL string
+#'
+#' @param text The SQL text to scan.
+#' @return The leading run of letters/underscores, or `""` if none.
+#' @noRd
 .mr_first_sql_keyword <- function(text) {
   cleaned <- trimws(text)
   m <- regmatches(cleaned, regexpr("^[A-Za-z_]+", cleaned))
@@ -215,6 +243,12 @@ mr_sql <- function(body) {
 #
 # CTE syntax: WITH <ident> AS ( <body> ) [, <ident> AS ( <body> )]* <terminal>
 # WITH RECURSIVE is not handled in v0.1; falls through and returns NULL.
+#' Find the top-level keyword following a WITH clause's CTE list
+#'
+#' @param text A WITH-prefixed SQL string.
+#' @return The terminal statement keyword (e.g. `"SELECT"`), or NULL if
+#'   the CTE list can't be walked to a terminal keyword.
+#' @noRd
 .mr_with_terminal_keyword <- function(text) {
   chars <- strsplit(text, "", fixed = TRUE)[[1]]
   n <- length(chars)

@@ -33,6 +33,15 @@
 ##   ref         NULL for non-ref kinds; for ref kinds, the resolver's
 ##               full return list (step, code_body, expr,
 ##               variant_label [run-only], status [run-only]).
+#' Dispatch a launch()/queue() first argument to a normalized code descriptor
+#'
+#' @param code the value bound to the caller's `code` parameter.
+#' @param script_expr unevaluated expression captured via substitute(code).
+#' @param accept_refs character vector of accepted mr_ref kinds (subset of c("label","run")).
+#' @param accept_sql TRUE if the caller accepts .sql paths and mr_sql().
+#' @param caller "launch" or "queue"; used to compose error messages.
+#' @return A list describing the resolved shape (kind, inline_mode, step, code_body, code_hash, ref).
+#' @noRd
 .mr_dispatch_code_arg <- function(code, script_expr,
                                   accept_refs = character(0),
                                   accept_sql  = FALSE,
@@ -128,7 +137,7 @@
     # Defensive: accept_refs is filtered to c("label","run") above; an
     # accept_refs entry outside that pair would land here.
     stop(sprintf(
-      "%s(): internal error — accept_refs entry '%s' not handled.",
+      "%s(): internal error -- accept_refs entry '%s' not handled.",
       caller, code$kind
     ), call. = FALSE)
   }

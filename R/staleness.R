@@ -29,7 +29,7 @@
 #'   pin stays fresh even if the pinned name has since moved on.
 #'
 #' @return A list with fields `stale` and `reasons`.
-#' @keywords internal
+#' @noRd
 .mr_is_stale <- function(step, variant_label = NA_character_,
                          rebind = list()) {
   con <- .mr_get_connection()
@@ -78,6 +78,14 @@
   list(stale = length(reasons) > 0L, reasons = reasons)
 }
 
+#' Compare a step's current code hash against its prior recorded hash
+#'
+#' @param step Normalized script path, or an `<inline:...>` identifier.
+#' @param prior One-row data frame of the prior run's recorded
+#'   `code_hash` and `helpers`.
+#' @return Character: `"code"` if changed/missing, `"code_unknown"` if
+#'   no prior hash was recorded, or empty if unchanged.
+#' @noRd
 .mr_check_code_hash <- function(step, prior) {
   # Inline-mode steps ("<inline:<hash>>") have no file on disk; their
   # identity already encodes the expression hash, so if we found a prior
@@ -120,6 +128,14 @@
   code_reason
 }
 
+#' Code-hash staleness check for inline (`<inline:...>`) steps
+#'
+#' @param step The `<inline:<hash>>` step identifier.
+#' @param prior One-row data frame of the prior run's recorded
+#'   `code_hash` and `helpers`.
+#' @return Character: `"code"` if helper bytes drifted or a helper is
+#'   missing, `"code_unknown"` if no prior hash, or empty if unchanged.
+#' @noRd
 .mr_check_code_hash_inline <- function(step, prior) {
   helpers_json <- prior$helpers[1]
   helpers <- if (is.na(helpers_json) || !nzchar(helpers_json)) {
@@ -162,6 +178,15 @@
   character()
 }
 
+#' Compare recorded inputs against current (or rebound) identities
+#'
+#' @param con An open DBI connection.
+#' @param inputs_json The prior run's recorded inputs as a JSON string.
+#' @param rebind Optional `name -> content_hash` map of explicitly
+#'   rebound names to compare against instead of the current latest.
+#' @return Character vector of `"input:<name>"` reasons for inputs that
+#'   have drifted; empty if all match.
+#' @noRd
 .mr_check_inputs <- function(con, inputs_json, rebind = list()) {
   if (is.na(inputs_json) || !nzchar(inputs_json) || inputs_json == "[]") {
     return(character())
@@ -216,6 +241,14 @@
   reasons
 }
 
+#' Compare recorded external inputs (files/env) against current state
+#'
+#' @param external_json The prior run's recorded external inputs as a
+#'   JSON string with `files` and/or `env` entries.
+#' @return Character vector of `"external:<path>"` /
+#'   `"external:env:<name>"` reasons for inputs that have drifted;
+#'   empty if all match.
+#' @noRd
 .mr_check_external_inputs <- function(external_json) {
   if (is.na(external_json) || !nzchar(external_json)) {
     return(character())

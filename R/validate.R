@@ -22,6 +22,13 @@
 
 .mr_name_pattern <- "^[A-Za-z_][A-Za-z0-9_]*$"
 
+#' Validate a user-supplied logical name
+#'
+#' @param name the candidate logical name
+#' @param context calling function name, used in error messages
+#' @param max_length maximum allowed name length
+#' @return invisibly the validated name; stops on invalid input
+#' @noRd
 .mr_validate_name <- function(name,
                               context = "stow",
                               max_length = 255L) {
@@ -52,6 +59,12 @@
   invisible(name)
 }
 
+#' Validate and trim a variant label
+#'
+#' @param label the candidate label, or NULL
+#' @param context calling function name, used in error messages
+#' @return the trimmed label, or NA when `label` is NULL; stops on invalid input
+#' @noRd
 .mr_validate_label <- function(label, context = "launch()") {
   if (is.null(label)) return(NA_character_)
   if (!is.character(label) || length(label) != 1L || is.na(label)) {

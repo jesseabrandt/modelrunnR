@@ -104,6 +104,19 @@ prune <- function(name = NULL,
 
 ## Shape A (versioned) --------------------------------------------------------
 
+#' Prune versioned (Shape A) values
+#'
+#' Selects versions to drop per logical name, skips run-referenced
+#' protected versions (unless forced), drops them and their artifacts,
+#' refreshes affected latest-version views.
+#'
+#' @param name Optional logical name to restrict to; `NULL` for all.
+#' @param keep Integer count of most-recent versions to retain.
+#' @param keep_latest Logical; keep only the latest version per name.
+#' @param older_than Duration string selecting versions older than the cutoff.
+#' @param force Logical; override run-reference protection.
+#' @return A data frame of the version rows that were pruned.
+#' @noRd
 .mr_prune_shape_a <- function(name, keep, keep_latest, older_than, force) {
   if (isTRUE(keep_latest) && !is.null(keep)) {
     stop("prune(): pass either `keep_latest` or `keep`, not both.",
@@ -162,6 +175,17 @@ prune <- function(name = NULL,
   to_prune
 }
 
+#' Select which version rows to prune per logical name
+#'
+#' Applies the `keep`, `keep_latest`, and `older_than` policies
+#' (combined as a union) within each logical name group.
+#'
+#' @param candidates Data frame of `_mr_versions` rows to consider.
+#' @param keep Integer count of most-recent versions to retain.
+#' @param keep_latest Logical; keep only the latest version per name.
+#' @param older_than Duration string selecting versions older than the cutoff.
+#' @return A data frame subset of `candidates` flagged for pruning.
+#' @noRd
 .mr_select_prune_candidates <- function(candidates, keep, keep_latest, older_than) {
   out <- candidates[FALSE, , drop = FALSE]
   if (nrow(candidates) == 0L) return(out)
@@ -192,6 +216,12 @@ prune <- function(name = NULL,
   out
 }
 
+#' Parse a duration string into a difftime
+#'
+#' @param spec Duration string such as `"30d"`, `"6h"`, `"15m"`, `"45s"`.
+#' @param context Caller name used in the error message.
+#' @return A `difftime` in seconds.
+#' @noRd
 .mr_parse_duration <- function(spec, context = "prune") {
   m <- regmatches(spec, regexec("^([0-9]+)\\s*([smhd])$", spec))[[1]]
   if (length(m) != 3L) {
@@ -204,6 +234,15 @@ prune <- function(name = NULL,
   as.difftime(seconds, units = "secs")
 }
 
+#' Collect (name, hash) pairs protected from pruning by run history
+#'
+#' Parses the `outputs` JSON of run rows that are referenced or
+#' variant-labeled to find versions that should not be dropped.
+#'
+#' @param con An active DuckDB connection.
+#' @param force Logical; when `TRUE`, returns an empty set (no protection).
+#' @return A data frame with `name` and `hash` columns (deduplicated).
+#' @noRd
 .mr_protected_version_hashes <- function(con, force = FALSE) {
   empty <- data.frame(name = character(), hash = character(),
                       stringsAsFactors = FALSE)
@@ -265,6 +304,16 @@ prune <- function(name = NULL,
   unique(df)
 }
 
+#' Drop a single stored version and its backing storage
+#'
+#' Removes the physical table, BLOB row, or on-disk file (per kind /
+#' storage location) and deletes the `_mr_versions` row, all in one
+#' transaction. Failures warn rather than abort the surrounding sweep.
+#'
+#' @param con An active DuckDB connection.
+#' @param row A single-row data frame from `_mr_versions`.
+#' @return `NULL`, invisibly.
+#' @noRd
 .mr_drop_version <- function(con, row) {
   kind <- row$kind[1]
   storage <- row$storage_location[1]
@@ -307,6 +356,19 @@ prune <- function(name = NULL,
 
 ## Shape B (append log) -------------------------------------------------------
 
+#' Prune append-table (Shape B) data
+#'
+#' Iterates the matching append-table registry rows and delegates the
+#' per-table row deletion to `.mr_prune_shape_b_one`.
+#'
+#' @param name Optional logical name to restrict to; `NULL` for all.
+#' @param run_id Character vector of run ids to prune.
+#' @param keep Integer count of most-recent runs to retain.
+#' @param keep_latest Logical; keep the latest run per variant group.
+#' @param older_than Duration string selecting runs older than the cutoff.
+#' @param force Logical; override variant-label protection.
+#' @return A data frame with `logical_name` and `rows_pruned` columns.
+#' @noRd
 .mr_prune_shape_b <- function(name, run_id, keep, keep_latest = FALSE,
                               older_than, force) {
   con <- .mr_get_connection()
@@ -343,6 +405,22 @@ prune <- function(name = NULL,
   do.call(rbind, summaries)
 }
 
+#' Prune rows from a single append table
+#'
+#' Resolves the set of run ids to delete from the `run_id`, `cutoff`,
+#' `keep`, and `keep_latest` policies, applies variant-label protection
+#' unless bypassed, then deletes the rows, cascades chunk records, and
+#' updates the registry row count inside one transaction.
+#'
+#' @param con An active DuckDB connection.
+#' @param registry_row A single-row `_mr_append_tables` data frame.
+#' @param run_id Character vector of run ids to prune.
+#' @param cutoff Optional `POSIXct`; prune runs started before it.
+#' @param keep Integer count of most-recent runs to retain.
+#' @param keep_latest Logical; keep the latest run per variant group.
+#' @param force Logical; override variant-label protection.
+#' @return A one-row data frame with `logical_name` and `rows_pruned`.
+#' @noRd
 .mr_prune_shape_b_one <- function(con, registry_row, run_id, cutoff, keep,
                                   keep_latest, force) {
   logical  <- registry_row$logical_name[1]

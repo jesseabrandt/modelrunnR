@@ -40,6 +40,12 @@ ingest <- function(name, source) {
 }
 
 # Latest recorded source_hash for a logical name, or NA if none exists.
+#' Look up the latest recorded source hash for a logical name
+#'
+#' @param con An open DBI connection.
+#' @param name The logical name to look up.
+#' @return The most recent non-null `source_hash`, or NA if none.
+#' @noRd
 .mr_latest_source_hash <- function(con, name) {
   row <- DBI::dbGetQuery(
     con,

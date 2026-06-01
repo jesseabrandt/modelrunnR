@@ -26,6 +26,16 @@
 ##   directly from that JSON via `.mr_map_from_provenance_json()`, which
 ##   avoids any lossy round-trip through R values.
 
+#' Execute a queued run row in place and finalize its run record
+#'
+#' @param run_id run id of the queued row to pick up
+#' @param resolved resolver result carrying step, code_body, and expr
+#' @param label variant label override (NA to keep the queued row's)
+#' @param external_inputs pickup-time external inputs (already nulled by caller)
+#' @param force logical; if TRUE, run even when the step is fresh
+#' @param duckdb_seed seed override (NULL to use the queued row's seed)
+#' @return the finalized _mr_runs row, invisibly
+#' @noRd
 .mr_pickup_queued_run <- function(run_id, resolved, label, external_inputs,
                                   force, duckdb_seed) {
   con <- .mr_get_connection()
@@ -256,6 +266,22 @@
 # UPDATE _mr_runs SET execution columns WHERE run_id = ?
 # Frozen columns (step, rebinds, batch_id, run_id) are NOT touched.
 # git_sha / git_branch / git_dirty are populated from session_info.
+#' UPDATE a queued _mr_runs row's execution columns in place
+#'
+#' @param run_id run id identifying the row to update
+#' @param status terminal run status to write
+#' @param started_at run start timestamp
+#' @param duration_ms run duration in milliseconds
+#' @param inputs resolved input (name, hash) pairs
+#' @param outputs resolved output (name, hash) pairs
+#' @param external_inputs resolved external-input declarations
+#' @param helpers transitively-sourced helper records
+#' @param session_info captured session-context snapshot
+#' @param code_body source body that executed
+#' @param code_hash code hash recorded for the run
+#' @param variant_label variant label recorded for the run
+#' @return invisibly, the result of the UPDATE
+#' @noRd
 .mr_update_queued_row <- function(run_id, status, started_at, duration_ms,
                                   inputs, outputs, external_inputs, helpers,
                                   session_info, code_body, code_hash,
@@ -308,6 +334,11 @@
 }
 
 # Read back a single _mr_runs row for return-value parity with launch().
+#' Read back a single _mr_runs row by run id
+#'
+#' @param run_id run id to fetch
+#' @return the matching _mr_runs row as a data.frame
+#' @noRd
 .mr_runs_row <- function(run_id) {
   con <- .mr_get_connection()
   DBI::dbGetQuery(con, "SELECT * FROM _mr_runs WHERE run_id = ?",
@@ -330,6 +361,11 @@
 # For Shape B entries the filter is reconstructed from filter_kind /
 # filter_value so grab() inside the pickup run applies the correct
 # run-id scope.
+#' Reconstruct the rebinds map and shape-B filters from provenance JSON
+#'
+#' @param json_text provenance JSON stored on a queued row
+#' @return list with `rebinds_map` (name -> hash) and `shape_b_filters`
+#' @noRd
 .mr_map_from_provenance_json <- function(json_text) {
   empty <- list(rebinds_map = list(), shape_b_filters = list())
   if (is.na(json_text) || !nzchar(json_text) || identical(json_text, "[]")) {

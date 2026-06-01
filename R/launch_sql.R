@@ -30,6 +30,21 @@
 #   label, force, duckdb_seed: same semantics as R-mode launch().
 #
 # Returns the run row data.frame invisibly.
+#' Execute a SQL launch step and record its versioned run row
+#'
+#' @param src_kind "file" or "inline"; selects how the SQL body is sourced
+#' @param path_or_body file path (file mode) or SQL string (inline mode)
+#' @param materialize logical; FALSE registers a view, TRUE a table
+#' @param rebind named list mapping input names to pinned content hashes
+#' @param provenance resolved-rebinds JSON-shaped list for the run row
+#' @param external_inputs_resolved resolved external-input declarations
+#' @param label variant label for the run (or NA to auto-propagate)
+#' @param force logical; if TRUE, run even when the step is fresh
+#' @param duckdb_seed numeric seed applied via setseed before the DDL
+#' @param skip_on_fresh logical; skip execution when fresh and not forced
+#' @param batch_id batch identifier recorded on the run row
+#' @return the run row data.frame, invisibly
+#' @noRd
 .mr_launch_sql <- function(src_kind, path_or_body, materialize,
                            rebind, provenance,
                            external_inputs_resolved,
@@ -322,6 +337,12 @@
 # Register a SQL view as a versioned `_mr_versions` row. The rendered
 # SQL is the content_hash input (views have no rows to hash; the SQL
 # text *is* the identity).
+#' Register a rendered SQL view as a versioned `_mr_versions` row
+#'
+#' @param name logical name of the view
+#' @param rendered_sql SELECT body whose text is hashed for the content hash
+#' @return the content hash of the registered view
+#' @noRd
 .mr_register_view <- function(name, rendered_sql) {
   con <- .mr_get_connection()
   content_hash  <- .mr_hash_bytes(charToRaw(rendered_sql))
@@ -370,6 +391,12 @@
 # Materialize a SQL body as a versioned table. Hashed by row contents
 # via .mr_hash_duckdb_table; source_sql captures the rendered SQL
 # informationally.
+#' Materialize a rendered SQL body as a versioned table hashed by contents
+#'
+#' @param name logical name of the table
+#' @param rendered_sql SELECT body materialized into a staging table
+#' @return the content hash of the registered table
+#' @noRd
 .mr_register_sql_table <- function(name, rendered_sql) {
   con <- .mr_get_connection()
 
@@ -436,6 +463,11 @@
 
 # Regex-escape a string so it can be used as a literal identifier in a
 # regex pattern (used by the @inputs -> physical-name substitution).
+#' Escape a string for literal use inside a regex pattern
+#'
+#' @param s string to escape
+#' @return the string with regex metacharacters backslash-escaped
+#' @noRd
 .mr_regex_escape <- function(s) {
   gsub("([.\\\\+*?\\[\\^\\]$(){}=!<>|:\\-])", "\\\\\\1", s, perl = TRUE)
 }
@@ -444,6 +476,11 @@
 # backreferences are treated as literal text. Base R's gsub does not
 # interpret `$N` in replacements (that's a Perl/JS convention), so
 # only backslashes need escaping.
+#' Escape a string for literal use as a gsub replacement
+#'
+#' @param s replacement string to escape
+#' @return the string with backslashes doubled for literal substitution
+#' @noRd
 .mr_regex_escape_replacement <- function(s) {
   gsub("\\\\", "\\\\\\\\", s)
 }

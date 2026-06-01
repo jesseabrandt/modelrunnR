@@ -20,6 +20,12 @@
 # append) so a token can only match one or the other. False positives
 # would require a user to have a string literal in the SQL whose value
 # coincides with a physical name; unlikely but acknowledged.
+#' Detect modelrunnR-managed inputs referenced in a rendered SQL string
+#'
+#' @param con a DBI connection to the modelrunnR store.
+#' @param rendered_sql the rendered SQL text to scan for managed names.
+#' @return A list of (name, hash) input pairs; errors if none are found.
+#' @noRd
 .mr_sniff_view_inputs <- function(con, rendered_sql) {
   tokens <- unique(regmatches(
     rendered_sql,
@@ -90,6 +96,13 @@
 # to SQL, sniffs managed inputs, registers the view via the existing
 # `.mr_register_view()` helper, and writes a synthetic _mr_runs row so
 # `mr_variant(label)` resolves to this view in a downstream sweep.
+#' Register a view-shape stow from a lazy dbplyr expression
+#'
+#' @param name logical name for the view to register.
+#' @param value a dbplyr lazy expression to render and persist as a view.
+#' @param label variant label to record on the synthetic run row, or NA.
+#' @return Invisibly, the SQL-text content hash of the registered view.
+#' @noRd
 .mr_stow_view <- function(name, value, label = NA_character_) {
   con <- .mr_get_connection()
 
@@ -129,6 +142,15 @@
 # Synthetic _mr_runs row for a free-stow view registration. Distinct
 # from `.mr_maybe_record_interactive_write` because it records the
 # sniffed inputs on the row, not just the output pair.
+#' Write a synthetic interactive `_mr_runs` row for a free-stow view
+#'
+#' @param con a DBI connection to the modelrunnR store.
+#' @param name logical name of the registered view (recorded as the output).
+#' @param hash content hash of the registered view.
+#' @param inputs list of sniffed (name, hash) input pairs to record on the row.
+#' @param label variant label to record on the row, or NA.
+#' @return Invisibly, NULL (called for its side effect).
+#' @noRd
 .mr_write_view_interactive_run_row <- function(con, name, hash, inputs, label) {
   now <- Sys.time()
   step <- sprintf("<interactive:%s>", format(now, "%Y-%m-%d %H:%M:%OS3"))

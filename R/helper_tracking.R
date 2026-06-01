@@ -11,6 +11,11 @@
 # Build a `source`-compatible wrapper that records helper hashes
 # into .mr_state$helpers and delegates to base::source() for the
 # actual evaluation.
+#' Build a `source()` wrapper that records helper code hashes
+#'
+#' @return a function with `source()`'s interface that hashes each
+#'   sourced file into `.mr_state` before delegating to `base::source`
+#' @noRd
 .mr_make_source_wrapper <- function() {
   function(file, local = TRUE, ...) {
     path <- normalizePath(file, mustWork = TRUE)
@@ -50,6 +55,10 @@
   }
 }
 
+#' Initialize helper-file tracking state for a launch
+#'
+#' @return invisibly NULL; resets the helpers/bytes/inflight state
+#' @noRd
 .mr_start_helper_tracking <- function() {
   .mr_state$helpers         <- list()
   .mr_state$helper_bytes    <- list()
@@ -61,6 +70,10 @@
 # (backward-compatible shape: hashes only, no bytes). Bytes are
 # accessible via `.mr_helper_bytes()` BEFORE this is called -- the
 # snapshot recorder pulls them off state and persists them.
+#' End helper-file tracking and return the path -> hash map
+#'
+#' @return the captured path -> hash map for the tracking session
+#' @noRd
 .mr_stop_helper_tracking <- function() {
   helpers <- .mr_state$helpers
   .mr_state$helpers         <- NULL
@@ -73,10 +86,19 @@
 # Returns a path -> raw map; empty list when no tracking is active.
 # Must be called BEFORE `.mr_stop_helper_tracking()` to capture bytes
 # for the L0 snapshot recorder.
+#' Access the in-flight helper path -> raw-bytes map
+#'
+#' @return path -> raw map of tracked helpers; empty list when inactive
+#' @noRd
 .mr_helper_bytes <- function() {
   .mr_state$helper_bytes %||% list()
 }
 
+#' Read a code file as line-ending-normalized UTF-8 raw bytes
+#'
+#' @param path path to the code file
+#' @return raw bytes of the file with line endings normalized to LF
+#' @noRd
 .mr_read_code_bytes <- function(path) {
   # Used only for CODE hashing (scripts and their sourced helpers).
   # Read as text (always UTF-8) and normalize line endings so the

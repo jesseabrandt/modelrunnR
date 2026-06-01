@@ -1,8 +1,46 @@
+#' Low-level constructor for the mr_code class
+#'
+#' Attaches the `"mr_code"` class to a character vector without any
+#' coercion. The class is purely R-side; the DuckDB column stays plain
+#' `TEXT`. Callers that may be handed a non-character should coerce
+#' first or go through `.mr_as_code()`.
+#'
+#' @param x A character vector (typically `code_body` straight from
+#'   `_mr_runs`). NA elements are preserved.
+#' @return `x` with `"mr_code"` prepended to its class.
+#' @noRd
+new_mr_code <- function(x = character()) {
+  stopifnot(is.character(x))
+  class(x) <- c("mr_code", class(x))
+  x
+}
+
+#' Validate an mr_code object
+#'
+#' Confirms the class invariant: an `mr_code` is a character vector
+#' carrying the `"mr_code"` class. Returns its input invisibly-by-value
+#' so it composes inside a construction expression.
+#'
+#' @param x An object expected to be `mr_code`.
+#' @return `x`, unchanged, if it is a valid `mr_code`; errors otherwise.
+#' @noRd
+validate_mr_code <- function(x) {
+  if (!inherits(x, "mr_code")) {
+    stop("`x` must be an <mr_code> object.", call. = FALSE)
+  }
+  if (!is.character(unclass(x))) {
+    stop("`mr_code` must wrap a character vector.", call. = FALSE)
+  }
+  x
+}
+
 #' Internal: attach mr_code class to a character vector
 #'
 #' Wraps a character vector so that `pull(code_body)` from `runs()` prints
 #' as multi-line, syntax-highlighted code rather than a truncated string.
 #' The class is purely R-side; the DuckDB column stays plain `TEXT`.
+#' Idempotent: an object that is already `mr_code` is returned unchanged.
+#' Construction is routed through `new_mr_code()` + `validate_mr_code()`.
 #'
 #' @param x A character vector (typically `code_body` straight from
 #'   `_mr_runs`). NA elements are preserved.
@@ -10,9 +48,7 @@
 #' @noRd
 .mr_as_code <- function(x) {
   if (inherits(x, "mr_code")) return(x)
-  x <- as.character(x)
-  class(x) <- c("mr_code", class(x))
-  x
+  validate_mr_code(new_mr_code(as.character(x)))
 }
 
 #' Print, format, subset, and coerce mr_code vectors
@@ -78,17 +114,13 @@ as.character.mr_code <- function(x, ...) {
 #' @rdname mr_code
 #' @export
 `[.mr_code` <- function(x, i) {
-  out <- unclass(x)[i]
-  class(out) <- c("mr_code", class(out))
-  out
+  new_mr_code(unclass(x)[i])
 }
 
 #' @rdname mr_code
 #' @export
 `[[.mr_code` <- function(x, i) {
-  out <- unclass(x)[[i]]
-  class(out) <- c("mr_code", class(out))
-  out
+  new_mr_code(unclass(x)[[i]])
 }
 
 #' @rdname mr_code

@@ -371,6 +371,10 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 # Raise if a launch is fired while another launch is already active
 # (recording, helper-tracking, or rebinding). Called from both R-mode
 # and SQL-mode, single and batch dispatchers.
+#' Error if a launch is fired while another launch is active
+#'
+#' @return `invisible(NULL)`; raises if recording/helpers/rebinds are set.
+#' @noRd
 .mr_guard_no_nested_launch <- function() {
   if (.mr_is_recording() || !is.null(.mr_state$helpers) ||
       !is.null(.mr_state$rebinds)) {
@@ -379,15 +383,33 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
   invisible(NULL)
 }
 
+#' Build a unique id from a prefix, timestamp, and random suffix
+#'
+#' @param prefix String prepended to the generated id.
+#' @return A single id string of the form `<prefix>_<timestamp>_<suffix>`.
+#' @noRd
 .mr_new_id <- function(prefix) {
   ts  <- format(Sys.time(), "%Y%m%d_%H%M%OS3")
   suf <- paste(sample(c(0:9, letters[1:6]), 6, replace = TRUE), collapse = "")
   sprintf("%s_%s_%s", prefix, gsub("[^0-9A-Za-z_]", "", ts), suf)
 }
 
+#' Generate a new run id
+#'
+#' @return A new id string prefixed with `"run"`.
+#' @noRd
 .mr_new_run_id   <- function() .mr_new_id("run")
+#' Generate a new batch id
+#'
+#' @return A new id string prefixed with `"batch"`.
+#' @noRd
 .mr_new_batch_id <- function() .mr_new_id("batch")
 
+#' Source a script in a tracked environment with grab/stow/source injected
+#'
+#' @param path Path to the `.R` script to source.
+#' @return `invisible(NULL)`.
+#' @noRd
 .mr_source_script <- function(path) {
   envir <- new.env(parent = globalenv())
   # Inject grab/stow so scripts can call them without library(modelrunnR),
@@ -423,6 +445,13 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 # flow). launch() leaves it FALSE — picking up a queued row by label
 # would silently orphan the queued row, so launch(mr_run(id)) is the
 # only legal pickup verb.
+#' Resolve a relaunch-by-label reference to step, code body, expr, and status
+#'
+#' @param label Variant label whose most recent run is resolved.
+#' @param caller Name of the calling verb, used in error messages.
+#' @param allow_queued When `TRUE`, widen the search to include queued rows.
+#' @return List with `step`, `code_body`, `expr` (or `NULL`), and `status`.
+#' @noRd
 .mr_resolve_relaunch <- function(label, caller = "launch",
                                  allow_queued = FALSE) {
   con <- .mr_get_connection()
@@ -509,6 +538,12 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 # Returns a richer list than its sibling — adds `variant_label` and
 # `status`. Both are needed by launch()'s mr_run() dispatch (label
 # auto-inheritance from the source row; warn-on-non-success policy).
+#' Resolve a relaunch reference by run_id to step, code body, expr, label, status
+#'
+#' @param run_id The run id whose stored row is resolved.
+#' @return List with `step`, `code_body`, `expr` (or `NULL`),
+#'   `variant_label`, and `status`.
+#' @noRd
 .mr_resolve_relaunch_run_id <- function(run_id) {
   con <- .mr_get_connection()
   prior <- DBI::dbGetQuery(
@@ -566,6 +601,11 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
   ), call. = FALSE)
 }
 
+#' Evaluate an inline expression in a tracked environment with grab/stow/source
+#'
+#' @param expr The expression to evaluate.
+#' @return `invisible(NULL)`.
+#' @noRd
 .mr_eval_inline <- function(expr) {
   envir <- new.env(parent = globalenv())
   envir$grab   <- grab
@@ -575,6 +615,26 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
   invisible(NULL)
 }
 
+#' Append a fully-populated run record to the `_mr_runs` table
+#'
+#' @param step Step identifier (file path or `<inline:...>` tag).
+#' @param run_id The run id for this row.
+#' @param inputs List of input name/hash pairs serialized to JSON.
+#' @param outputs List of output name/hash pairs serialized to JSON.
+#' @param started_at Run start timestamp.
+#' @param duration_ms Wall-clock duration in milliseconds.
+#' @param status Run status string.
+#' @param code_hash Hash of the run's code.
+#' @param external_inputs List of declared external file/env inputs.
+#' @param helpers List of sourced helper path/hash pairs.
+#' @param variant_label Variant label for this run, or `NA`.
+#' @param code_body Source snapshot attributed to the run.
+#' @param duckdb_seed DuckDB seed used, or `NA`.
+#' @param rebinds List of rebind name/hash pairs serialized to JSON.
+#' @param batch_id Batch id when part of a batch, or `NA`.
+#' @param session_info Captured session info; captured now when `NULL`.
+#' @return The appended row as a `data.frame`.
+#' @noRd
 .mr_write_run_row <- function(step, run_id, inputs, outputs,
                               started_at, duration_ms, status,
                               code_hash = NA_character_,
@@ -624,6 +684,11 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
   row
 }
 
+#' Serialize a named list of helper hashes to a JSON array of objects
+#'
+#' @param helpers Named list mapping helper path to its byte hash.
+#' @return A JSON string array of `{path, hash}` objects, `"[]"` when empty.
+#' @noRd
 .mr_helpers_to_json <- function(helpers) {
   if (length(helpers) == 0L) return("[]")
   entries <- lapply(names(helpers), function(p) list(path = p, hash = helpers[[p]]))
@@ -633,11 +698,27 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 # Serialize a list of list(name, hash) pairs to a JSON array of objects.
 # `auto_unbox = TRUE` keeps scalar fields from getting wrapped in
 # one-element arrays, which would make downstream parsers uglier.
+#' Serialize a list of name/hash pairs to a JSON array of objects
+#'
+#' @param pairs List of `list(name, hash)` pairs.
+#' @return A JSON string array of objects, `"[]"` when empty.
+#' @noRd
 .mr_pairs_to_json <- function(pairs) {
   if (length(pairs) == 0L) return("[]")
   jsonlite::toJSON(pairs, auto_unbox = TRUE)
 }
 
+#' Print a one-line (plus optional variant line) launch timing summary
+#'
+#' @param step Step identifier; only its basename is shown.
+#' @param duration_ms Wall-clock duration in milliseconds.
+#' @param status Run status string.
+#' @param n_grabs Number of `grab()` calls observed.
+#' @param n_stows Number of `stow()` calls observed.
+#' @param variant_label Variant label to report, or `NA` to omit.
+#' @param propagation_source Source the label was inherited from, or `NULL`.
+#' @return `invisible(NULL)`; emits a message.
+#' @noRd
 .mr_print_timing_summary <- function(step, duration_ms, status,
                                      n_grabs = 0L, n_stows = 0L,
                                      variant_label = NA_character_,
@@ -658,6 +739,13 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
   message(paste(lines, collapse = "\n"))
 }
 
+#' Print whether a step is fresh or stale (and why)
+#'
+#' @param step Step identifier; only its basename is shown.
+#' @param staleness List with `stale` flag and `reasons` vector.
+#' @param will_skip When `TRUE`, note that a fresh step will be skipped.
+#' @return `invisible(NULL)`; emits a message.
+#' @noRd
 .mr_print_staleness <- function(step, staleness, will_skip = FALSE) {
   if (!staleness$stale) {
     if (will_skip) {
@@ -684,6 +772,20 @@ launch <- function(code, rebind = NULL, label = NULL, external_inputs = NULL,
 # for this step when the caller didn't pass one, so the skipped row
 # stays in the same labeled thread. Shared by R-mode and SQL-mode
 # launchers; they differ only in caller-side argument naming.
+#' Write a `skipped_fresh` run row for a launch that skipped because it was fresh
+#'
+#' @param step Step identifier (file path or `<inline:...>` tag).
+#' @param run_id The run id for this row.
+#' @param started_at Run start timestamp.
+#' @param external_inputs List of declared external file/env inputs.
+#' @param code_body Source snapshot attributed to the run.
+#' @param label Variant label; inherited from the prior success row when `NA`.
+#' @param rebinds List of rebind name/hash pairs.
+#' @param duckdb_seed DuckDB seed used, or `NULL`.
+#' @param batch_id Batch id when part of a batch, or `NA`.
+#' @param session_info Captured session info; captured now when `NULL`.
+#' @return The appended row as a `data.frame`.
+#' @noRd
 .mr_record_skipped_fresh <- function(step, run_id, started_at,
                                      external_inputs, code_body, label,
                                      rebinds = list(),

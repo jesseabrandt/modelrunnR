@@ -11,6 +11,22 @@
 ## the per-launch re-raise. After all envelopes complete, the batch
 ## raises or warns based on `on_error =`.
 
+#' Run an R-mode batch of launches, one envelope at a time
+#'
+#' @param step resolved step identifier passed through to each launch.
+#' @param code_body resolved code body text shared across envelopes.
+#' @param inline_mode TRUE if the code is an inline block.
+#' @param relaunch_mode TRUE if launching from a captured relaunch expression.
+#' @param relaunch_expr captured relaunch expression, or NULL.
+#' @param script_expr captured `{ ... }` expression for inline mode.
+#' @param envelopes list of per-envelope rebind lists (each may carry `.label`).
+#' @param label default variant label when an envelope omits `.label`.
+#' @param external_inputs external-input declarations shared across envelopes.
+#' @param force TRUE to bypass the skip-if-fresh check.
+#' @param duckdb_seed optional DuckDB RNG seed.
+#' @param on_error "warn" or "stop"; how to react to errored runs.
+#' @return Invisibly, a data frame of per-envelope run rows.
+#' @noRd
 .mr_launch_batch <- function(step, code_body, inline_mode,
                              relaunch_mode, relaunch_expr, script_expr,
                              envelopes, label, external_inputs, force,
@@ -74,6 +90,19 @@
 # launcher is .mr_launch_sql(). src_kind + body_or_path don't depend on
 # rebind, so they're shared across envelopes; everything else is per
 # envelope.
+#' Run a SQL-mode batch of launches, one envelope at a time
+#'
+#' @param src_kind SQL source kind ("inline" or "file"), shared across envelopes.
+#' @param body_or_path SQL body text or file path, shared across envelopes.
+#' @param envelopes list of per-envelope rebind lists (each may carry `.label`).
+#' @param materialize materialization mode for the SQL result.
+#' @param label default variant label when an envelope omits `.label`.
+#' @param external_inputs external-input declarations shared across envelopes.
+#' @param force TRUE to bypass the skip-if-fresh check.
+#' @param duckdb_seed optional DuckDB RNG seed.
+#' @param on_error "warn" or "stop"; how to react to errored runs.
+#' @return Invisibly, a data frame of per-envelope run rows.
+#' @noRd
 .mr_launch_batch_sql <- function(src_kind, body_or_path, envelopes,
                                  materialize, label, external_inputs,
                                  force, duckdb_seed, on_error) {
@@ -147,6 +176,14 @@
 # exceptions cover only the pre-row-write path (e.g. rebind resolution
 # failures). The two arms are mutually exclusive per envelope, so a
 # simple sum is correct.
+#' Collapse batch run rows, count errors, and raise or warn per `on_error`
+#'
+#' @param n total number of envelopes in the batch.
+#' @param rows list of per-envelope run rows (NULL for errored envelopes).
+#' @param errors list of caught exceptions (NULL where no exception occurred).
+#' @param on_error "warn" or "stop"; how to react to errored runs.
+#' @return Invisibly, a data frame of the non-NULL run rows.
+#' @noRd
 .mr_finalize_batch <- function(n, rows, errors, on_error) {
   rows_clean <- rows[!vapply(rows, is.null, logical(1))]
   # Every row flows through `.mr_write_run_row`, so schemas match by

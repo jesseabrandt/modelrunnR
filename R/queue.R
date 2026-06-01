@@ -281,6 +281,15 @@ queue <- function(code, rebind = NULL, label = NULL,
 # attempt at this exact body).
 #
 # Returns the existing row (one-row data frame) or NULL.
+#' Find an existing queued `_mr_runs` row matching a would-be queue
+#'
+#' @param step Step identifier (script path or inline id).
+#' @param code_hash Code hash for the queued body.
+#' @param variant_label Variant label, or NULL/NA for unlabeled.
+#' @param rebind_pairs Resolved rebind provenance pairs.
+#' @param external_inputs Resolved external-input pairs.
+#' @return The matching one-row data frame, or NULL if none.
+#' @noRd
 .mr_find_dup_queue_row <- function(step, code_hash, variant_label,
                                    rebind_pairs, external_inputs) {
   con <- .mr_get_connection()
@@ -320,6 +329,11 @@ queue <- function(code, rebind = NULL, label = NULL,
 # Field set must match what .mr_capture_session_info() returns; see
 # R/session_info.R. After the eddb3a8 git-info commit this includes
 # git_sha / git_branch / git_dirty.
+#' Build a blank (all-NA) session-context list for queued rows
+#'
+#' @return A list of session-context fields, all NA except
+#'   `attached_packages` which is the `"[]"` empty-array sentinel.
+#' @noRd
 .mr_blank_session_info <- function() {
   list(
     hostname          = NA_character_,
@@ -353,6 +367,17 @@ queue <- function(code, rebind = NULL, label = NULL,
 #     would have referenced them never appear.
 #   Phase 2: write every row inside one dbWithTransaction so a row-
 #     write failure rolls back the whole batch.
+#' Write N queued `_mr_runs` rows (one per envelope) under one batch_id
+#'
+#' @param step Step identifier shared by all envelopes.
+#' @param code_body The queued code body.
+#' @param code_hash Code hash for the queued body.
+#' @param envelopes List of rebind envelopes (unclassed `mr_binds`).
+#' @param label Queue-level variant label (envelope `.label` overrides).
+#' @param external_inputs Resolved external-input pairs.
+#' @param duckdb_seed Optional numeric seed recorded on each row.
+#' @return A data frame of the queued (and any reused) rows, rbound.
+#' @noRd
 .mr_queue_batch <- function(step, code_body, code_hash, envelopes,
                             label, external_inputs, duckdb_seed) {
   n <- length(envelopes)

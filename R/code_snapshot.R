@@ -21,6 +21,16 @@
 ## inherited from a prior `status = 'success'` row whose source is
 ## already in `_mr_code`.
 
+#' Persist a code body and its helpers to the L0 source snapshot store
+#'
+#' @param con a DBI connection to the modelrunnR store.
+#' @param code_hash content hash keying the snapshot; NA/empty is a no-op.
+#' @param script_path source path of the script, or NA for inline.
+#' @param script_bytes raw bytes of the code body (NULL coerced to zero bytes).
+#' @param helpers_with_bytes list of helper records with path, hash, and bytes.
+#' @param inline TRUE if the code body is an inline block.
+#' @return Invisibly, NULL (called for its side effect).
+#' @noRd
 .mr_record_code_snapshot <- function(con,
                                      code_hash,
                                      script_path,
@@ -88,6 +98,11 @@
 # column. NULL and NA are treated as a zero-byte payload; otherwise
 # `charToRaw()` produces the bytes. Kept centralized so every launch
 # hook applies the same NA/NULL handling.
+#' Coerce a code body string to raw bytes for the snapshot BLOB column
+#'
+#' @param code_body the code body text; NULL or NA yields zero bytes.
+#' @return A raw vector of the code body bytes.
+#' @noRd
 .mr_script_bytes_for_snapshot <- function(code_body) {
   if (is.null(code_body)) return(raw(0))
   if (length(code_body) != 1L || is.na(code_body)) return(raw(0))
@@ -98,6 +113,12 @@
 # from the parallel (path -> hash) and (path -> raw) maps tracked
 # during a launch. Path order follows `names(hashes)`; an unmatched
 # bytes entry is dropped (caller-side bug, not a runtime concern).
+#' Build the helpers-with-bytes list from parallel hash and bytes maps
+#'
+#' @param hashes named (path -> hash) map of tracked helpers.
+#' @param bytes named (path -> raw) map of helper bytes.
+#' @return A list of helper records, each with path, hash, and bytes.
+#' @noRd
 .mr_pack_helpers <- function(hashes, bytes) {
   if (length(hashes) == 0L) return(list())
   paths <- names(hashes)
@@ -117,6 +138,12 @@
 # Returns NULL when `code_hash` is unknown. Helpers come back in the
 # order they were inserted (which mirrors source-time discovery for
 # helper_tracking, and is stable within one code_hash).
+#' Load a code snapshot and its helpers back out of the store
+#'
+#' @param con a DBI connection to the modelrunnR store.
+#' @param code_hash content hash of the snapshot to load; NA/empty returns NULL.
+#' @return A list of the snapshot fields and helpers, or NULL if not found.
+#' @noRd
 .mr_load_code <- function(con, code_hash) {
   if (is.na(code_hash) || !nzchar(code_hash)) return(NULL)
 

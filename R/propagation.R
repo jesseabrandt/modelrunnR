@@ -10,6 +10,13 @@
 ## The disagreement structure names the names that resolved to
 ## distinct labels so the warning message can surface them.
 
+#' Derive a downstream variant label from upstream input labels
+#'
+#' @param con DuckDB connection
+#' @param inputs list of observed `{name, hash}` input pairs
+#' @return the single inherited label, NA when none, or NA with a
+#'   `disagreement` attribute when upstreams conflict
+#' @noRd
 .mr_propagate_label <- function(con, inputs) {
   if (length(inputs) == 0L) return(NA_character_)
 
@@ -30,6 +37,13 @@
   structure(NA_character_, disagreement = labels_by_name)
 }
 
+#' Look up the variant label of the run that produced `(name, hash)`
+#'
+#' @param con DuckDB connection
+#' @param name logical name to match
+#' @param hash content hash to match
+#' @return the producing run's variant_label, or NA when none matches
+#' @noRd
 .mr_label_for_produced_hash <- function(con, name, hash) {
   # Find the most recent run that produced (name, hash) and return
   # its variant_label. NULL if no producing run or NA label.
@@ -58,6 +72,13 @@
   NA_character_
 }
 
+#' Find the first input whose producing run carried a target label
+#'
+#' @param inputs list of `{name, hash}` input pairs
+#' @param con DuckDB connection
+#' @param target_label variant label to match against
+#' @return the matching input's name, or NA when none matches
+#' @noRd
 .mr_first_input_producing <- function(inputs, con, target_label) {
   for (p in inputs) {
     if (identical(.mr_label_for_produced_hash(con, p$name, p$hash), target_label)) {

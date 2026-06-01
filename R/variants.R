@@ -40,6 +40,14 @@ variants <- function(script = NULL, name = NULL) {
   df
 }
 
+#' Flag variant rows whose runs produced an output under a given name
+#'
+#' @param con An open DBI connection.
+#' @param df A data frame of variant rows with `script` and `label`.
+#' @param name The output logical name to test for.
+#' @return A logical vector aligned to `df`, TRUE where any run in the
+#'   group produced an output matching `name`.
+#' @noRd
 .mr_variants_produced <- function(con, df, name) {
   # For each (script, label) row, check whether any run in that group
   # has an `outputs` JSON entry matching `name`. Returns a logical

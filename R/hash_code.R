@@ -7,6 +7,12 @@
 ## hash so that moving a helper within the project doesn't force a
 ## spurious "code changed" result.
 
+#' Compute the effective code hash for a script-mode run
+#'
+#' @param script_path path to the launched script
+#' @param helpers path -> hash map of sourced helper files
+#' @return an md5 hash over the script and sorted helper hashes
+#' @noRd
 .mr_code_hash <- function(script_path, helpers) {
   script_hash <- .mr_hash_bytes(.mr_read_code_bytes(script_path))
   helper_hashes <- if (length(helpers) > 0L) sort(unlist(helpers, use.names = FALSE)) else character()
@@ -19,6 +25,12 @@
 # for step identity). Helpers contribute the same way as in script mode,
 # so a launch({...}) that source()s a helper still reacts to edits in
 # that helper.
+#' Compute the effective code hash for an inline-mode run
+#'
+#' @param deparsed_expr the deparsed launched expression
+#' @param helpers path -> hash map of sourced helper files
+#' @return an md5 hash over the expression and sorted helper hashes
+#' @noRd
 .mr_code_hash_inline <- function(deparsed_expr, helpers) {
   expr_hash <- .mr_hash_bytes(charToRaw(deparsed_expr))
   helper_hashes <- if (length(helpers) > 0L) sort(unlist(helpers, use.names = FALSE)) else character()

@@ -12,18 +12,33 @@
 ## for the duration of the launch and overrides default grab()
 ## resolution.
 
+#' Activate rebind state for the duration of a launch
+#'
+#' @param rebinds Named map (name -> content_hash) overriding default grab().
+#' @param shape_b_filters Optional named map of Shape-B run-id filters.
+#' @return Invisibly NULL.
+#' @noRd
 .mr_start_rebinding <- function(rebinds, shape_b_filters = NULL) {
   .mr_state$rebinds         <- rebinds
   .mr_state$shape_b_filters <- shape_b_filters
   invisible(NULL)
 }
 
+#' Clear rebind state at the end of a launch
+#'
+#' @return Invisibly NULL.
+#' @noRd
 .mr_stop_rebinding <- function() {
   .mr_state$rebinds         <- NULL
   .mr_state$shape_b_filters <- NULL
   invisible(NULL)
 }
 
+#' Look up the rebound content_hash for a logical name
+#'
+#' @param name Logical name to resolve.
+#' @return Content hash if `name` is rebound, otherwise NULL.
+#' @noRd
 .mr_rebound_hash <- function(name) {
   rb <- .mr_state$rebinds
   if (is.null(rb)) return(NULL)
@@ -31,12 +46,22 @@
   rb[[name]]
 }
 
+#' Look up the rebound Shape-B filter for a logical name
+#'
+#' @param name Logical name to resolve.
+#' @return Shape-B filter spec if set for `name`, otherwise NULL.
+#' @noRd
 .mr_rebound_shape_b_filter <- function(name) {
   f <- .mr_state$shape_b_filters
   if (is.null(f)) return(NULL)
   f[[name]]
 }
 
+#' Resolve a launch `rebind` list into a name->hash map and provenance
+#'
+#' @param rebind Named list of bare values or mr_*() tagged references.
+#' @return List with `map` (name -> content_hash) and `provenance` entries.
+#' @noRd
 .mr_resolve_rebinds <- function(rebind) {
   if (is.null(rebind)) return(list(map = list(), provenance = list()))
   if (!is.list(rebind) || is.null(names(rebind)) || any(!nzchar(names(rebind)))) {
@@ -67,6 +92,13 @@
   list(map = map, provenance = provenance)
 }
 
+#' Resolve a single rebind entry to a hash, filter, and provenance
+#'
+#' @param con DuckDB connection.
+#' @param name Logical name being rebound.
+#' @param value A bare R value or an mr_*() tagged reference.
+#' @return List with `hash`, `shape_b_filter`, and `provenance`.
+#' @noRd
 .mr_resolve_rebind_entry <- function(con, name, value) {
   if (.mr_is_ref(value)) {
     shape <- .mr_lookup_shape(name)
@@ -139,6 +171,11 @@
 
 # Format an arbitrary (non-data-frame) R value for the run-row provenance
 # JSON. Scalar atomics -> format(); other objects -> "<class>[<bytes>B]".
+#' Format a non-data-frame rebind value for provenance display
+#'
+#' @param value Arbitrary R value being recorded as a literal rebind.
+#' @return Short character preview of the value.
+#' @noRd
 .mr_format_literal_rebind <- function(value) {
   if (is.atomic(value) && length(value) == 1L && !is.null(value)) {
     return(format(value))
@@ -150,6 +187,13 @@
   else sprintf("<%s>[%dB]", cls, as.integer(sz))
 }
 
+#' Resolve an mr_hash() reference against `_mr_versions`
+#'
+#' @param con DuckDB connection.
+#' @param name Logical name the hash must belong to.
+#' @param hash Candidate content hash.
+#' @return The validated content hash.
+#' @noRd
 .mr_resolve_ref_hash <- function(con, name, hash) {
   row <- DBI::dbGetQuery(
     con,
@@ -166,6 +210,13 @@
   hash
 }
 
+#' Resolve an mr_run() reference to a name's output hash for that run
+#'
+#' @param con DuckDB connection.
+#' @param name Logical output name to find among the run's outputs.
+#' @param run_id Run id to look up in `_mr_runs`.
+#' @return The content hash of `name` produced by `run_id`.
+#' @noRd
 .mr_resolve_ref_run <- function(con, name, run_id) {
   run <- DBI::dbGetQuery(
     con,
@@ -194,6 +245,13 @@
   ), call. = FALSE)
 }
 
+#' Resolve an mr_as_of() reference to the latest version at or before a time
+#'
+#' @param con DuckDB connection.
+#' @param name Logical name to resolve.
+#' @param time Timestamp upper bound (inclusive).
+#' @return Content hash of the latest non-rebind version at or before `time`.
+#' @noRd
 .mr_resolve_ref_as_of <- function(con, name, time) {
   row <- DBI::dbGetQuery(
     con,
@@ -218,6 +276,13 @@
 # `_mr_runs.outputs` for append_table entries on this logical name —
 # the hash identifies a specific run's appended chunk, which then maps
 # to that run's run_id for the Shape B filter.
+#' Resolve a Shape-B rebind reference to a run-id filter
+#'
+#' @param con DuckDB connection.
+#' @param name Append-table logical name being rebound.
+#' @param value An mr_*() tagged reference (hash, run, variant, or as_of).
+#' @return List with `hash`, `provenance`, and a `shape_b_filter` run spec.
+#' @noRd
 .mr_resolve_rebind_shape_b <- function(con, name, value) {
   kind <- value$kind
   if (identical(kind, "hash")) {

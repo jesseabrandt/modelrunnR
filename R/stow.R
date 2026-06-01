@@ -227,6 +227,14 @@ stow <- function(value, name, shape = NULL, label = NULL) {
 # `is_rebind = TRUE` flags the row as a bare-value rebind (written
 # from inside .mr_resolve_rebind_entry). The latest-version resolver
 # excludes is_rebind rows so they don't shadow real upstream stows.
+#' Stow a data frame as a versioned (Shape A) table
+#'
+#' @param name Logical name to store the frame under.
+#' @param value The data frame to store.
+#' @param is_rebind Logical; mark the version row as a bare-value rebind.
+#' @param label Variant label for the synthetic interactive run row.
+#' @return The content hash, invisibly.
+#' @noRd
 .mr_stow_table <- function(name, value, is_rebind = FALSE, label = NA_character_) {
   con  <- .mr_get_connection()
   if (.mr_has_nondefault_rownames(value)) {
@@ -295,6 +303,17 @@ stow <- function(value, name, shape = NULL, label = NULL) {
 # `is_rebind = TRUE` flags the row as a bare-value rebind (written
 # from inside .mr_resolve_rebind_entry). See .mr_stow_table for
 # rationale.
+#' Stow a non-data-frame R object as a versioned artifact
+#'
+#' Serializes with qs2, then stores as a BLOB row when under the
+#' blob threshold or writes to disk otherwise.
+#'
+#' @param name Logical name to store the artifact under.
+#' @param value The R object to serialize and store.
+#' @param is_rebind Logical; mark the version row as a bare-value rebind.
+#' @param label Variant label for the synthetic interactive run row.
+#' @return The content hash, invisibly.
+#' @noRd
 .mr_stow_artifact <- function(name, value, is_rebind = FALSE, label = NA_character_) {
   con   <- .mr_get_connection()
   bytes <- qs2::qs_serialize(value)
@@ -371,6 +390,12 @@ stow <- function(value, name, shape = NULL, label = NULL) {
 
 ## Internals ------------------------------------------------------------------
 
+#' Warn when a logical name has accumulated too many versions
+#'
+#' @param con An active DuckDB connection.
+#' @param name Logical name to count versions for.
+#' @return `NULL`, invisibly.
+#' @noRd
 .mr_maybe_warn_version_count <- function(con, name) {
   threshold <- getOption("modelrunnR.version_warn_threshold", 20L)
   count <- DBI::dbGetQuery(
@@ -387,16 +412,35 @@ stow <- function(value, name, shape = NULL, label = NULL) {
   invisible(NULL)
 }
 
+#' Build the physical table/blob name for a stored version
+#'
+#' @param name Logical name.
+#' @param hash Content hash; truncated to its first 16 characters.
+#' @return A character physical name of the form `name__<hash16>`.
+#' @noRd
 .mr_physical_name <- function(name, hash) {
   sprintf("%s__%s", name, substr(hash, 1L, 16L))
 }
 
+#' Build the on-disk file path for a filesystem-stored artifact
+#'
+#' @param name Logical name.
+#' @param hash Content hash; truncated to its first 16 characters.
+#' @return Absolute path to the `.qs2` file under the artifacts dir.
+#' @noRd
 .mr_artifact_file_path <- function(name, hash) {
   # Artifacts live next to the DuckDB file so they travel with it.
   dir <- file.path(dirname(db_path()), "modelrunnR_artifacts")
   file.path(dir, sprintf("%s__%s.qs2", name, substr(hash, 1L, 16L)))
 }
 
+#' Fetch the _mr_versions row for a given name and content hash
+#'
+#' @param con An active DuckDB connection.
+#' @param name Logical name.
+#' @param hash Content hash to match.
+#' @return A data frame of matching rows (zero rows if none).
+#' @noRd
 .mr_get_version_row <- function(con, name, hash) {
   DBI::dbGetQuery(
     con,
@@ -405,6 +449,15 @@ stow <- function(value, name, shape = NULL, label = NULL) {
   )
 }
 
+#' Point the logical-name view at the latest non-rebind version
+#'
+#' Recreates (or drops, when no versions remain) the convenience view
+#' named after the logical name.
+#'
+#' @param con An active DuckDB connection.
+#' @param name Logical name whose latest-version view to refresh.
+#' @return `NULL`, invisibly.
+#' @noRd
 .mr_refresh_latest_view <- function(con, name) {
   # Tables (kind='table') and SQL views (kind='view') both expose a
   # physical relation queryable via SELECT * FROM <physical>. Either

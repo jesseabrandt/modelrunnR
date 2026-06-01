@@ -198,6 +198,15 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
 # the consumer cannot tell the two apart). Artifacts are fetched from
 # `_mr_artifacts` (for BLOB storage) or read from disk (for filesystem
 # storage) and then deserialized via qs2.
+#' Materialize a stored value from its _mr_versions row
+#'
+#' Returns a lazy `dbplyr` tbl for tables/views, or the deserialized
+#' R object for artifacts (read from BLOB or disk per storage location).
+#'
+#' @param con An active DuckDB connection.
+#' @param row A single-row `_mr_versions` data frame.
+#' @return A lazy `tbl` (tables/views) or the deserialized artifact.
+#' @noRd
 .mr_read_value <- function(con, row) {
   if (identical(row$kind, "table") || identical(row$kind, "view")) {
     return(dplyr::tbl(con, row$physical_name))
@@ -227,6 +236,17 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
 # Called by grab(source = ...). Ingests when either (a) the name has
 # never been stored or (b) the current file's md5 differs from the
 # latest stored source_hash. Silently no-ops otherwise.
+#' Conditionally ingest a source file for grab(source = ...)
+#'
+#' Stows the file when `name` has no real upstream version yet, or when
+#' the file's current hash differs from the latest stored source hash;
+#' otherwise no-ops.
+#'
+#' @param con An active DuckDB connection.
+#' @param name Logical name to ingest under.
+#' @param source Path to the source CSV/Parquet file.
+#' @return `NULL`, invisibly.
+#' @noRd
 .mr_maybe_ingest <- function(con, name, source) {
   # Existence check excludes rebind rows: a name that only exists as a
   # bare-value rebind has no real upstream, so grab(source=) should
@@ -253,6 +273,19 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
 
 # Resolve (logical_name + optional selector) to a _mr_versions row.
 # Returns a single-row data frame or stops with a clear error.
+#' Resolve a logical name plus optional selector to a version row
+#'
+#' Applies `version`, `from_run`, `as_of` in that precedence order,
+#' falling back to the latest non-rebind version. Stops with a clear
+#' error when nothing matches.
+#'
+#' @param con An active DuckDB connection.
+#' @param name Logical name to resolve.
+#' @param version Optional content hash selector.
+#' @param from_run Optional run id selector.
+#' @param as_of Optional `POSIXct` timestamp selector.
+#' @return A single-row `_mr_versions` data frame.
+#' @noRd
 .mr_resolve_version <- function(con, name, version, from_run, as_of) {
   if (!is.null(version)) {
     row <- DBI::dbGetQuery(
@@ -351,6 +384,13 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
 
 # Read a stored value by (logical_name, content_hash). Fetches the
 # _mr_versions row and delegates to .mr_read_value().
+#' Read a stored value by logical name and content hash
+#'
+#' @param con An active DuckDB connection.
+#' @param name Logical name.
+#' @param hash Content hash to resolve.
+#' @return The materialized value (lazy `tbl` or deserialized artifact).
+#' @noRd
 .mr_read_by_hash <- function(con, name, hash) {
   row <- DBI::dbGetQuery(
     con,
@@ -364,6 +404,12 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
   .mr_read_value(con, row[1, , drop = FALSE])
 }
 
+#' Grab the latest version produced by a given variant
+#'
+#' @param name Logical name to read.
+#' @param variant Variant label whose latest output of `name` to fetch.
+#' @return The materialized value for the resolved version.
+#' @noRd
 .mr_grab_by_variant <- function(name, variant) {
   con  <- .mr_get_connection()
   hash <- .mr_latest_hash_for_variant(con, name, variant)
@@ -375,6 +421,16 @@ grab <- function(name, version = NULL, from_run = NULL, as_of = NULL,
   .mr_read_by_hash(con, name, hash)
 }
 
+#' Find the latest content hash produced for a name under a variant
+#'
+#' Walks `_mr_runs` rows with the given `variant_label` newest-first,
+#' parsing `outputs` JSON until one produced `name`.
+#'
+#' @param con An active DuckDB connection.
+#' @param name Logical name to look for in run outputs.
+#' @param variant Variant label to filter runs by.
+#' @return The matching content hash, or `NULL` if none.
+#' @noRd
 .mr_latest_hash_for_variant <- function(con, name, variant) {
   # Walk _mr_runs for rows with this variant_label, parse outputs
   # JSON, pick the most recent one that produced `name`.

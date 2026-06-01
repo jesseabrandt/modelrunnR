@@ -14,6 +14,22 @@
 ##   knobs. `rebind` is the user's named-list (un-resolved); resolution
 ##   to a name->hash map happens inside.
 
+#' Execute a single R-mode launch envelope and record its run row
+#'
+#' @param step resolved step identifier (path or inline marker).
+#' @param code_body resolved code body text.
+#' @param inline_mode TRUE if the code is an inline block.
+#' @param relaunch_mode TRUE if launching from a captured relaunch expression.
+#' @param relaunch_expr captured relaunch expression, or NULL.
+#' @param script_expr captured `{ ... }` expression for inline mode.
+#' @param rebind unresolved named rebind list for this envelope.
+#' @param label variant label for this run, or NA.
+#' @param external_inputs external-input declarations.
+#' @param force TRUE to bypass the skip-if-fresh check.
+#' @param duckdb_seed optional DuckDB RNG seed, or NULL.
+#' @param batch_id batch identifier when invoked from a batch, else NA.
+#' @return Invisibly, the run row written for this launch (or the skipped-fresh row).
+#' @noRd
 .mr_launch_one <- function(step, code_body, inline_mode,
                            relaunch_mode, relaunch_expr, script_expr,
                            rebind, label, external_inputs, force,

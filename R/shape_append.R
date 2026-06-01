@@ -8,6 +8,11 @@
 ##     the column -> type map of the CURRENT user-facing schema (system
 ##     columns excluded).
 
+#' Map a logical name to its append-shape physical table name
+#'
+#' @param name Logical table name.
+#' @return Physical table name (logical name with `__append` suffix).
+#' @noRd
 .mr_append_physical_name <- function(name) {
   paste0(name, "__append")
 }
@@ -20,6 +25,14 @@
 # list order) if the catalog query returns nothing, which shouldn't
 # happen but keeps the lazy-write path from faulting if PRAGMA is
 # disabled in a future DuckDB build.
+#' Read an append table's user-column order from DuckDB's catalog
+#'
+#' @param con DBI connection.
+#' @param physical Physical table name to inspect.
+#' @param fallback Column order to return if the catalog query yields nothing.
+#' @return Character vector of user column names in DuckDB's declared order,
+#'   with reserved system columns dropped; `fallback` if the query is empty.
+#' @noRd
 .mr_append_user_col_order <- function(con, physical, fallback) {
   info <- tryCatch(
     DBI::dbGetQuery(
@@ -46,6 +59,11 @@
 # Convert a data frame's column types to DuckDB types, returning a
 # list(col = type, ...). Used to build the CREATE TABLE and to populate
 # schema_json.
+#' Map a data frame's columns to their DuckDB type names
+#'
+#' @param df Data frame whose columns to type.
+#' @return Named list mapping each column name to its DuckDB type string.
+#' @noRd
 .mr_append_frame_types <- function(df) {
   setNames(
     lapply(df, .mr_append_r_to_duckdb_type),
@@ -56,6 +74,12 @@
 # POSIXct -> ISO-8601 UTC so two runs in different session TZs coerce
 # identical instants to identical TEXT. Non-POSIXct columns go through
 # as.character, which is TZ-independent for Date / numeric / logical.
+#' Coerce a column to a timezone-independent text representation
+#'
+#' @param col Vector to coerce.
+#' @return Character vector; POSIXct values rendered as ISO-8601 UTC, all
+#'   other types via `as.character`.
+#' @noRd
 .mr_append_coerce_to_text <- function(col) {
   if (inherits(col, "POSIXct")) {
     return(format(col, "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC"))
@@ -63,6 +87,12 @@
   as.character(col)
 }
 
+#' Map a single R column to its DuckDB type name
+#'
+#' @param col Vector whose R type to map.
+#' @return DuckDB type string (e.g. `"INTEGER"`, `"DOUBLE"`, `"TEXT"`);
+#'   defaults to `"TEXT"`.
+#' @noRd
 .mr_append_r_to_duckdb_type <- function(col) {
   if (inherits(col, "integer64")) return("BIGINT")
   if (is.integer(col))   return("INTEGER")
@@ -81,6 +111,16 @@
 # After this commits, downstream lookups (chunk_hash <-> run_id,
 # latest run for a name, etc.) hit a keyed query against this table
 # instead of scanning every `_mr_runs.outputs` JSON.
+#' Insert a row into `_mr_append_chunks` for a committed append
+#'
+#' @param con DBI connection.
+#' @param name Logical table name.
+#' @param run_id Run id that produced the append.
+#' @param chunk_hash Hash identifying the appended chunk.
+#' @param rows_appended Number of rows appended.
+#' @param started_at Timestamp recorded for the chunk.
+#' @return `NULL`, invisibly.
+#' @noRd
 .mr_append_record_chunk <- function(con, name, run_id, chunk_hash,
                                     rows_appended, started_at) {
   DBI::dbExecute(
@@ -103,6 +143,13 @@
 # the fence keeps the failure mode clean: either both physical-table
 # DDL and registry INSERT succeed, or only the DDL "leaks" — which
 # is harmless because CREATE TABLE IF NOT EXISTS is idempotent.
+#' Create the physical append table for a logical name (idempotent)
+#'
+#' @param con DBI connection.
+#' @param name Logical table name.
+#' @param frame_types Named list of user column types (col -> DuckDB type).
+#' @return The physical table name.
+#' @noRd
 .mr_append_create_physical_table <- function(con, name, frame_types) {
   physical <- .mr_append_physical_name(name)
   cols <- c(
@@ -124,6 +171,16 @@
 # Registry-side first-write: INSERT a row into _mr_append_tables for
 # this logical name. MUST be called INSIDE the caller's dbBegin/
 # dbCommit fence so the registry stays in sync with the data INSERT.
+#' Insert the first-write registry row into `_mr_append_tables`
+#'
+#' @param con DBI connection.
+#' @param name Logical table name.
+#' @param physical Physical table name.
+#' @param frame_types Named list of user column types, serialized to
+#'   `schema_json`.
+#' @param now Timestamp used for `first_seen` and `last_seen`.
+#' @return `NULL`, invisibly.
+#' @noRd
 .mr_append_insert_registry_row <- function(con, name, physical,
                                            frame_types, now) {
   schema_json <- jsonlite::toJSON(frame_types, auto_unbox = TRUE)
@@ -146,6 +203,13 @@
 # has a real run_id, grab()'s "latest run" rule stays coherent, and later
 # launches that grab() the value get the same reproducibility warning
 # that artifact / ingest inputs already trigger.
+#' Append a materialized data frame to a Shape B table
+#'
+#' @param name Logical table name.
+#' @param value Data frame to append.
+#' @param label Variant label; used only outside a recording context.
+#' @return The chunk hash of the appended rows, invisibly.
+#' @noRd
 .mr_append_write_frame <- function(name, value, label = NA_character_) {
   run_id      <- .mr_recording_run_id()
   interactive <- is.null(run_id) || is.na(run_id)
@@ -258,6 +322,16 @@
 # that grab() the value get the existing reproducibility warning.
 # Called inside the caller's transaction; outputs JSON is passed in
 # directly since no recording context is active to flush at run end.
+#' Insert a synthetic `<interactive:TS>` row into `_mr_runs`
+#'
+#' @param con DBI connection.
+#' @param run_id Run id for the synthetic row.
+#' @param outputs_entries List of structured output entries, serialized to the
+#'   `outputs` JSON column.
+#' @param started_at Timestamp for the run; defaults to current time.
+#' @param label Variant label for the run.
+#' @return `run_id`, invisibly.
+#' @noRd
 .mr_write_interactive_run_row <- function(con, run_id, outputs_entries,
                                           started_at = Sys.time(),
                                           label = NA_character_) {
@@ -295,6 +369,12 @@
   invisible(run_id)
 }
 
+#' Error if a frame uses reserved system column names
+#'
+#' @param name Logical table name (used in the error message).
+#' @param value Data frame whose columns to check.
+#' @return `NULL`, invisibly; raises an error on any reserved-column conflict.
+#' @noRd
 .mr_append_guard_reserved_cols <- function(name, value) {
   conflict <- intersect(colnames(value), .mr_append_reserved_cols)
   if (length(conflict) > 0L) {
@@ -313,6 +393,16 @@
 # Returns the (possibly extended) stored schema list. Performs any
 # ALTER TABLE ADD COLUMN operations and updates _mr_append_tables's
 # schema_json inside the caller's transaction.
+#' Reconcile an incoming frame against the stored append schema
+#'
+#' @param con DBI connection.
+#' @param name Logical table name.
+#' @param registered_row Existing `_mr_append_tables` row for `name`.
+#' @param value Incoming data frame to reconcile.
+#' @return The (possibly extended) stored schema list; columns coerced to TEXT
+#'   are attached as a `"coerce_to_text"` attribute. Performs ALTER TABLE and
+#'   `schema_json` updates as a side effect.
+#' @noRd
 .mr_append_reconcile_schema <- function(con, name, registered_row, value) {
   physical <- registered_row$physical_name[1]
   schema   <- jsonlite::fromJSON(registered_row$schema_json[1], simplifyVector = FALSE)
@@ -395,6 +485,11 @@
 
 # Stable, row-order-independent hash of the rows this call contributed.
 # Not user-facing; used in _mr_runs.outputs provenance (spec §8).
+#' Compute a row-order-independent hash of a data frame
+#'
+#' @param value Data frame to hash.
+#' @return Hash string of the row-sorted, serialized frame.
+#' @noRd
 .mr_append_row_hash <- function(value) {
   .mr_hash_bytes(serialize(value[do.call(order, value), , drop = FALSE], NULL))
 }
@@ -413,6 +508,16 @@
 #                        physical table. Matches the exploratory
 #                        workflow: grab() pulls one coherent snapshot,
 #                        not the whole cross-run pile.
+#' Read a Shape B table as a filtered dbplyr lazy tbl
+#'
+#' @param name Logical table name.
+#' @param run Run id to select; `"all"` surfaces every row with system columns
+#'   renamed; `NULL` selects the latest run that wrote `name`.
+#' @param variant Variant label selecting the latest matching run; `NULL` if
+#'   unused.
+#' @return A dbplyr lazy tbl filtered per the caller's intent, with system
+#'   columns stripped (or renamed when `run = "all"`).
+#' @noRd
 .mr_append_read <- function(name, run = NULL, variant = NULL) {
   con <- .mr_get_connection()
   physical <- .mr_append_physical_name(name)
@@ -490,6 +595,13 @@
     dplyr::select(-dplyr::any_of(c("_mr_run_id", "_mr_variant_label")))
 }
 
+#' Append a dbplyr lazy tbl to a Shape B table via INSERT ... SELECT
+#'
+#' @param name Logical table name.
+#' @param value Lazy tbl bound to the active DuckDB connection.
+#' @param label Variant label; used only outside a recording context.
+#' @return The chunk hash of the appended query, invisibly.
+#' @noRd
 .mr_append_write_lazy <- function(name, value, label = NA_character_) {
   run_id      <- .mr_recording_run_id()
   interactive <- is.null(run_id) || is.na(run_id)
@@ -637,6 +749,13 @@
 # logical name. Returns NA_character_ if no match. If the same
 # chunk_hash appears for multiple runs (possible when two runs append
 # identical content), the most recent run wins.
+#' Resolve a chunk hash to the run id that wrote it
+#'
+#' @param con DBI connection.
+#' @param name Logical table name.
+#' @param chunk_hash Chunk hash to look up.
+#' @return The run id (most recent on ties), or `NA_character_` if no match.
+#' @noRd
 .mr_append_run_id_for_chunk_hash <- function(con, name, chunk_hash) {
   hits <- DBI::dbGetQuery(
     con,
@@ -652,6 +771,12 @@
 
 # Latest run_id that wrote to a Shape B logical name, or NA_character_
 # if the name has no appended chunks yet.
+#' Latest run id that wrote to a Shape B logical name
+#'
+#' @param con DBI connection.
+#' @param name Logical table name.
+#' @return The most recent run id, or `NA_character_` if none.
+#' @noRd
 .mr_append_latest_run_id <- function(con, name) {
   hits <- DBI::dbGetQuery(
     con,
@@ -668,6 +793,13 @@
 # chunk_hash of a specific run's append on a Shape B logical name, or
 # NA_character_ if none. Used by the SQL-launch path to record which
 # chunk was read even when the caller didn't pass an explicit mr_hash().
+#' Chunk hash of a specific run's append on a Shape B logical name
+#'
+#' @param con DBI connection.
+#' @param name Logical table name.
+#' @param run_id Run id whose chunk hash to fetch.
+#' @return The earliest chunk hash for the run, or `NA_character_` if none.
+#' @noRd
 .mr_append_chunk_hash_for_run <- function(con, name, run_id) {
   hits <- DBI::dbGetQuery(
     con,
@@ -685,6 +817,12 @@
 # NA_character_ if none. Used by R-launch grab() to record an
 # upstream-head identity on `_mr_runs.inputs` so a consumer goes stale
 # when a new chunk is appended to `name`.
+#' Latest chunk hash recorded for a Shape B logical name
+#'
+#' @param con DBI connection.
+#' @param name Logical table name.
+#' @return The most recent chunk hash, or `NA_character_` if none.
+#' @noRd
 .mr_append_latest_chunk_hash <- function(con, name) {
   hits <- DBI::dbGetQuery(
     con,
@@ -702,6 +840,13 @@
 # the given variant_label, or NA_character_ if none. Mirrors the
 # variant->run lookup used by grab(variant=) so the recorded hash
 # matches the rows actually read.
+#' Latest chunk hash on a Shape B name for a given variant label
+#'
+#' @param con DBI connection.
+#' @param name Logical table name.
+#' @param variant Variant label selecting the latest matching run.
+#' @return The chunk hash of that run's append, or `NA_character_` if none.
+#' @noRd
 .mr_append_latest_chunk_hash_for_variant <- function(con, name, variant) {
   physical <- .mr_append_physical_name(name)
   latest_run <- DBI::dbGetQuery(
@@ -724,6 +869,14 @@
 # to a single run's rows. Returns the view's physical name. Used by
 # SQL-launch @inputs substitution so that bodies like `FROM src` can
 # reference a run-filtered slice without R-side dbplyr staging.
+#' Create (idempotently) a run-filtered view over a Shape B append table
+#'
+#' @param con DBI connection.
+#' @param name Logical table name.
+#' @param run_id Run id whose rows the view exposes.
+#' @return The view's physical name; the view projects user columns filtered to
+#'   the given run.
+#' @noRd
 .mr_ensure_append_view <- function(con, name, run_id) {
   reg <- DBI::dbGetQuery(
     con,

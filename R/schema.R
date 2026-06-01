@@ -4,6 +4,11 @@
 ## v0.1 Slice 1 introduces `_mr_runs` only; later slices layer on
 ## `_mr_versions`, `_mr_artifacts`, and additional columns.
 
+#' Run all metadata-table migrations (idempotent)
+#'
+#' @param con DuckDB connection.
+#' @return Invisibly NULL.
+#' @noRd
 .mr_migrate <- function(con) {
   .mr_migrate_runs(con)
   .mr_migrate_versions(con)
@@ -19,6 +24,11 @@
 # table dedupes helpers shared across runs (one (code_hash, helper_path)
 # row per unique helper contribution to a code_hash). Writes happen
 # inside the launch's run-row transaction; idempotent on conflict.
+#' Create the `_mr_code` and `_mr_code_helpers` tables and indexes
+#'
+#' @param con DuckDB connection.
+#' @return Invisibly NULL.
+#' @noRd
 .mr_migrate_code <- function(con) {
   .mr_execute(
     con,
@@ -57,6 +67,11 @@
   invisible(NULL)
 }
 
+#' Create the `_mr_artifacts` table and add the version storage column
+#'
+#' @param con DuckDB connection.
+#' @return Result of the storage_location column migration (invisibly).
+#' @noRd
 .mr_migrate_artifacts <- function(con) {
   sql <- "
     CREATE TABLE IF NOT EXISTS _mr_artifacts (
@@ -70,6 +85,11 @@
   .mr_add_column_if_missing(con, "_mr_versions", "storage_location", "TEXT")
 }
 
+#' Create `_mr_runs` and add all later-slice columns
+#'
+#' @param con DuckDB connection.
+#' @return NULL (called for side effects); migrates the legacy inline_code column.
+#' @noRd
 .mr_migrate_runs <- function(con) {
   sql <- "
     CREATE TABLE IF NOT EXISTS _mr_runs (
@@ -150,6 +170,11 @@
   }
 }
 
+#' Create `_mr_versions`, add later-slice columns, and its unique index
+#'
+#' @param con DuckDB connection.
+#' @return Result of the unique-index creation (invisibly).
+#' @noRd
 .mr_migrate_versions <- function(con) {
   sql <- "
     CREATE TABLE IF NOT EXISTS _mr_versions (
@@ -191,6 +216,11 @@
   )
 }
 
+#' Create the `_mr_append_tables` registry table
+#'
+#' @param con DuckDB connection.
+#' @return Invisibly NULL.
+#' @noRd
 .mr_migrate_append_tables <- function(con) {
   sql <- "
     CREATE TABLE IF NOT EXISTS _mr_append_tables (
@@ -213,6 +243,11 @@
 # O(n_runs) JSON-scan over `_mr_runs.outputs` that earlier code paths
 # used to resolve chunk_hash <-> run_id; also makes prune-cascades
 # tractable (delete by run_id without re-walking every run row).
+#' Create the `_mr_append_chunks` lookup table and its indexes
+#'
+#' @param con DuckDB connection.
+#' @return Invisibly NULL.
+#' @noRd
 .mr_migrate_append_chunks <- function(con) {
   # No PRIMARY KEY: two distinct runs can legitimately produce the
   # same (logical_name, chunk_hash) when stowing deterministic
@@ -243,6 +278,14 @@
   invisible(NULL)
 }
 
+#' Add a column to a table if it does not already exist
+#'
+#' @param con DuckDB connection.
+#' @param table Table name to alter.
+#' @param column Column name to add.
+#' @param type SQL column type (restricted to an allowlist).
+#' @return Invisibly NULL.
+#' @noRd
 .mr_add_column_if_missing <- function(con, table, column, type) {
   # SQL column types cannot be bound as parameters, so `type` is
   # interpolated; constrain it to a small allowlist so a future caller

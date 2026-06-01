@@ -4,6 +4,10 @@
 ## callers in the same session reuse it. If `db_path()` changes between
 ## calls, the cached connection is closed and a fresh one opened.
 
+#' Get the cached DuckDB connection for the active `db_path()`
+#'
+#' @return a live, migrated DBI connection, reused or freshly opened
+#' @noRd
 .mr_get_connection <- function() {
   path <- db_path()
   cached_path <- .mr_state$db_path
@@ -28,6 +32,10 @@
   con
 }
 
+#' Close and clear the cached connection
+#'
+#' @return invisibly NULL; disconnects and resets cached state
+#' @noRd
 .mr_reset_connection <- function() {
   if (!is.null(.mr_state$connection)) {
     .mr_disconnect(.mr_state$connection)

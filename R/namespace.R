@@ -3,6 +3,11 @@
 ## Shape A = content-addressed (backed by _mr_versions).
 ## Shape B = run-indexed append log (backed by _mr_append_tables).
 
+#' Look up the storage shape registered for a logical name
+#'
+#' @param name logical name to look up
+#' @return "A" (versioned), "B" (append log), or NULL when unregistered
+#' @noRd
 .mr_lookup_shape <- function(name) {
   con <- .mr_get_connection()
   hit_a <- DBI::dbGetQuery(
@@ -23,6 +28,14 @@
 # Unified namespace guard. `shape` is the incoming shape ("A" or "B").
 # `new_kind` is the within-shape kind (artifact/table/view for Shape A;
 # ignored for Shape B which has only one kind).
+#' Guard against re-registering a name under a conflicting shape/kind
+#'
+#' @param name logical name being registered
+#' @param shape incoming shape, "A" or "B"
+#' @param new_kind within-Shape-A kind (artifact/table/view), or NULL
+#' @param context calling function name, used in error messages
+#' @return invisibly NULL; stops on a shape or kind conflict
+#' @noRd
 .mr_guard_namespace <- function(name, shape, new_kind = NULL, context = "stow") {
   shape <- match.arg(shape, c("A", "B"))
   existing <- .mr_lookup_shape(name)

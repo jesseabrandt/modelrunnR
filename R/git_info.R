@@ -9,6 +9,10 @@
 ## than a structured diff: enough to tell trivial tweaks from rewrites,
 ## without storing paths or patches.
 
+#' Capture best-effort git context for a `_mr_runs` row
+#'
+#' @return a list with `git_sha`, `git_branch`, and `git_dirty`
+#' @noRd
 .mr_capture_git_info <- function() {
   list(
     git_sha    = .mr_safe(.mr_capture_git_sha,    NA_character_),
@@ -17,6 +21,11 @@
   )
 }
 
+#' Run a git command, returning NULL on non-zero exit
+#'
+#' @param args character vector of git arguments
+#' @return the command's stdout lines, or NULL on failure
+#' @noRd
 .mr_run_git <- function(args) {
   res <- suppressWarnings(
     system2("git", args, stdout = TRUE, stderr = FALSE)
@@ -25,12 +34,20 @@
   res
 }
 
+#' Capture the current HEAD commit SHA
+#'
+#' @return the HEAD SHA string, or NA when unavailable
+#' @noRd
 .mr_capture_git_sha <- function() {
   res <- .mr_run_git(c("rev-parse", "HEAD"))
   if (is.null(res) || length(res) == 0L) return(NA_character_)
   res[[1L]]
 }
 
+#' Capture the current branch name
+#'
+#' @return the branch name (or "HEAD" when detached), or NA when unavailable
+#' @noRd
 .mr_capture_git_branch <- function() {
   res <- .mr_run_git(c("rev-parse", "--abbrev-ref", "HEAD"))
   if (is.null(res) || length(res) == 0L) return(NA_character_)
@@ -38,6 +55,11 @@
   res[[1L]]
 }
 
+#' Capture a human-readable working-tree dirtiness summary
+#'
+#' @return a summary string (diff shortstat plus untracked count), NA
+#'   when clean or not a repo, or "dirty" as a generic fallback
+#' @noRd
 .mr_capture_git_dirty <- function() {
   status <- .mr_run_git(c("status", "--porcelain"))
   if (is.null(status)) return(NA_character_)        # not a git repo

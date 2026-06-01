@@ -8,10 +8,19 @@
 ## Kept internal (~20 LOC, no external deps) per docs/design.md
 ## section "Connection and project layout".
 
+#' List the filenames/markers that denote a project root
+#'
+#' @return a character vector of marker names
+#' @noRd
 .mr_project_markers <- function() {
   c("DESCRIPTION", ".Rproj", ".git/", "renv.lock", ".here")
 }
 
+#' Test whether a directory contains any project-root marker
+#'
+#' @param dir directory to check
+#' @return TRUE if any marker is present, else FALSE
+#' @noRd
 .mr_has_marker <- function(dir) {
   for (m in .mr_project_markers()) {
     if (identical(m, ".git/")) {
@@ -27,6 +36,12 @@
   FALSE
 }
 
+#' Walk up from a directory to find the project root
+#'
+#' @param start directory to start the upward walk from
+#' @param stop_at optional boundary directory that bounds the walk
+#' @return the first directory containing a marker, or NULL if none
+#' @noRd
 .mr_project_root <- function(start = getwd(),
                              stop_at = getOption("modelrunnR.project_stop_at", NULL)) {
   dir <- normalizePath(start, mustWork = FALSE)

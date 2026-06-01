@@ -67,4 +67,9 @@ mr_as_of <- function(time) {
   structure(list(kind = "as_of", value = time), class = "mr_ref")
 }
 
+#' Test whether an object is a modelrunnR reference
+#'
+#' @param x Any object.
+#' @return `TRUE` if `x` has class `"mr_ref"`, else `FALSE`.
+#' @noRd
 .mr_is_ref <- function(x) inherits(x, "mr_ref")

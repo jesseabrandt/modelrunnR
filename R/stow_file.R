@@ -7,6 +7,13 @@
 # Called from:
 #   - stow()'s mr_file dispatch branch (R/stow.R)
 #   - ingest() (deprecation shim in R/ingest.R)
+#' Stow a file source as a content-addressed versioned table
+#'
+#' @param name logical name to register the table under
+#' @param path path to the source file to ingest
+#' @param label optional variant label for the recorded write
+#' @return invisibly a dplyr tbl over the promoted physical table
+#' @noRd
 .mr_stow_file <- function(name, path, label = NA_character_) {
   .mr_validate_name(name, context = "stow")
   stopifnot(

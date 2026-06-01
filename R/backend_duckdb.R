@@ -4,6 +4,11 @@
 ## DuckDB directly. All other files route through the `.mr_*` helpers
 ## defined here. See `docs/design.md` section "DuckDB-native in v0.1".
 
+#' Open a DuckDB connection, creating the parent directory if needed
+#'
+#' @param path Filesystem path to the DuckDB database file.
+#' @return A live DBI connection to the DuckDB database.
+#' @noRd
 .mr_connect <- function(path) {
   # Create the parent directory lazily.
   dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
@@ -11,6 +16,11 @@
   DBI::dbConnect(drv, dbdir = path, read_only = FALSE)
 }
 
+#' Disconnect and shut down a DuckDB connection if valid
+#'
+#' @param con DuckDB connection (may be NULL or invalid).
+#' @return Invisibly NULL.
+#' @noRd
 .mr_disconnect <- function(con) {
   if (!is.null(con) && DBI::dbIsValid(con)) {
     DBI::dbDisconnect(con, shutdown = TRUE)
@@ -18,6 +28,13 @@
   invisible(NULL)
 }
 
+#' Execute a SQL statement, optionally with bound parameters
+#'
+#' @param con DuckDB connection.
+#' @param sql SQL statement to execute.
+#' @param params Optional list of parameters to bind.
+#' @return Number of rows affected (from DBI::dbExecute).
+#' @noRd
 .mr_execute <- function(con, sql, params = NULL) {
   if (is.null(params)) {
     DBI::dbExecute(con, sql)
@@ -26,14 +43,33 @@
   }
 }
 
+#' Test whether a table exists in the database
+#'
+#' @param con DuckDB connection.
+#' @param name Table name.
+#' @return TRUE if the table exists, otherwise FALSE.
+#' @noRd
 .mr_table_exists <- function(con, name) {
   DBI::dbExistsTable(con, name)
 }
 
+#' List all table names in the database
+#'
+#' @param con DuckDB connection.
+#' @return Character vector of table names.
+#' @noRd
 .mr_list_tables <- function(con) {
   DBI::dbListTables(con)
 }
 
+#' Write a data frame to a database table
+#'
+#' @param con DuckDB connection.
+#' @param name Destination table name.
+#' @param value Data frame to write.
+#' @param overwrite Whether to overwrite an existing table.
+#' @return Result of DBI::dbWriteTable.
+#' @noRd
 .mr_table_write <- function(con, name, value, overwrite = TRUE) {
   DBI::dbWriteTable(con, name, value, overwrite = overwrite)
 }
@@ -41,6 +77,11 @@
 # Check whether `df` has non-default row names. DBI::dbWriteTable
 # silently discards row names, so callers should warn the user once
 # at the stow() boundary rather than leave the loss unmentioned.
+#' Detect whether a data frame has non-default row names
+#'
+#' @param df Object to inspect.
+#' @return TRUE if `df` has non-default row names, otherwise FALSE.
+#' @noRd
 .mr_has_nondefault_rownames <- function(df) {
   if (!is.data.frame(df) || nrow(df) == 0L) return(FALSE)
   rn <- attr(df, "row.names")
@@ -49,14 +90,31 @@
   TRUE
 }
 
+#' Read an entire table into a data frame
+#'
+#' @param con DuckDB connection.
+#' @param name Table name to read.
+#' @return Data frame of the table contents.
+#' @noRd
 .mr_table_read <- function(con, name) {
   DBI::dbReadTable(con, name)
 }
 
+#' Drop a table from the database
+#'
+#' @param con DuckDB connection.
+#' @param name Table name to remove.
+#' @return Result of DBI::dbRemoveTable.
+#' @noRd
 .mr_drop_table <- function(con, name) {
   DBI::dbRemoveTable(con, name)
 }
 
+#' Quote a SQL identifier, escaping embedded double quotes
+#'
+#' @param name Identifier to quote.
+#' @return The double-quoted, escaped identifier string.
+#' @noRd
 .mr_quote_ident <- function(name) {
   sprintf('"%s"', gsub('"', '""', name, fixed = TRUE))
 }
@@ -68,6 +126,12 @@
 # DuckDB's read_csv_auto()/read_parquet() don't accept bound
 # parameters in the path slot, so we interpolate after escaping
 # single quotes. Paths come from user code, not untrusted input.
+#' Read a flat file (CSV/TSV/Parquet) into a data frame via DuckDB
+#'
+#' @param con DuckDB connection.
+#' @param path Filesystem path to the flat file.
+#' @return Data frame of the file contents.
+#' @noRd
 .mr_read_file <- function(con, path) {
   # Null-byte guard: most C-level parsers treat nul as string terminator.
   # Check the raw bytes rather than the R string (R strings cannot
@@ -104,6 +168,13 @@
 # as passed in). The caller is responsible for hashing, renaming
 # to the canonical physical_name, registering in _mr_versions,
 # and cleaning up on error.
+#' Server-side ingest of a flat file into a new DuckDB table
+#'
+#' @param con DuckDB connection.
+#' @param path Filesystem path to the CSV/TSV/Parquet source.
+#' @param dest_table Name of the table to create.
+#' @return Invisibly the created table name (`dest_table`).
+#' @noRd
 .mr_ingest_file_to_table <- function(con, path, dest_table) {
   if (any(charToRaw(path) == as.raw(0L))) {
     stop("stow(): path contains a null byte.", call. = FALSE)
@@ -150,6 +221,12 @@
 # Type-sensitive: HASH(INTEGER 1) != HASH(DOUBLE 1.0).
 #
 # An empty table (no rows) hashes on its sorted column names alone.
+#' Content-hash a DuckDB table, order-independent and type-sensitive
+#'
+#' @param con DuckDB connection.
+#' @param table_name Name of the table to hash.
+#' @return MD5 content hash string of the table.
+#' @noRd
 .mr_hash_duckdb_table <- function(con, table_name) {
   info <- DBI::dbGetQuery(
     con,
@@ -186,6 +263,12 @@
 # table and delegating to .mr_hash_duckdb_table. Thin wrapper so the
 # materialized-stow path continues to take the same write-then-hash
 # shape it had before the refactor.
+#' Content-hash a data frame via a transient DuckDB temp table
+#'
+#' @param con DuckDB connection.
+#' @param df Data frame to hash.
+#' @return MD5 content hash string of the data frame.
+#' @noRd
 .mr_hash_frame <- function(con, df) {
   if (nrow(df) == 0L) {
     # Short-circuit: skip the round-trip through DuckDB for an empty

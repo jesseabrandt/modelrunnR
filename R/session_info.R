@@ -6,6 +6,10 @@
 ## best-effort: if a probe fails, we record NA and continue rather
 ## than blow up a launch over telemetry.
 
+#' Capture best-effort session context for a `_mr_runs` row
+#'
+#' @return a list of host/OS/arch/R/CPU/RAM/package and git fields
+#' @noRd
 .mr_capture_session_info <- function() {
   c(
     list(
@@ -22,40 +26,78 @@
   )
 }
 
+#' Call a probe function, returning a fallback on error
+#'
+#' @param fn zero-arg function to evaluate
+#' @param fallback value returned if `fn` errors
+#' @return `fn()`'s result, or `fallback` on error
+#' @noRd
 .mr_safe <- function(fn, fallback) {
   tryCatch(fn(), error = function(e) fallback)
 }
 
+#' Capture the machine hostname
+#'
+#' @return the node name string
+#' @noRd
 .mr_capture_hostname <- function() {
   unname(Sys.info()[["nodename"]])
 }
 
+#' Capture the operating system name
+#'
+#' @return the system name string
+#' @noRd
 .mr_capture_os <- function() {
   unname(Sys.info()[["sysname"]])
 }
 
+#' Capture the R build architecture
+#'
+#' @return the architecture string
+#' @noRd
 .mr_capture_arch <- function() {
   R.version$arch
 }
 
+#' Capture the running R version as `major.minor`
+#'
+#' @return the R version string
+#' @noRd
 .mr_capture_r_version <- function() {
   paste(R.version$major, R.version$minor, sep = ".")
 }
 
+#' Capture the number of detected CPU cores
+#'
+#' @return the core count as an integer
+#' @noRd
 .mr_capture_n_cpu <- function() {
   as.integer(parallel::detectCores())
 }
 
+#' Capture total system RAM in bytes
+#'
+#' @return total RAM as a numeric byte count
+#' @noRd
 .mr_capture_total_ram <- function() {
   as.numeric(ps::ps_system_memory()$total)
 }
 
+#' Capture available system RAM in bytes
+#'
+#' @return available RAM as a numeric byte count
+#' @noRd
 .mr_capture_free_ram <- function() {
   as.numeric(ps::ps_system_memory()$avail)
 }
 
 # JSON of attached non-base packages at capture time. Mirrors
 # `sessionInfo()$otherPkgs`. Empty list -> "[]".
+#' Capture attached non-base packages as a JSON array
+#'
+#' @return JSON string of `{pkg, ver}` entries, or "[]" when none
+#' @noRd
 .mr_capture_attached <- function() {
   info <- utils::sessionInfo()
   pkgs <- info$otherPkgs
