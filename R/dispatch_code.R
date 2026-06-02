@@ -1,6 +1,6 @@
 ## Internal: shared first-argument dispatcher for launch() and queue().
 ##
-## Both verbs accept (a subset of) the same first-argument shapes — a
+## Both verbs accept (a subset of) the same first-argument shapes -- a
 ## braced inline block, an .R file path, an .sql file path, mr_sql(),
 ## mr_label(), mr_run(), mr_hash(). Each verb's dispatch ladder then
 ## branches on shape, captures step + code_body, and rejects shapes
@@ -108,7 +108,7 @@
     if (identical(code$kind, "label")) {
       # queue() accepts a label whose only rows are queued (templating
       # from queued state); launch() does not (would silently orphan
-      # the queued row — direct pickup must go through mr_run()).
+      # the queued row -- direct pickup must go through mr_run()).
       resolved <- .mr_resolve_relaunch(
         code$value,
         caller       = caller,
@@ -144,7 +144,7 @@
 
   # Character path. Validate shape, then route on extension. Explicit
   # check (rather than stopifnot) so the user sees a caller-attributed
-  # message — this helper is the only place that error lives once
+  # message -- this helper is the only place that error lives once
   # launch() and queue() route through it.
   if (!is.character(code) || length(code) != 1L || is.na(code) || !nzchar(code)) {
     stop(sprintf(
