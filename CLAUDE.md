@@ -3,6 +3,13 @@
 This file gives Claude Code (claude.ai/code) context for working in this
 repository.
 
+> **Status: frozen at v0.1.0.** Active development has moved to the sibling
+> repo [`codeinhaler`](https://github.com/jesseabrandt/codeinhaler) (`~/workspace/codeinhaler`),
+> which carries this design forward. modelrunnR stays installable at the v0.1.0
+> tag but is not currently taking new development — a pause, not a retirement.
+> Before doing feature work here, confirm it belongs in modelrunnR and not in
+> codeinhaler.
+
 ## North star framework
 
 This project uses a north star framework. At session start, read

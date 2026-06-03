@@ -3,8 +3,11 @@
 <!-- badges: start -->
 <!-- badges: end -->
 
-> **Status: early development (v0.1 pre-release).** APIs, schemas, and the
-> on-disk format may still change.
+> **Status: frozen at v0.1.0.** Active development has moved to
+> [**codeinhaler**](https://github.com/jesseabrandt/codeinhaler), which carries
+> this design forward. modelrunnR remains installable and usable at the v0.1.0
+> tag, but is not currently receiving new development. This is a pause, not a
+> retirement — see codeinhaler for where the work continues.
 
 **modelrunnR** gives you reproducible model-run orchestration for R with
 content-hashed versioning, staleness diagnostics, and a single-file DuckDB
