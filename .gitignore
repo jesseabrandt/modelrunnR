@@ -16,3 +16,6 @@ modelrunnR_artifacts/
 # OS / editor metadata
 .DS_Store
 .claude/
+
+# Local MCP config (curated btw R-dev server; per-worker, never committed)
+.mcp.json
