@@ -7,10 +7,11 @@ Description: Orchestrates R and Python model runs via lightweight
     configuration and a common harness interface. Inspired by the
     orchestration layer of the panelmodeler package.
 License: MIT + file LICENSE
+URL: https://github.com/jessebrandtdata/modelrunnR
+BugReports: https://github.com/jessebrandtdata/modelrunnR/issues
 Encoding: UTF-8
 Language: en-US
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.3
 Depends:
     R (>= 4.1.0)
 Imports:
@@ -32,3 +33,4 @@ Suggests:
     withr
 VignetteBuilder: knitr
 Config/testthat/edition: 3
+Config/roxygen2/version: 8.0.0

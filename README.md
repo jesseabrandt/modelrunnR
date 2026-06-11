@@ -4,7 +4,7 @@
 <!-- badges: end -->
 
 > **Status: frozen at v0.1.0.** Active development has moved to
-> [**codeinhaler**](https://github.com/jesseabrandt/codeinhaler), which carries
+> [**codeinhaler**](https://github.com/jessebrandtdata/codeinhaler), which carries
 > this design forward. modelrunnR remains installable and usable at the v0.1.0
 > tag, but is not currently receiving new development. This is a pause, not a
 > retirement — see codeinhaler for where the work continues.
@@ -19,8 +19,23 @@ deduplicated by content hash, and retrievable by hash, run id, or timestamp.
 
 ```r
 # install.packages("pak")
-pak::pak("jesseabrandt/modelrunnR")
+pak::pak("jessebrandtdata/modelrunnR")
 ```
+
+On Linux, install from a binary package repository so the dependencies
+(`duckdb`, `qs2`, ...) come prebuilt instead of compiling from source — a
+full source build of the dependency tree is slow and memory-hungry. Point
+`pak` at [Posit Public Package Manager](https://packagemanager.posit.co)
+before installing, e.g.:
+
+```r
+options(repos = c(CRAN = "https://packagemanager.posit.co/cran/__linux__/jammy/latest"))
+pak::pak("jessebrandtdata/modelrunnR")
+```
+
+(Swap `jammy` for your distribution's codename; see the PPM setup page for the
+exact URL. On macOS and Windows, CRAN already serves binaries, so the first
+form is enough.)
 
 ## Example
 
