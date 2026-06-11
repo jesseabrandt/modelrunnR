@@ -20,7 +20,7 @@ options(modelrunnR.db = .vignette_db)
 
 ```{r setup}
 # install.packages("pak")
-# pak::pak("jesseabrandt/modelrunnR")
+# pak::pak("jessebrandtdata/modelrunnR")
 
 library(modelrunnR)
 ```
