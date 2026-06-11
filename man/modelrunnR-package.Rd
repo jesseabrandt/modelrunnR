@@ -8,8 +8,21 @@
 \description{
 Orchestrates R and Python model runs via lightweight configuration and a common harness interface. Inspired by the orchestration layer of the panelmodeler package.
 }
+\seealso{
+Useful links:
+\itemize{
+  \item \url{https://github.com/jessebrandtdata/modelrunnR}
+  \item Report bugs at \url{https://github.com/jessebrandtdata/modelrunnR/issues}
+}
+
+}
 \author{
 \strong{Maintainer}: Jesse Brandt \email{jesse.a.brandt@gmail.com}
+
+Authors:
+\itemize{
+  \item Jesse Brandt \email{jesse.a.brandt@gmail.com}
+}
 
 }
 \keyword{internal}

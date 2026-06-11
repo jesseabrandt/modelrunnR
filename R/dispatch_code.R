@@ -128,7 +128,7 @@
     # Defensive: accept_refs is filtered to c("label","run") above; an
     # accept_refs entry outside that pair would land here.
     stop(sprintf(
-      "%s(): internal error — accept_refs entry '%s' not handled.",
+      "%s(): internal error - accept_refs entry '%s' not handled.",
       caller, code$kind
     ), call. = FALSE)
   }

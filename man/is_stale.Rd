@@ -21,11 +21,29 @@ a \code{reasons} attribute carrying the same reason codes that
 }
 \description{
 Exposes modelrunnR's internal staleness check so users can gate their
-own logic on whether a re-run would be a no-op:
+own logic on whether a re-run would be a no-op. \code{is_stale()} takes a
+reference to a \emph{labeled} pipeline, so first give a \code{launch()} a \code{label},
+then ask about that label with \code{mr_label()}:
 }
 \details{
-\if{html}{\out{<div class="sourceCode r">}}\preformatted{if (is_stale(mr_label("embed"))) \{
-  launch(\{ ... \}, label = "embed")
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{# 1. Run a pipeline under a label.
+launch(\{
+  embeddings <- embed(grab("docs"))
+  stow(embeddings, "embeddings")
+\}, label = "embed")
+
+# 2. Ask whether that labeled pipeline is now stale.
+is_stale(mr_label("embed"))
+#> [1] FALSE
+#> attr(,"reasons")
+#> character(0)
+
+# 3. Typical use: re-run only when something changed.
+if (is_stale(mr_label("embed"))) \{
+  launch(\{
+    embeddings <- embed(grab("docs"))
+    stow(embeddings, "embeddings")
+  \}, label = "embed")
 \}
 }\if{html}{\out{</div>}}
 
